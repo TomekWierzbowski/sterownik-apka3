@@ -37,6 +37,67 @@
   var utf8 = new TextDecoder('utf-8');
   var enc = new TextEncoder();
 
+  /* ------------------------------------------------------------------------------------------
+     QUIC PRZEZ WebTransport [D-500 Q2]
+     QUIC_DROGI: serwer wss (host:port z ekranu logowania) -> port UDP bramki QUIC (dodatek aquareact_quic).
+     Tylko NASZ broker [Tomasz: „nieważne, czy zewnętrzne brokery to mają — ważne, żeby nasz to miał"].
+     ------------------------------------------------------------------------------------------ */
+  var QUIC_DROGI = window.APKA_QUIC || { 'aquareact.duckdns.org:8889': 8890 };
+  var QUIC_LIMIT_S = 4;            /* tyle czekamy na CONNACK przez QUIC, potem wss */
+  var QUIC_PRZERWA_MIN = 10;       /* po porażce QUIC tyle minut prosto wss */
+  var quicZawodzi = function (host) {
+    try { var t = +sessionStorage.getItem('aqr_quic_zawodzi:' + host); return t && (Date.now() - t) < QUIC_PRZERWA_MIN * 60000; }
+    catch (e) { return false; }
+  };
+  var quicZapamietaj = function (host, powod) {
+    try { sessionStorage.setItem('aqr_quic_zawodzi:' + host, String(Date.now())); } catch (e) {}
+    console.warn('QUIC do ' + host + ' zawiodl (' + (powod || '?') + ') - wss przez ' + QUIC_PRZERWA_MIN + ' min');
+  };
+
+  /* WebTransport UDAJĄCY WebSocket — MQTT.js w przeglądarce przyjmuje własny obiekt przez opcję `createWebsocket`
+     i używa z niego tylko: readyState/OPEN, zdarzeń open/message/close/error, send(), close(), bufferedAmount.
+     Jedna sesja WebTransport = jeden strumień dwukierunkowy = jedno połączenie MQTT (jak strumień w bramce). */
+  class WTjakoWS extends EventTarget {
+    constructor(url) {
+      super();
+      this.url = url; this.readyState = 0; this.binaryType = 'arraybuffer'; this.bufferedAmount = 0; this.protocol = 'mqtt';
+      this.onopen = this.onclose = this.onerror = this.onmessage = null;
+      try { this._wt = new WebTransport(url.replace(/^wss?:/, 'https:')); }
+      catch (e) { setTimeout(() => this._blad(e), 0); return; }
+      this._wt.ready.then(() => this._wt.createBidirectionalStream()).then(s => {
+        if (this.readyState !== 0) return;
+        this._pisz = s.writable.getWriter(); this.readyState = 1;
+        this._zdarz('open', new Event('open')); this._czytaj(s.readable.getReader());
+      }).catch(e => this._blad(e));
+      this._wt.closed.then(() => this._koniec(), e => this._blad(e));
+    }
+    async _czytaj(r) {
+      try {
+        for (;;) {
+          const { value, done } = await r.read();
+          if (done) break;
+          this._zdarz('message', new MessageEvent('message', { data: value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) }));
+        }
+      } catch (e) { /* strumień zamknięty - niżej koniec */ }
+      this._koniec();
+    }
+    send(d) {
+      if (this.readyState !== 1) return;
+      const u = d instanceof ArrayBuffer ? new Uint8Array(d) : ArrayBuffer.isView(d) ? new Uint8Array(d.buffer, d.byteOffset, d.byteLength) : enc.encode(String(d));
+      this.bufferedAmount += u.byteLength;
+      this._pisz.write(u).then(() => { this.bufferedAmount -= u.byteLength; }, e => this._blad(e));
+    }
+    close() { if (this.readyState >= 2) return; this.readyState = 2; try { this._wt.close(); } catch (e) {} this._koniec(); }
+    _blad(e) {
+      if (this.readyState === 3) return;
+      const ev = new Event('error'); ev.message = String((e && e.message) || e); this._zdarz('error', ev); this._koniec();
+    }
+    _koniec() { if (this.readyState === 3) return; this.readyState = 3; this._zdarz('close', new CloseEvent('close', { code: 1006 })); }
+    _zdarz(t, ev) { this.dispatchEvent(ev); const h = this['on' + t]; if (typeof h === 'function') h.call(this, ev); }
+  }
+  WTjakoWS.CONNECTING = 0; WTjakoWS.OPEN = 1; WTjakoWS.CLOSING = 2; WTjakoWS.CLOSED = 3;
+  WTjakoWS.prototype.CONNECTING = 0; WTjakoWS.prototype.OPEN = 1; WTjakoWS.prototype.CLOSING = 2; WTjakoWS.prototype.CLOSED = 3;
+
   function Message(dane) {
     if (!(this instanceof Message)) return new Message(dane);
     this._tekst = (typeof dane === 'string') ? dane : null;   /* tekst publikujemy jako tekst */
@@ -59,8 +120,32 @@
   Client.prototype.connect = function (o) {
     o = o || {};
     if (this._polaczony) throw new Error('AMQJS0011E Invalid state already connected.');
-    var ja = this, uri = this._uri || ((o.useSSL ? 'wss://' : 'ws://') + this._host + ':' + this._port + this._path);
+    var ja = this, wss = this._uri || ((o.useSSL ? 'wss://' : 'ws://') + this._host + ':' + this._port + this._path);
+    /* [D-500 Q2] QUIC NAJPIERW, wss JAKO ZAPAS — tylko dla serwera z mapy QUIC_DROGI i przeglądarki z WebTransport.
+       Porażka QUIC (UDP zablokowane, bramka nie działa, stary telefon) = od razu wss, niewidocznie dla apki,
+       i przez QUIC_PRZERWA_MIN nie próbujemy QUIC na tym serwerze (inaczej każde ponowne łączenie czekałoby na
+       nieudaną próbę). ⚠ Odmowa LOGOWANIA (kod 6) NIE przechodzi na wss: broker już odpowiedział przez QUIC,
+       złe hasło zostaje złym hasłem — apka ma dostać tę odmowę, a nie drugą taką samą po wss. */
+    var q = (!this._uri && o.useSSL) ? QUIC_DROGI[this._host + ':' + this._port] : null;
+    if (q && window.WebTransport && !quicZawodzi(this._host)) {
+      var oq = {}; for (var x in o) oq[x] = o[x];
+      oq.timeout = Math.min(o.timeout || 30, QUIC_LIMIT_S);
+      oq.onFailure = function (r) {
+        if (r && r.errorCode === 6) { if (o.onFailure) o.onFailure(r); return; }
+        quicZapamietaj(ja._host, r && r.errorMessage);
+        ja._polacz(o, wss, null);
+      };
+      this._polacz(oq, 'wss://' + this._host + ':' + q + this._path, function (u) { return new WTjakoWS(u); });
+      return;
+    }
+    this._polacz(o, wss, null);
+  };
+
+  /* Jedno podejście do połączenia jedną drogą (wss albo WebTransport). `budowniczy` = null -> zwykły WebSocket. */
+  Client.prototype._polacz = function (o, uri, budowniczy) {
+    var ja = this;
     var zamkniety = false, udane = false, bladGniazda = null, bladKeepalive = false, powodV5 = null;
+    var droga = budowniczy ? uri.replace(/^wss?:/, 'webtransport:') : uri;   /* do dziennika łącza apki: widać, którą drogą */
     var zakoncz = function () { if (zamkniety) return; zamkniety = true; try { k.end(true); } catch (e) {} };
     var porazka = function (kod, txt) { clearTimeout(zegar); zakoncz(); if (o.onFailure) o.onFailure({ errorCode: kod, errorMessage: txt, invocationContext: o.invocationContext }); };
     var k = mqtt.connect(uri, {
@@ -69,6 +154,7 @@
       /* ⚠ connectTimeout 0 w MQTT.js NIE wyłącza limitu - ustawia ZEROWY (zmierzone 26.09: natychmiastowe
          „connack timeout"). Limit = `timeout` z opcji Paho; nasz zegar niżej jest zapasem o sekundę dłuższym. */
       reconnectPeriod: 0, connectTimeout: (o.timeout || 30) * 1000, resubscribe: false,
+      createWebsocket: budowniczy || undefined,
     });
     this._k = k;
     var zegar = setTimeout(function () { if (!udane && !zamkniety) porazka(1, 'AMQJS0001E Connect timed out.'); }, (o.timeout || 30) * 1000 + 1000);
@@ -76,7 +162,8 @@
       if (zamkniety || ja._k !== k) return;
       clearTimeout(zegar); udane = true; ja._polaczony = true;
       if (o.onSuccess) o.onSuccess({ invocationContext: o.invocationContext });
-      if (ja.onConnected) ja.onConnected(false, uri);
+      ja.droga = droga;
+      if (ja.onConnected) ja.onConnected(false, droga);
     });
     k.on('message', function (temat, dane, pakiet) {
       if (ja._k !== k || !ja.onMessageArrived) return;
