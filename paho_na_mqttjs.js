@@ -53,6 +53,23 @@
     try { sessionStorage.setItem('aqr_quic_zawodzi:' + host, String(Date.now())); } catch (e) {}
     console.warn('QUIC do ' + host + ' zawiodl (' + (powod || '?') + ') - wss przez ' + QUIC_PRZERWA_MIN + ' min');
   };
+  /* ZMIANA SIECI KASUJE PAMIĘĆ PORAŻKI [26.09, próba Tomasza WireGuard -> LTE]: sesja QUIC urwała się w trakcie
+     przełączania sieci, ponowna próba padła (sieci jeszcze nie było) i apka szła 10 min po wss, choć na LTE UDP
+     przechodziło bez problemu. Porażka dotyczy SIECI, w której wystąpiła - nowa sieć = nowa próba. Zdarzenia:
+     `online` (każda przeglądarka) i `navigator.connection.change` (Chrome/Android: WiFi<->komórka). Na sieci
+     z zablokowanym UDP bez zmiany sieci ochrona 10 min zostaje - tam każda próba to 4 s straty. */
+  var quicZapomnij = function (skad) {
+    try {
+      var n = 0;
+      for (var i = sessionStorage.length - 1; i >= 0; i--) {
+        var k = sessionStorage.key(i);
+        if (k && k.indexOf('aqr_quic_zawodzi:') === 0) { sessionStorage.removeItem(k); n++; }
+      }
+      if (n) console.info('zmiana sieci (' + skad + ') - QUIC znow dozwolony');
+    } catch (e) {}
+  };
+  window.addEventListener('online', function () { quicZapomnij('online'); });
+  try { if (navigator.connection && navigator.connection.addEventListener) navigator.connection.addEventListener('change', function () { quicZapomnij('typ lacza'); }); } catch (e) {}
 
   /* WebTransport UDAJĄCY WebSocket — MQTT.js w przeglądarce przyjmuje własny obiekt przez opcję `createWebsocket`
      i używa z niego tylko: readyState/OPEN, zdarzeń open/message/close/error, send(), close(), bufferedAmount.
