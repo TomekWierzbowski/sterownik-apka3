@@ -3,8 +3,10 @@
  *  ładne opisanie osi, trend, zakres 1h 24h 7d, renderowany z efektami, przenikaniem” · prototyp zatwierdzony: „jest, wydaj T3”]
  * ============================================================================================================
  *  WEJŚCIA:  wiadomości `swiat` z most_js.js (te same, które rysuje hala): d.temp, d.temp_set, d.grzeje,
- *            d.poziomStan.pompa, d.obieg_nr, d.awtemp; nazwa obiektu z każdej wiadomości niosącej d.obiekt.
- *  CO ROBI:  (1) co minutę zapisuje próbkę w pamięci telefonu (localStorage, 7 dni na obiekt i obieg);
+ *            d.poziomStan.pompa, d.obieg_nr, d.awtemp; w tle także d.cis, d.poziom (+ d.awmano, d.awsonda, d.obejscia);
+ *            nazwa obiektu z pakietu klienta chmury (podpięcie pod MOST_JS.startMqtt).
+ *  CO ROBI:  (1) co minutę zapisuje próbkę w pamięci telefonu (localStorage, 7 dni na obiekt i obieg) - temperaturę,
+ *                a od 28.09 w tle także ciśnienie i poziom (rysowane w następnej wersji, B.0z-72);
  *            (2) w kaflu temperatury dokłada ikonę wykresu (nakładka - układ kafli bez zmian, dotknięcie reszty
  *                kafla dalej otwiera nastawę); (3) po dotknięciu ikony: wykres na cały ekran - zakresy 1 h / 24 h /
  *                7 dni z przenikaniem, trend °C/h, prognoza dojścia do zadanej, pasy grzania i postoju pompy.
@@ -27,7 +29,13 @@
      → ~40 kB na obieg i tydzień. Do tego limit łączny LIMIT_ZNAKOW: gdy przekroczony, najpierw wypada historia
      obiektu oglądanego najdawniej. Wykres jest pomocniczy - nigdy nie może zająć miejsca logowaniu. */
   const LIMIT_ZNAKOW = 1200000;
-  const klucz = (ob) => PREF + obiekt + '_' + ob;
+  /* SERIE [B.0z-72, Tomasz 28.09: „tak, zrób” - zbierać w tle już teraz]: ciśnienie i poziom zapisywane od tej wersji,
+     rysowane w następnej (pasy pod wspólną osią czasu, ptaszki). Zapis = round(wartość × skala) + przesunięcie, w zakresie
+     0..46655 (3 znaki base36). Temperatura zostaje pod DOTYCHCZASOWYM kluczem (bez przyrostka) - zebrana historia przechodzi.
+     Poziom: i16 z bloku, po przesunięciu kalibracji bywa ujemny - stąd +5000 mm. Ciśnienie: w bloku bez znaku, bar × 100. */
+  const SERIE = { temp: { sfx: '', skala: 100, przes: 0 }, cis: { sfx: '_cis', skala: 100, przes: 0 }, poz: { sfx: '_poz', skala: 1, przes: 5000 } };
+  window.WYKRES_SERIE = SERIE;                               // dla następnej wersji i sond: jak odczytać zapis
+  const klucz = (ob, sr = 'temp') => PREF + obiekt + '_' + ob + SERIE[sr].sfx;
   function koduj(p) {
     if (!p.length) return '';
     let s = '', pop = p[0][0] - 1, zad = -2;
@@ -49,21 +57,27 @@
     }
     return p;
   }
-  function wczytaj(ob) { try { const t = localStorage.getItem(klucz(ob)); const j = t ? JSON.parse(t) : null; return j && j.v === 2 ? dekoduj(j.m0, j.s) : []; } catch (e) { return []; } }
-  function zapisz(ob, p) {
-    const k = klucz(ob), txt = JSON.stringify({ v: 2, u: Date.now(), m0: p.length ? p[0][0] : 0, s: koduj(p) });
+  function wczytaj(ob, sr) { try { const t = localStorage.getItem(klucz(ob, sr)); const j = t ? JSON.parse(t) : null; return j && j.v === 2 ? dekoduj(j.m0, j.s) : []; } catch (e) { return []; } }
+  function zapisz(ob, p, sr = 'temp') {
+    const k = klucz(ob, sr), txt = JSON.stringify({ v: 2, u: Date.now(), m0: p.length ? p[0][0] : 0, s: koduj(p) });
     try {
       let razem = txt.length; const inne = [];
       for (let i = 0; i < localStorage.length; i++) { const n = localStorage.key(i);
         if (n && n.indexOf(PREF) === 0 && n !== k && n !== PREF + 'zakres') { const v = localStorage.getItem(n) || ''; razem += v.length;
-          let u = 0; try { u = JSON.parse(v).u || 0; } catch (e) {} inne.push([u, n, v.length]); } }
+          const u = +((/"u":(\d+)/.exec(v.slice(0, 40)) || [0, 0])[1]); inne.push([u, n, v.length]); } }   // „u” jest na początku - bez parsowania 40 kB
       inne.sort((a, b) => a[0] - b[0]);
       while (razem > LIMIT_ZNAKOW && inne.length) { const [, n, dl] = inne.shift(); localStorage.removeItem(n); razem -= dl; }
       localStorage.setItem(k, txt);
     } catch (e) {}                                       // pełna pamięć albo tryb prywatny: wykres żyje z RAM
   }
-  const pamiec = {};                                   // ob -> tablica [minuta, temp*100, zadana*10, flagi]
-  const seria = (ob) => (pamiec[obiekt + '|' + ob] = pamiec[obiekt + '|' + ob] || wczytaj(ob));
+  const pamiec = {};                                   // obiekt|ob|seria -> tablica [minuta, zapis, zadana*10, flagi]
+  const seria = (ob, sr = 'temp') => { const k = obiekt + '|' + ob + '|' + sr; return (pamiec[k] = pamiec[k] || wczytaj(ob, sr)); };
+  function dopisz(ob, sr, m, v, zad, flagi) {         // jedna próbka na minutę (zegar telefonu cofnięty = czekamy)
+    const p = seria(ob, sr); if (p.length && p[p.length - 1][0] >= m) return false;
+    const S = SERIE[sr]; p.push([m, Math.max(0, Math.min(46655, Math.round(v * S.skala) + S.przes)), zad, flagi]);
+    const granica = m - TRZYMAJ / MIN; while (p.length && p[0][0] < granica) p.shift();
+    zapisz(ob, p, sr); return true;
+  }
   /* KTÓRY OBIEKT: pakiet `swiat` go nie niesie - nazwę ma zewnętrzny pakiet klienta chmury (`d.obiekt`, most_js.js
      wspolne()). Podpinamy się pod startMqtt zanim hala go wywoła (hala startuje po doładowaniu biblioteki MQTT,
      czyli po tym skrypcie). Konto serwisowe przełącza obiekty - bez tego historie różnych basenów by się zlały.
@@ -76,25 +90,27 @@
     M.startMqtt = function (podaj, o) { return pierwotny.call(this, (d) => { if (d && typeof d.obiekt === 'string' && d.obiekt) obiekt = nazwa(d.obiekt); return podaj(d); }, o); };
   }
   window.addEventListener('message', (ev) => {
-    const d = ev.data; if (!d || typeof d !== 'object') return;
-    if (d.typ !== 'swiat' || typeof d.temp !== 'number' || !isFinite(d.temp) || d.awtemp || d.awtempBrak) return;
+    const d = ev.data; if (!d || typeof d !== 'object' || d.typ !== 'swiat') return;
     const ob = typeof d.obieg_nr === 'number' ? d.obieg_nr : 0;
-    const pompa = !!(d.poziomStan && d.poziomStan.pompa);
-    ostatnie = { ob, temp: d.temp, zad: typeof d.temp_set === 'number' ? d.temp_set : null, grz: !!d.grzeje, pompa, t: Date.now() };
-    const m = Math.floor(Date.now() / MIN), p = seria(ob);
-    if (p.length && p[p.length - 1][0] >= m) {           // jedna próbka na minutę (zegar telefonu cofnięty = czekamy);
+    const pompa = !!(d.poziomStan && d.poziomStan.pompa), grz = !!d.grzeje, flagi = (grz ? 1 : 0) | (pompa ? 2 : 0);
+    const m = Math.floor(Date.now() / MIN), obej = d.obejscia || {};
+    /* W TLE [B.0z-72]: bez odczytu przy awarii czujnika i przy obejściu (liczba wtedy nic nie znaczy).
+       ⚠ „Czujnik niepodłączony” pakiet nie niesie (sterownik: `cisn_brak`, bez alarmu) - takie zera też się zapiszą;
+       następna wersja pokaże ptaszek tylko dla czujników, które są, więc potrzebny będzie znacznik obecności w bloku. */
+    if (typeof d.cis === 'number' && isFinite(d.cis) && !d.awmano && !obej.mano) dopisz(ob, 'cis', m, d.cis, -1, flagi);
+    if (typeof d.poziom === 'number' && isFinite(d.poziom) && !d.awsonda && !obej.sonda) dopisz(ob, 'poz', m, d.poziom, -1, flagi);
+    if (typeof d.temp !== 'number' || !isFinite(d.temp) || d.awtemp || d.awtempBrak) return;
+    ostatnie = { ob, temp: d.temp, zad: typeof d.temp_set === 'number' ? d.temp_set : null, grz, pompa, t: Date.now() };
+    if (!dopisz(ob, 'temp', m, d.temp, ostatnie.zad === null ? -1 : Math.round(ostatnie.zad * 10), flagi)) {
       if (otwarte && otwarte.ob === ob && widok) podsumuj();   // liczba w oknie i tak na żywo, co pakiet
       return;
     }
-    p.push([m, Math.round(d.temp * 100), ostatnie.zad === null ? -1 : Math.round(ostatnie.zad * 10), (ostatnie.grz ? 1 : 0) | (pompa ? 2 : 0)]);
-    const granica = m - TRZYMAJ / MIN; while (p.length && p[0][0] < granica) p.shift();
-    zapisz(ob, p);
     if (otwarte && otwarte.ob === ob) { widok = zbuduj(zakres); rysuj(false); }
   });
-  /* Wejście na przyszłość: historia ze sterownika (tablice jak wyżej) - scala bez dubli. */
-  window.dolozHistorie = function (ob, wpisy) {
-    const p = seria(ob), jest = new Set(p.map(x => x[0]));
-    wpisy.forEach(w => { if (!jest.has(w[0])) p.push(w); }); p.sort((a, b) => a[0] - b[0]); zapisz(ob, p);
+  /* Wejście na przyszłość: historia ze sterownika (tablice jak wyżej, `sr` = temp | cis | poz) - scala bez dubli. */
+  window.dolozHistorie = function (ob, wpisy, sr = 'temp') {
+    const p = seria(ob, sr), jest = new Set(p.map(x => x[0]));
+    wpisy.forEach(w => { if (!jest.has(w[0])) p.push(w); }); p.sort((a, b) => a[0] - b[0]); zapisz(ob, p, sr);
   };
 
   /* ---------------- [2] WYGLĄD (paleta apki T3) ---------------- */
