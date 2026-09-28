@@ -103,7 +103,8 @@
     if (typeof d.cis === 'number' && isFinite(d.cis) && !d.awmano && !obej.mano) dopisz(ob, 'cis', m, d.cis, -1, flagi);
     if (typeof d.poziom === 'number' && isFinite(d.poziom) && !d.awsonda && !obej.sonda) dopisz(ob, 'poz', m, d.poziom, -1, flagi);
     if (typeof d.temp !== 'number' || !isFinite(d.temp) || d.awtemp || d.awtempBrak) return;
-    ostatnie = { ob, temp: d.temp, zad: typeof d.temp_set === 'number' ? d.temp_set : null, grz, pompa, t: Date.now() };
+    ostatnie = { ob, temp: d.temp, zad: typeof d.temp_set === 'number' ? d.temp_set : null, grz, pompa, t: Date.now(),
+                 ile: typeof d.obiegi_ile === 'number' ? d.obiegi_ile : 1 };
     if (!dopisz(ob, 'temp', m, d.temp, ostatnie.zad === null ? -1 : Math.round(ostatnie.zad * 10), flagi)) {
       if (otwarte && otwarte.ob === ob && widok) podsumuj();   // liczba w oknie i tak na żywo, co pakiet
       return;
@@ -341,6 +342,7 @@
 
   function podsumuj() {
     const w = widok, el = otwarte.el, q = (s) => el.querySelector(s), o = w.ost;
+    q('.wt-brew').textContent = tytul(otwarte.ob);        // nazwy obiegów przychodzą ze sterownika - co pakiet
     q('.wt-liczba').textContent = ostatnie && ostatnie.ob === otwarte.ob ? fmt(ostatnie.temp) : (o ? fmt(o.v) : '— —');
     const grz = ostatnie && ostatnie.ob === otwarte.ob ? ostatnie.grz : (o && o.grz), pom = ostatnie && ostatnie.ob === otwarte.ob ? ostatnie.pompa : (o && o.pompa);
     q('.wt-opis').innerHTML = (w.zad !== null ? '<span>zadana <b>' + fmt(w.zad) + ' °C</b></span>' : '') + '<span>' + (grz ? '<i class="wt-kropka"></i>grzanie pracuje' : 'grzanie nie pracuje') + '</span><span>' + (pom ? 'pompa pracuje' : 'pompa stoi') + '</span>';
@@ -355,10 +357,20 @@
     const p = seria(otwarte.ob); q('.wt-stopka').textContent = p.length ? 'Historia z tego telefonu od ' + dzien(p[0][0] * MIN) + ' ' + hhmm(p[0][0] * MIN) + ' (' + p.length + ' próbek co minutę, 7 dni).' : '';
   }
 
+  /* NAZWA OBIEGU W TYTULE [Tomasz 28.09: „przy 1 obiegu nie piszemy obieg 1; jak są 2 obiegi, to piszemy jakie, np.
+     wanna 1, wanna 2 albo basen, wanna albo basen 1, basen 2 albo basen, brodzik” - rozstrzygnięte już 26.09]:
+     JEDNO źródło reguły - `obiegEtykieta()` serwisu (panel4_serwis.html, w sklejce pod tą samą nazwą; przeznaczenia
+     ze świata `przezn_obiegow`). Bez serwisu w dokumencie: jeden obieg = bez dopisku, kilka = „obieg N”. */
+  function tytul(ob) {
+    let n = '';
+    try { n = typeof window.obiegEtykieta === 'function' ? window.obiegEtykieta(ob) : ''; } catch (e) { n = ''; }
+    if (!n && typeof window.obiegEtykieta !== 'function' && ostatnie && ostatnie.ile > 1) n = 'obieg ' + (ob + 1);
+    return 'Temperatura wody' + (n ? ' · ' + n : '');
+  }
   /* ---------------- [6] KARTA WYKRESU: w bloczku „wykresy” hali albo w oknie na wierzchu ---------------- */
   function karta(ob, osadzona) {
     const k = document.createElement('div'); k.className = 'wt-karta' + (osadzona ? ' wt-osadz' : '');
-    k.innerHTML = '<div class="wt-glowa"><div><div class="wt-brew">Temperatura wody · obieg ' + (ob + 1) + '</div>' +
+    k.innerHTML = '<div class="wt-glowa"><div><div class="wt-brew">' + tytul(ob) + '</div>' +
       '<div class="wt-war"><span class="wt-liczba">— —</span><span class="wt-jedn">°C</span></div><div class="wt-opis"></div></div>' +
       '<div class="wt-prawa"><span class="wt-trend" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><b></b></span><div class="wt-prog"></div></div></div>' +
       '<div class="wt-pasek"><div class="wt-zakresy" role="group" aria-label="Zakres"><span class="wt-suwak"></span><button type="button" data-z="1h">1 h</button><button type="button" data-z="24h">24 h</button><button type="button" data-z="7d">7 dni</button></div>' +
