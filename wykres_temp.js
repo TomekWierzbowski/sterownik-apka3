@@ -241,7 +241,7 @@
   const Y = (w, v) => pole.d - (v - w.ymin) / (w.ymax - w.ymin) * (pole.d - pole.g);
   const K = { ink2: '#5d6470', ink3: '#8a929d', siatka: '#edf0f3', woda: '30,111,217', turk: '18,162,181', cieplo: '224,112,31' };
   function wymiary() { DPR = Math.min(window.devicePixelRatio || 1, 2.5); const r = cv.parentNode.getBoundingClientRect(); W = r.width; H = r.height;
-    [cv, ov].forEach(c => { c.width = Math.round(W * DPR); c.height = Math.round(H * DPR); }); pole = { l: 46, r: W - 14, g: 14, d: H - 30 }; }
+    [cv, ov].forEach(c => { c.width = Math.round(W * DPR); c.height = Math.round(H * DPR); }); pole = { l: 46, r: W - 14, g: 26, d: H - 30 }; }   // g 26: nad polem opis osi Y
   function krzywa(ctx, pkt) {                                                   // monotoniczna (Fritsch-Carlson) - bez przeregulowań
     const n = pkt.length; if (n === 1) { ctx.moveTo(pkt[0][0], pkt[0][1]); ctx.lineTo(pkt[0][0] + 0.1, pkt[0][1]); return; }
     const d = [], m = []; for (let i = 0; i < n - 1; i++) d.push((pkt[i + 1][1] - pkt[i][1]) / ((pkt[i + 1][0] - pkt[i][0]) || 1e-6));
@@ -259,10 +259,20 @@
     ctx.fillStyle = szraf(ctx); w.postoj.forEach(([a, b]) => ctx.fillRect(X(w, a), pole.g, Math.max(1, X(w, b) - X(w, a)), pole.d - pole.g));
     w.grzanie.forEach(([a, b]) => { const x = X(w, a), s = Math.max(1, X(w, b) - x); ctx.fillStyle = 'rgba(' + K.cieplo + ',.045)'; ctx.fillRect(x, pole.g, s, pole.d - pole.g);
       ctx.fillStyle = 'rgba(' + K.cieplo + ',.85)'; ctx.fillRect(x, pole.d - 3, s, 3); });
-    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    /* OŚ Y [Tomasz 28.09: „po lewej liczby na osi Y zleją się z innymi danymi - tylko info, co jest na Y, i punkt 0
+       i max”]: linie siatki zostają (oko czyta z nich zmianę), liczby TYLKO na dole i na górze skali, nad osią opis
+       wielkości. Ten sam układ dostanie każdy pas w wersji z wieloma seriami (B.0z-72) - pasy nie będą się gryzły
+       liczbami. Temperatura: dół skali = najniższa wartość z zapasem (od zera krzywa byłaby płaska kreską);
+       ciśnienie i poziom w następnej wersji od zera. */
     const miejsc = Math.abs(w.krokY * 10 - Math.round(w.krokY * 10)) > 1e-9 ? 2 : 1;
     for (let v = w.ymin; v <= w.ymax + 1e-9; v += w.krokY) { const y = Math.round(Y(w, v)) + .5; ctx.strokeStyle = K.siatka; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(pole.l, y); ctx.lineTo(pole.r, y); ctx.stroke(); ctx.fillStyle = K.ink3; ctx.fillText(fmt(v, miejsc) + '°', pole.l - 8, y); }
+      ctx.beginPath(); ctx.moveTo(pole.l, y); ctx.lineTo(pole.r, y); ctx.stroke(); }
+    ctx.textAlign = 'right'; ctx.fillStyle = K.ink3; ctx.font = '500 12px system-ui, sans-serif';
+    ctx.textBaseline = 'top';    ctx.fillText(fmt(w.ymax, miejsc), pole.l - 8, pole.g - 1);
+    ctx.textBaseline = 'bottom'; ctx.fillText(fmt(w.ymin, miejsc), pole.l - 8, pole.d + 1);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillStyle = K.ink2; ctx.font = '700 11px system-ui, sans-serif';
+    ctx.fillText('TEMPERATURA [°C]', 4, 4);
+    ctx.font = '500 12px system-ui, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     /* OPISY OSI X [sonda 28.09: na 430 px „21:00” wchodziło na „pon 00:00”]: najpierw zbieramy znaczniki, potem
        rysujemy - mocne (północ, dni) pierwsze, zwykłe tylko tam, gdzie nie nachodzą na już postawione. Linie siatki
