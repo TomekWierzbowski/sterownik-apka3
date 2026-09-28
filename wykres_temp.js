@@ -133,21 +133,15 @@
   .wt-tlo.widac .wt-karta{transform:none}
   .wt-karta.wt-osadz{width:100%;max-height:none;overflow:visible;box-shadow:none;border:1px solid #dfe3e8;border-radius:12px;
     transform:none;transition:none;padding:12px 12px 10px;box-sizing:border-box}
-  .wt-glowa{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:10px 18px}
   .wt-brew{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#5d6470}
-  .wt-war{display:flex;align-items:baseline;gap:8px;margin-top:4px}
-  .wt-liczba{font-size:clamp(40px,11vw,58px);font-weight:700;line-height:.95;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-  .wt-jedn{font-size:20px;color:#5d6470}
-  .wt-opis{font-size:13px;color:#5d6470;margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 12px}
-  .wt-opis b{color:#14161a}
-  .wt-kropka{display:inline-block;width:7px;height:7px;border-radius:50%;background:#e0701f;margin-right:5px;vertical-align:1px}
-  .wt-prawa{display:grid;gap:6px;justify-items:end}
   .wt-trend{display:inline-flex;align-items:center;gap:6px;padding:5px 10px 5px 8px;border-radius:999px;background:#f3f5f8;font-weight:700;font-size:14px;font-variant-numeric:tabular-nums;color:#5d6470}
   .wt-trend.rosnie{color:#e0701f}
   .wt-trend svg{width:16px;height:16px;transition:transform .5s cubic-bezier(.2,.8,.2,1)}
-  .wt-prog{font-size:13px;color:#5d6470;text-align:right;max-width:32ch}
+  .wt-prog{font-size:13px;color:#5d6470;margin-top:-4px}
+  .wt-prog:empty{display:none}
   .wt-prog b{color:#e0701f}
-  .wt-pasek{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
+  .wt-pasek{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+  .wt-pasek .wt-zamknij{margin-left:auto}
   .wt-zakresy{display:inline-flex;background:#f3f5f8;border-radius:10px;padding:3px;gap:2px;position:relative}
   .wt-zakresy button{font:700 14px/1 system-ui,sans-serif;color:#5d6470;background:transparent;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;position:relative;z-index:1}
   .wt-zakresy button[aria-pressed=true]{color:#14161a}
@@ -167,7 +161,7 @@
   .wt-leg{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:#5d6470}
   .wt-leg i{display:inline-block;width:16px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
   .wt-stopka{font-size:11px;color:#8a929d}
-  @media (max-width:480px){.wt-stat{grid-template-columns:repeat(2,minmax(0,1fr))}.wt-prawa{justify-items:start}.wt-prog{text-align:left}}
+  @media (max-width:480px){.wt-stat{grid-template-columns:repeat(2,minmax(0,1fr))}}
   @media (prefers-reduced-motion:reduce){.wt-tlo,.wt-karta,.wt-suwak,.wt-trend svg{transition:none}}`;
   document.head.appendChild(styl);
 
@@ -237,6 +231,11 @@
 
   /* ---------------- [5] RYSOWANIE ---------------- */
   let otwarte = null, widok = null, W = 0, H = 0, DPR = 1, pole = null, cv, cx, ov, ox, kursor = null, anim = null;
+  /* WARSTWY TYLKO PRZY JEDNEJ SERII [Tomasz 28.09: „kreskowana zadana też za dużo może być - jak wyświetlamy tylko
+     1 zmienną [dobrze], jak pojawi się więcej, zrobi bałagan”]: linia zadanej i prognoza (strefa + kropkowana linia)
+     rysują się wyłącznie, gdy na wykresie jest JEDNA wielkość. Dziś jest jedna (temperatura); wersja z ptaszkami
+     (B.0z-72) ustawi tu liczbę zaznaczonych serii. */
+  let liczbaSerii = 1;
   const X = (w, t) => pole.l + (t - w.t0) / (w.t1 - w.t0) * (pole.r - pole.l);
   const Y = (w, v) => pole.d - (v - w.ymin) / (w.ymax - w.ymin) * (pole.d - pole.g);
   const K = { ink2: '#5d6470', ink3: '#8a929d', siatka: '#edf0f3', woda: '30,111,217', turk: '18,162,181', cieplo: '224,112,31' };
@@ -290,12 +289,12 @@
       const sz = ctx.measureText(tx).width, xs = Math.min(Math.max(x, pole.l + sz / 2), pole.r - sz / 2), a = xs - sz / 2 - 5, b = xs + sz / 2 + 5;
       if (zajete.some(([p, k]) => a < k && b > p)) return;
       zajete.push([a, b]); ctx.fillStyle = mocno ? K.ink2 : K.ink3; ctx.fillText(tx, xs, pole.d + 8); }));
-    if (w.t1 > w.teraz) { const x = X(w, w.teraz), g = ctx.createLinearGradient(x, 0, pole.r, 0); g.addColorStop(0, 'rgba(' + K.cieplo + ',.07)'); g.addColorStop(1, 'rgba(' + K.cieplo + ',0)');
+    if (w.t1 > w.teraz && liczbaSerii === 1) { const x = X(w, w.teraz), g = ctx.createLinearGradient(x, 0, pole.r, 0); g.addColorStop(0, 'rgba(' + K.cieplo + ',.07)'); g.addColorStop(1, 'rgba(' + K.cieplo + ',0)');
       ctx.fillStyle = g; ctx.fillRect(x, pole.g, pole.r - x, pole.d - pole.g); ctx.fillStyle = 'rgb(' + K.cieplo + ')'; ctx.font = '700 11px system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.fillText('PROGNOZA', pole.r - 4, pole.g + 4); }
-    if (w.zad !== null) { const y = Math.round(Y(w, w.zad)) + .5; ctx.setLineDash([6, 5]); ctx.strokeStyle = K.ink2; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(pole.l, y); ctx.lineTo(pole.r, y); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = K.ink2; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-      ctx.font = '600 12px system-ui, sans-serif'; const podLinia = y - pole.g < 34;            // blisko góry: pod linią, żeby nie wejść na „PROGNOZA”
-      if (podLinia) ctx.textBaseline = 'top'; ctx.fillText('zadana ' + fmt(w.zad) + ' °C', pole.r - 4, podLinia ? y + 4 : y - 4); }
+    if (w.zad !== null && liczbaSerii === 1) { const y = Math.round(Y(w, w.zad)) + .5; ctx.setLineDash([6, 5]); ctx.strokeStyle = K.ink2; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(pole.l, y); ctx.lineTo(pole.r, y); ctx.stroke(); ctx.setLineDash([]); }
+      /* bez napisu „zadana 28,0 °C” na linii [Tomasz 28.09: „info o aktualnej i zadanej zaburzy, jak pojawią się inne
+         wykresy”] - linię opisuje legenda, liczbę pokazuje dymek po dotknięciu */
     w.odcinki.forEach(odc => {
       if (w.z === '7d' && odc.length > 1) { ctx.beginPath(); odc.forEach((p, i) => i ? ctx.lineTo(X(w, p.t), Y(w, p.hi)) : ctx.moveTo(X(w, p.t), Y(w, p.hi)));
         for (let i = odc.length - 1; i >= 0; i--) ctx.lineTo(X(w, odc[i].t), Y(w, odc[i].lo)); ctx.closePath(); ctx.fillStyle = 'rgba(' + K.woda + ',.13)'; ctx.fill(); }
@@ -306,7 +305,7 @@
       const gl = ctx.createLinearGradient(pole.l, 0, pole.r, 0); gl.addColorStop(0, 'rgba(' + K.turk + ',.95)'); gl.addColorStop(1, 'rgba(' + K.woda + ',1)');
       ctx.beginPath(); krzywa(ctx, pkt); ctx.strokeStyle = gl; ctx.lineWidth = 2.6; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       ctx.shadowColor = 'rgba(' + K.woda + ',.45)'; ctx.shadowBlur = 12; ctx.stroke(); ctx.shadowBlur = 0; });
-    if (w.prognoza && w.t1 > w.teraz && w.ost) { const a = [X(w, w.ost.t), Y(w, w.ost.v)], tk = Math.min(w.prognoza.t, w.t1 - 4 * MIN);
+    if (w.prognoza && w.t1 > w.teraz && w.ost && liczbaSerii === 1) { const a = [X(w, w.ost.t), Y(w, w.ost.v)], tk = Math.min(w.prognoza.t, w.t1 - 4 * MIN);
       const vk = w.ost.v + (w.zad - w.ost.v) * (tk - w.ost.t) / (w.prognoza.t - w.ost.t), b = [X(w, tk), Y(w, vk)];
       ctx.setLineDash([2, 5]); ctx.lineWidth = 2.4; ctx.strokeStyle = 'rgb(' + K.cieplo + ')'; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); ctx.setLineDash([]);
       if (tk >= w.prognoza.t - 1) { ctx.beginPath(); ctx.arc(b[0], b[1], 4, 0, Math.PI * 2); ctx.fillStyle = 'rgb(' + K.cieplo + ')'; ctx.fill(); } }
@@ -353,14 +352,11 @@
   function podsumuj() {
     const w = widok, el = otwarte.el, q = (s) => el.querySelector(s), o = w.ost;
     q('.wt-brew').textContent = tytul(otwarte.ob);        // nazwy obiegów przychodzą ze sterownika - co pakiet
-    q('.wt-liczba').textContent = ostatnie && ostatnie.ob === otwarte.ob ? fmt(ostatnie.temp) : (o ? fmt(o.v) : '— —');
-    const grz = ostatnie && ostatnie.ob === otwarte.ob ? ostatnie.grz : (o && o.grz), pom = ostatnie && ostatnie.ob === otwarte.ob ? ostatnie.pompa : (o && o.pompa);
-    q('.wt-opis').innerHTML = (w.zad !== null ? '<span>zadana <b>' + fmt(w.zad) + ' °C</b></span>' : '') + '<span>' + (grz ? '<i class="wt-kropka"></i>grzanie pracuje' : 'grzanie nie pracuje') + '</span><span>' + (pom ? 'pompa pracuje' : 'pompa stoi') + '</span>';
     const tr = q('.wt-trend');
     if (w.nach === null) { tr.hidden = true; } else { tr.hidden = false; tr.classList.toggle('rosnie', w.nach > 0.05);
       tr.querySelector('b').textContent = (w.nach >= 0 ? '+' : '−') + fmt(Math.abs(w.nach), 2) + ' °C/h'; tr.querySelector('svg').style.transform = 'rotate(' + Math.max(-45, Math.min(45, -w.nach * 120)) + 'deg)'; }
     const cz = (m) => { const h = Math.floor(m / 60), mm = Math.round(m % 60); return (h ? h + ' h ' : '') + mm + ' min'; };
-    q('.wt-prog').innerHTML = w.prognoza ? 'Osiągnie <b>' + fmt(w.zad) + ' °C ok. ' + hhmm(w.prognoza.t) + '</b><br>za ' + cz(w.prognoza.min) + ' przy obecnym tempie' : (w.nach === null ? 'Trend po 20 min danych' : '');
+    q('.wt-prog').innerHTML = w.prognoza ? 'Zadana ok. <b>' + hhmm(w.prognoza.t) + '</b> · za ' + cz(w.prognoza.min) + ' przy obecnym tempie' : (w.nach === null ? 'Trend po 20 min danych' : '');
     const st = w.stat;
     q('.wt-s-min').textContent = st ? fmt(st.min) + '°' : '–'; q('.wt-s-max').textContent = st ? fmt(st.max) + '°' : '–'; q('.wt-s-sr').textContent = st ? fmt(st.sr) + '°' : '–';
     q('.wt-s-grz').textContent = st ? Math.floor(st.grzMin / 60) + ':' + String(st.grzMin % 60).padStart(2, '0') + ' h' : '–';
@@ -380,11 +376,14 @@
   /* ---------------- [6] KARTA WYKRESU: w bloczku „wykresy” hali albo w oknie na wierzchu ---------------- */
   function karta(ob, osadzona) {
     const k = document.createElement('div'); k.className = 'wt-karta' + (osadzona ? ' wt-osadz' : '');
-    k.innerHTML = '<div class="wt-glowa"><div><div class="wt-brew">' + tytul(ob) + '</div>' +
-      '<div class="wt-war"><span class="wt-liczba">— —</span><span class="wt-jedn">°C</span></div><div class="wt-opis"></div></div>' +
-      '<div class="wt-prawa"><span class="wt-trend" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><b></b></span><div class="wt-prog"></div></div></div>' +
+    /* GÓRA KARTY BEZ WARTOŚCI BIEŻĄCEJ I ZADANEJ [Tomasz 28.09: „info o aktualnej i zadanej zaburzy info, jak pojawią
+       się inne wykresy”]: bieżąca jest na ekranie głównym, zadana - linia przerywana; zostaje tytuł, zakresy z trendem
+       i jedna linijka prognozy. Przy wielu seriach (B.0z-72) każdy pas dostanie tylko swój opis osi i swój trend. */
+    k.innerHTML = '<div class="wt-brew">' + tytul(ob) + '</div>' +
       '<div class="wt-pasek"><div class="wt-zakresy" role="group" aria-label="Zakres"><span class="wt-suwak"></span><button type="button" data-z="1h">1 h</button><button type="button" data-z="24h">24 h</button><button type="button" data-z="7d">7 dni</button></div>' +
+      '<span class="wt-trend" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><b></b></span>' +
       (osadzona ? '' : '<button type="button" class="wt-zamknij">Zamknij</button>') + '</div>' +
+      '<div class="wt-prog"></div>' +
       '<div class="wt-wykres"><canvas></canvas><canvas aria-hidden="true"></canvas><div class="wt-pusto" hidden></div><div class="wt-dymek"></div></div>' +
       '<div class="wt-leg"><span><i style="background:linear-gradient(180deg,rgba(30,111,217,.9),rgba(18,162,181,.25))"></i>temperatura</span><span><i style="height:0;border-top:2px dashed #5d6470;border-radius:0"></i>zadana</span>' +
       '<span><i style="background:rgba(224,112,31,.22);border-bottom:3px solid #e0701f"></i>grzanie</span><span><i style="background:repeating-linear-gradient(135deg,#8a929d 0 1.5px,transparent 1.5px 5px);opacity:.6"></i>pompa stoi</span></div>' +
