@@ -169,13 +169,18 @@
        overflow:hidden;text-overflow:ellipsis}
   .hdr.harm .wid:active{background:#e9ebee}
   .hdr.harm .wid.akt{border-color:#14161a;background:#14161a;color:#fff;cursor:default}
-  /* TRZY BLOCZKI [D-495]: z „tryb cichy" trzy napisy nie mieszcza sie w jednej linii 15 px
+  /* TRZY BLOCZKI [D-495; od 28.09 „harmonogramy | wykresy | alarmy i zdarzenia”, Tomasz: „tryb cichy przenieś
+     do harmonogramu obok filtracji i płukania” · „wykresy umieść między harmonogram a alarmy i zdarzenia”]:
+     trzy napisy nie mieszcza sie w jednej linii 15 px
      (zmierzone na 358 px: „harmonogram" i „alarmy i zdarzenia" uciete z obu stron). Mniejsza
      czcionka i zawijanie w DWIE linie w tej samej wysokosci 31 px - wymiar stały, zmienia sie
      tylko sposob skladu tekstu. */
   .hdr.harm .widoki.trzy{gap:4px}
   .hdr.harm .widoki.trzy .wid{font-size:13px;padding:0 4px;white-space:normal;line-height:1.05;
        text-align:center}
+  /* WYKRESY [28.09]: ramka na karte modulu wykresu (wykres_temp.js - tylko apka T3); przewija sie cala,
+     pozycje przewiniecia przenosi _przewZapisz po klasie ramki */
+  .wkwidok{flex:1;min-height:0;overflow:auto;padding:8px 8px 10px}
   /* ALARMY I ZDARZENIA: ramka na tresc z menu serwisowego (klasa .srv - w sklejce caly arkusz
      serwisu jest zakresowany pod nia, patrz zbuduj_hmi.py) */
   .dzwidok{flex:1;min-height:0;display:flex;flex-direction:column}
@@ -1153,7 +1158,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '1edc02e41e';
+window.APKA_WERSJA = 'e0eee40fcd';
 window.APKA_KLUCZ = 'test3:';
 if ('serviceWorker' in navigator) { var _odsw = false;
   document.addEventListener('visibilitychange', function () { if (document.visibilityState !== 'visible') return;
@@ -1207,7 +1212,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
             <td class="c"><span class="brak">—</span></td></tr>
         <tr><td><span class="t">Tryb cichy</span><span class="d">zawór ssania z dna niecki [D-495] —
             działa TYLKO razem z ptaszkiem „Zbiornik przelewowy” (symulacja niżej); przy skimmerze
-            albo bez zaworu kafla na ekranie głównym i bloczka „tryb cichy” w harmonogramie nie ma</span></td>
+            albo bez zaworu kafla na ekranie głównym i zakładki „TRYB CICHY” w harmonogramach nie ma</span></td>
             <td class="c"><input type="checkbox" id="b_cichy"></td>
             <td class="c"><input type="checkbox" id="w_cichy"></td></tr>
         <tr><td><span class="t">Światło kolor</span><span class="d">zasilacz LED RGBW + barwa
@@ -1650,7 +1655,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-09-26 11:26';
+window.HMI_ZBUDOWANO = '2026-09-28 07:39';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -3185,10 +3190,11 @@ window.HMI_ZBUDOWANO = '2026-09-26 11:26';
     else if (S.ekran==='temp')   ekranTemp();
     else if (S.ekran==='akc')    ekranAkc();
     else if (S.ekran==='harm'){
-      /* [D-495] funkcja zniknela (skimmer, zawor odpiety) w trakcie ogladania - wracamy do harmonogramu */
-      if (H.widok==='cichy' && !cichyJest()){ H.widok = 'harm'; H.edy = null; }
+      /* [D-495] funkcja zniknela (skimmer, zawor odpiety) w trakcie ogladania - wracamy do filtracji */
+      if (H.tab==='cichy' && !cichyJest()){ H.tab = 'filtracja'; H.edy = null; }
+      if (H.widok==='wykresy' && !wykresyJest()) H.widok = 'harm';
       H.edy!==null ? ekranEdy()
-      : H.widok==='dziennik' ? ekranDziennik() : H.widok==='cichy' ? ekranCichy() : ekranHarm();
+      : H.widok==='dziennik' ? ekranDziennik() : H.widok==='wykresy' ? ekranWykresy() : ekranHarm();
     }
     else { ekranGlowny(); zegarHoldMontuj(); _koniec(); return; }  /* główny wstawia pasek u siebie */
     /* podekrany: BEZ paska alarmu - patrz komentarz wyżej */
@@ -3264,7 +3270,7 @@ window.HMI_ZBUDOWANO = '2026-09-26 11:26';
        - z POMPA 2. Skoro klastry i tak sa osobne (kazdy wiruje wg swojej
        pompy), to niech kazdy prowadzi do siebie - zero szukania paska
        POMPA 1/2 po wejsciu. Przy jednej pompie bez zmian. */
-    const akcOtworz = t => `S.ekran='harm';H.widok='harm';H.tor=${t};H.edy=null;render()`;   /* z klastra pompy = zawsze harmonogram [2026-09-25] */
+    const akcOtworz = t => `S.ekran='harm';H.widok='harm';harmTabZwykla();H.tor=${t};H.edy=null;render()`;   /* z klastra pompy = zawsze harmonogram [2026-09-25] */
     const akcIko = nT>1
       ? `<span class="akcgrp" onclick="${akcOtworz(0)}">${klaster(0)}<i class="knr">1</i></span>`+
         `<span class="akcgrp" onclick="${akcOtworz(1)}">${klaster(1)}<i class="knr">2</i></span>`
@@ -3402,7 +3408,7 @@ window.HMI_ZBUDOWANO = '2026-09-26 11:26';
                  </div>
                  ${/* przy POSTOJU zero nie jest błędem — nie czerwienimy */''}
                  ${maMano2?`<div class="mman ${!stoi2 && cisZly(cis2)?'zle':''}"
-                      onclick="S.ekran='harm';H.widok='harm';H.tor=${i};H.edy=null;render()">
+                      onclick="S.ekran='harm';H.widok='harm';harmTabZwykla();H.tor=${i};H.edy=null;render()">
                    <span class="wart"><b>${cisTxt(cis2)}</b><small>bar</small></span>${ikoMano(cis2)}</div>`:''}
                </div>`;
       }
@@ -3779,8 +3785,9 @@ window.HMI_ZBUDOWANO = '2026-09-26 11:26';
                   [[7,10],[17,22]],[[8,23]],[[8,23]]];
   const H = {
     tab:'filtracja', edy:null, tor:0,
-    /* BLOCZEK W NAGLOWKU [Tomasz 2026-09-25]: 'harm' = harmonogram, 'dziennik' = alarmy
-       i zdarzenia; dzTab = zakladka pod dziennikiem ('alarmy' | 'zdarzenia') */
+    /* BLOCZEK W NAGLOWKU [Tomasz 2026-09-25]: 'harm' = harmonogramy, 'wykresy' (28.09, gdy jest modul
+       wykresu), 'dziennik' = alarmy i zdarzenia; dzTab = zakladka pod dziennikiem ('alarmy' | 'zdarzenia');
+       tab = zakladka pod harmonogramami ('filtracja' | 'plukanie' | 'cichy') */
     widok:'harm', dzTab:'alarmy',
     /* NASTAWY PLUKANIA (tryb, prog, linia czystego zloza) NIE MIESZKAJA
        na panelu 4" [D Tomasz 2026-08-09] - hala dostaje alarmy i obsluge,
@@ -3826,28 +3833,38 @@ window.HMI_ZBUDOWANO = '2026-09-26 11:26';
      ⚠ JAK NA PANELU (panel_tab5/panel_p4 ekran_alarmy.c: harm_naglowek) [recenzja 2026-09-25]:
        wybrany bloczek NIE jest klikalny - jestesmy na nim (dawniej klik w niego przewijal widok
        na gore, na panelu nie robi nic). */
-  /* TRZECI BLOCZEK „tryb cichy" [D-495, 2026-09-26] - miedzy „harmonogram" a „alarmy i zdarzenia",
-     bo to tez harmonogram (7 dni x okna), tylko trzeci. Jest WYLACZNIE gdy funkcja jest (cichyJest():
-     przelew + zawor przypisany) - przy skimmerze bloczka nie ma wcale, nic wyszarzonego [B.4g].
-     Wybrany bloczek nieklikalny, jak dwa pozostale. */
+  /* BLOCZKI [Tomasz 28.09: „tryb cichy przenieś do harmonogram obok filtracji i płukania, a harmonogram zmień
+     nazwę na harmonogramy” · „wykresy umieść między harmonogram a alarmy i zdarzenia”]:
+       harmonogramy | wykresy | alarmy i zdarzenia.
+     Tryb cichy (D-495) przestal byc bloczkiem - jest trzecia ZAKLADKA pod harmonogramami (ekranHarm).
+     „wykresy” jest WYLACZNIE, gdy w dokumencie jest modul wykresu (wykresyJest(): wykres_temp.js, dzis tylko
+     apka T3) - pod mostem, na webhmi i na panelu bloczka nie ma wcale, nic wyszarzonego [B.4g].
+     Wybrany bloczek nieklikalny. Adres data-lv „bloczek.harmonogram” zostaje (zmienil sie tylko napis). */
+  function wykresyJest(){ return !!(window.WYKRES && typeof window.WYKRES.osadz === 'function'); }
   function harmNaglowek(){
-    const w = H.widok;
+    const w = H.widok, trzy = wykresyJest();
     const bl = (id, lv, txt) => `<span class="wid${w === id ? ' akt' : ''}" data-lv="bloczek.${lv}"${
         w === id ? '' : ` onclick="harmWidok('${id}')"`}>${txt}</span>`;
     return `<div class="hdr harm" style="order:0;border-top:0;border-bottom:1px solid #dcdcdc;background:#f2f2f2">
         <span class="wstecz" onclick="S.ekran='glowny';render()">${IKO_WSTECZ}</span>
-        <div class="widoki${cichyJest() ? ' trzy' : ''}">
-          ${bl('harm', 'harmonogram', 'harmonogram')}
-          ${cichyJest() ? bl('cichy', 'cichy', 'tryb cichy') : ''}
+        <div class="widoki${trzy ? ' trzy' : ''}">
+          ${bl('harm', 'harmonogram', 'harmonogramy')}
+          ${trzy ? bl('wykresy', 'wykresy', 'wykresy') : ''}
           ${bl('dziennik', 'alarmy', 'alarmy i zdarzenia')}
         </div></div>`;
   }
+  /* wejscie na harmonogramy Z ZEWNATRZ (klaster pompy, bloczek) = filtracja albo plukanie, nigdy tryb cichy -
+     jak panel (ekran_harm_pluk.c: ehp_zbuduj zeruje s_cichy); tryb cichy otwiera sie tylko swoja zakladka */
+  function harmTabZwykla(){ if (H.tab === 'cichy') H.tab = 'filtracja'; }
+  /* skrot z kafla temperatury (ikona wykresu, wykres_temp.js) */
+  function wykresyOtworz(){ S.ekran = 'harm'; H.widok = 'wykresy'; H.edy = null; render(); }
   /* przelaczenie bloczka: zawsze lista (nie edytor), przewiniecie od gory - to inny widok,
      a `render` przenosilby pozycje, bo ekran (S.ekran) jest ten sam.
      ⚠ „alarmy i zdarzenia" otwiera ZAWSZE zakladke ALARMY - tak robi panel (ekran_alarmy.c: _do_alarm
      -> eaz_zbuduj(EAZ_KAT_ALARMY)). Pamietanie ostatniej zakladki rozjezdzalo makiete z panelem
      przy porownaniu sond [recenzja 2026-09-25]. */
-  function harmWidok(w){ H.widok = w; if (w === 'dziennik') H.dzTab = 'alarmy'; H.edy = null; _przewEkran = null; render(); }
+  function harmWidok(w){ H.widok = w; if (w === 'dziennik') H.dzTab = 'alarmy'; if (w === 'harm') harmTabZwykla();
+                         H.edy = null; _przewEkran = null; render(); }
 
   function ekranHarm(){
     const tab = H.tab, d2 = dwie();
@@ -3855,7 +3872,7 @@ window.HMI_ZBUDOWANO = '2026-09-26 11:26';
 
     /* WYBOR TORU pojawia sie TYLKO gdy tory sa dwa - jedna pompa nie widzi
        przelacznika, ktorego nie potrzebuje. */
-    if (d2) h += `<div class="tory">
+    if (d2 && tab !== 'cichy') h += `<div class="tory">
         <div class="${H.tor===0?'sel':''}" onclick="H.tor=0;H.edy=null;render()">POMPA 1</div>
         <div class="${H.tor===1?'sel':''}" onclick="H.tor=1;H.edy=null;render()">POMPA 2</div>
       </div>`;
@@ -3863,9 +3880,13 @@ window.HMI_ZBUDOWANO = '2026-09-26 11:26';
     h += `<div class="tabs">
         <div class="${tab==='filtracja'?'sel':''}" data-lv="taby.filtracja" onclick="H.tab='filtracja';render()">FILTRACJA</div>
         <div class="${tab==='plukanie'?'sel':''}" data-lv="taby.plukanie" onclick="H.tab='plukanie';render()">PŁUKANIE</div>
+        ${cichyJest() ? `<div class="${tab==='cichy'?'sel':''}" data-lv="taby.cichy" onclick="H.tab='cichy';H.edy=null;render()">TRYB CICHY</div>` : ''}
       </div>`;
 
-    if (tab==='filtracja'){
+    /* TRYB CICHY [28.09]: trzecia zakladka - bez wyboru toru (jeden zawor = jeden harmonogram na obieg) */
+    if (tab==='cichy'){
+      h += cichyTresc();
+    } else if (tab==='filtracja'){
       h += `<div class="tyd">`;
       /* BEZ PASKA DOBY [Tomasz 2026-08-26: „rezygnujemy z kresek, które
          pokazują czas; zostawiamy pole dla 3 przedziałów; nie piszemy
@@ -3983,11 +4004,11 @@ window.HMI_ZBUDOWANO = '2026-09-26 11:26';
                  szerokosci + suma godzin), ten sam edytor (ekranEdy 'fdzien'/'okno' przez HF()).
                  Okno dziala ZBOCZAMI: poczatek wlacza tryb cichy, koniec wylacza, a kafel i przycisk
                  przy niecce przelaczaja w kazdej chwili - mowi o tym jedna linia pod lista.
-       WYJSCIA:  ekran; zapis rejestrow 5000+ (wyslijCichyDnia).
-     ⚠ Bez zakladek i bez wyboru toru: jeden zawor = jeden harmonogram na obieg. */
-  function ekranCichy(){
-    let h = harmNaglowek();
-    h += `<div class="tyd">`;
+       WYJSCIA:  tresc zakladki TRYB CICHY (ekranHarm); zapis rejestrow 5000+ (wyslijCichyDnia).
+     ⚠ Bez wyboru toru: jeden zawor = jeden harmonogram na obieg.
+     [28.09] dawniej osobny bloczek w naglowku (ekranCichy) - teraz trzecia zakladka obok FILTRACJA | PLUKANIE. */
+  function cichyTresc(){
+    let h = `<div class="tyd">`;
     HF().forEach((okna, i) => {
       const suma = okna.reduce((a, w) => a + dlug(w), 0);
       const sloty = [0, 1, 2].map(k => `<span class="slot" data-lv="dzien.${i}.o${k}">${
@@ -4001,7 +4022,18 @@ window.HMI_ZBUDOWANO = '2026-09-26 11:26';
     });
     /* tekst do akceptacji Tomasza */
     h += `</div><div class="info cichyinfo" data-lv="cichy.info">Początek okna włącza tryb cichy, koniec — wyłącza.<br>Kafel i przycisk przy niecce przełączają w każdej chwili.</div>`;
-    el('screen').innerHTML = h;
+    return h;
+  }
+
+  /* ---------- WYKRESY (bloczek miedzy harmonogramami a alarmami) [Tomasz 28.09] ----------
+       WEJSCIA:  window.WYKRES (wykres_temp.js - dolaczany tylko do apki T3), S.ob.
+       CO Z CZEGO WYNIKA: hala daje tylko rame; karte (wykres, zakresy, trend, statystyki) rysuje modul.
+                 Ekran przebudowuje sie przy kazdej paczce - modul PRZENOSI swoja karte do nowej ramki
+                 (canvas zostaje, bez migania i bez restartu przenikania).
+       WYJSCIA:  ekran. */
+  function ekranWykresy(){
+    el('screen').innerHTML = harmNaglowek() + `<div class="wkwidok" data-lv="wykresy"></div>`;
+    window.WYKRES.osadz(el('screen').querySelector('.wkwidok'), S.ob);
   }
 
   /* ---------- ALARMY I ZDARZENIA (drugi bloczek obok harmonogramu) ----------
@@ -4100,8 +4132,8 @@ window.HMI_ZBUDOWANO = '2026-09-26 11:26';
     } else if (E.t==='fdzien'){
       /* LISTA OKIEN dnia - do trzech. Wybor okna otwiera edytor od/do,
          zeby na kazdym ekranie klawisze zostaly duze (mokra reka). */
-      /* [D-495] ten sam edytor dla trybu cichego - okna bierze HF() wg bloczka, na ktorym jestesmy */
-      const cichy = H.widok === 'cichy';
+      /* [D-495] ten sam edytor dla trybu cichego - okna bierze HF() wg zakladki, na ktorej jestesmy */
+      const cichy = H.tab === 'cichy';
       tyt = DNI_P[E.d]+(cichy ? ' — tryb cichy' : ' — filtracja');
       const okna = HF()[E.d];
       tresc = `<div class="okna">` + okna.map((w,j)=>
@@ -4120,7 +4152,7 @@ window.HMI_ZBUDOWANO = '2026-09-26 11:26';
         + `<div class="kopiuj" data-lv="kopiuj" onclick="kopiujWsz()">kopiuj poniedziałek na wszystkie dni</div>`;
 
     } else {
-      tyt = DNI_P[E.d]+(H.widok === 'cichy' ? ' — tryb cichy, okno ' : ' — okno ')+(E.w+1);
+      tyt = DNI_P[E.d]+(H.tab === 'cichy' ? ' — tryb cichy, okno ' : ' — okno ')+(E.w+1);
       const w = HF()[E.d][E.w];
       tresc = `<div class="pole"><span class="et">od</span>
           <b onclick="zmien(0,-1)">−</b><span class="cz">${fmt(w[0])}</span><b onclick="zmien(0,1)">+</b></div>
@@ -4272,10 +4304,10 @@ window.HMI_ZBUDOWANO = '2026-09-26 11:26';
       zapiszOknaDnia(5000 + OB_REJ() * 60 + _mockDzienNaDow(mDzien) * 8, H.cichy[S.ob][mDzien]);
     }, 300);
   }
-  /* edytor okien pracuje na tym, co pokazuje wybrany bloczek: harmonogram filtracji albo tryb cichy */
-  function HF(){ return H.widok === 'cichy' ? H.cichy[S.ob] : T().filtr; }
-  function HFustaw(v){ if (H.widok === 'cichy') H.cichy[S.ob] = v; else T().filtr = v; }
-  function wyslijOknaDnia(mDzien){ if (H.widok === 'cichy') wyslijCichyDnia(mDzien); else wyslijHarmonogramDnia(mDzien); }
+  /* edytor okien pracuje na tym, co pokazuje wybrana zakladka: harmonogram filtracji albo tryb cichy */
+  function HF(){ return H.tab === 'cichy' ? H.cichy[S.ob] : T().filtr; }
+  function HFustaw(v){ if (H.tab === 'cichy') H.cichy[S.ob] = v; else T().filtr = v; }
+  function wyslijOknaDnia(mDzien){ if (H.tab === 'cichy') wyslijCichyDnia(mDzien); else wyslijHarmonogramDnia(mDzien); }
 
   window.zmien = (k,d) => {
     const okna = HF()[H.edy.d], w = okna[H.edy.w];
@@ -5665,7 +5697,7 @@ window.HMI_ZBUDOWANO = '2026-09-26 11:26';
     ['glowny-cichy',  () => { S.ekran='glowny'; S.ob=0; el('b_cichy').checked=true; el('s_prze_b').checked=true;
                               _cichySim[0]=true; }],
     ['harm-cichy',    () => { S.ob=0; el('b_cichy').checked=true; el('s_prze_b').checked=true;   /* też solo */
-                              S.ekran='harm'; H.widok='cichy'; H.edy=null; }]
+                              S.ekran='harm'; H.widok='harm'; H.tab='cichy'; H.edy=null; }]   /* [28.09] zakladka, nie bloczek */
   ];
 
   /* ===== TRYB SOLO (?solo=nazwa) — sam ekran telefonu, bez opisów =====
@@ -6050,7 +6082,7 @@ window.HMI_ZBUDOWANO = '2026-09-26 11:26';
                             okno: !!d.cichy_okno, zwarty: !!d.cichy_zwarty, ogr: !!d.cichy_ogr, powod: d.cichy_powod | 0,
                             zostalo: d.cichy_zostalo | 0};
       }
-      if (d.harm && Array.isArray(d.harm.cichy) && !(H.edy && H.widok === 'cichy')){
+      if (d.harm && Array.isArray(d.harm.cichy) && !(H.edy && H.tab === 'cichy')){
         const c = d.harm.cichy.map(w => w.map(harmOknoZRej));
         if (JSON.stringify(H.cichy[S.ob]) !== JSON.stringify(c)) H.cichy[S.ob] = c;   /* rysuje renderZPaczki() na końcu */
       }

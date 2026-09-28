@@ -8,8 +8,11 @@
  *  CO ROBI:  (1) co minutę zapisuje próbkę w pamięci telefonu (localStorage, 7 dni na obiekt i obieg) - temperaturę,
  *                a od 28.09 w tle także ciśnienie i poziom (rysowane w następnej wersji, B.0z-72);
  *            (2) w kaflu temperatury dokłada ikonę wykresu (nakładka - układ kafli bez zmian, dotknięcie reszty
- *                kafla dalej otwiera nastawę); (3) po dotknięciu ikony: wykres na cały ekran - zakresy 1 h / 24 h /
- *                7 dni z przenikaniem, trend °C/h, prognoza dojścia do zadanej, pasy grzania i postoju pompy.
+ *                kafla dalej otwiera nastawę); (3) karta wykresu - zakresy 1 h / 24 h / 7 dni z przenikaniem,
+ *                trend °C/h, prognoza dojścia do zadanej, pasy grzania i postoju pompy.
+ *            [28.09, Tomasz: „wykresy umieść między harmonogram a alarmy i zdarzenia”] karta żyje w bloczku
+ *                „wykresy” hali (window.WYKRES.osadz, ekranWykresy), ikona prowadzi tam (wykresyOtworz);
+ *                okno na wierzchu (otworz) zostaje tylko dla strony bez hali.
  *  WYJŚCIA:  tylko ekran. Nic nie wysyła do sterownika.
  *  ⚠ HISTORIA Z TELEFONU: apka zbiera dane, gdy jest otwarta - przerwy zostają przerwami (bez linii przez brak danych).
  *    Pełna historia przyjdzie ze sterownika (pierścień 7 dni po MQTT 5) - wtedy `dolozHistorie()` wleje ją tutaj.
@@ -127,6 +130,8 @@
   .wt-karta{width:min(880px,100%);max-height:100%;overflow:auto;background:#fff;color:#14161a;border-radius:16px;
     box-shadow:0 10px 40px rgba(0,0,0,.28);padding:16px 16px 12px;display:grid;gap:12px;transform:translateY(12px);transition:transform .3s cubic-bezier(.2,.8,.2,1)}
   .wt-tlo.widac .wt-karta{transform:none}
+  .wt-karta.wt-osadz{width:100%;max-height:none;overflow:visible;box-shadow:none;border:1px solid #dfe3e8;border-radius:12px;
+    transform:none;transition:none;padding:12px 12px 10px;box-sizing:border-box}
   .wt-glowa{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:10px 18px}
   .wt-brew{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#5d6470}
   .wt-war{display:flex;align-items:baseline;gap:8px;margin-top:4px}
@@ -170,7 +175,8 @@
   function doloz() {
     const lewa = document.querySelector('.tile.temp .th.lewa'); if (!lewa || lewa.querySelector('.wt-ikona')) return;
     const b = document.createElement('button'); b.type = 'button'; b.className = 'wt-ikona'; b.setAttribute('aria-label', 'Wykres temperatury wody'); b.innerHTML = IKONA;
-    b.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); otworz(); });
+    b.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault();
+      if (typeof window.wykresyOtworz === 'function') window.wykresyOtworz(); else otworz(); });
     lewa.appendChild(b);
   }
   new MutationObserver(doloz).observe(document.documentElement, { childList: true, subtree: true });
@@ -311,7 +317,9 @@
   }
 
   function nakladka(czas) {
-    if (!otwarte) return; requestAnimationFrame(nakladka);
+    if (!otwarte) return;
+    if (!otwarte.el.isConnected) { if (otwarte.osadzona) otwarte = null; return; }   // hala zmienila widok - karta idzie do kosza
+    requestAnimationFrame(nakladka);
     ox.setTransform(1, 0, 0, 1, 0, 0); ox.clearRect(0, 0, ov.width, ov.height); if (anim || !widok || !widok.ost) return;
     ox.setTransform(DPR, 0, 0, DPR, 0, 0);
     const o = widok.ost, x = X(widok, o.t), y = Y(widok, o.v);
@@ -347,35 +355,61 @@
     const p = seria(otwarte.ob); q('.wt-stopka').textContent = p.length ? 'Historia z tego telefonu od ' + dzien(p[0][0] * MIN) + ' ' + hhmm(p[0][0] * MIN) + ' (' + p.length + ' próbek co minutę, 7 dni).' : '';
   }
 
-  /* ---------------- [6] OKNO WYKRESU ---------------- */
-  function otworz() {
-    if (otwarte) return;
-    const ob = ostatnie ? ostatnie.ob : 0, el = document.createElement('div'); el.className = 'wt-tlo'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Wykres temperatury wody');
-    el.innerHTML = '<div class="wt-karta"><div class="wt-glowa"><div><div class="wt-brew">Temperatura wody · obieg ' + (ob + 1) + '</div>' +
+  /* ---------------- [6] KARTA WYKRESU: w bloczku „wykresy” hali albo w oknie na wierzchu ---------------- */
+  function karta(ob, osadzona) {
+    const k = document.createElement('div'); k.className = 'wt-karta' + (osadzona ? ' wt-osadz' : '');
+    k.innerHTML = '<div class="wt-glowa"><div><div class="wt-brew">Temperatura wody · obieg ' + (ob + 1) + '</div>' +
       '<div class="wt-war"><span class="wt-liczba">— —</span><span class="wt-jedn">°C</span></div><div class="wt-opis"></div></div>' +
       '<div class="wt-prawa"><span class="wt-trend" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><b></b></span><div class="wt-prog"></div></div></div>' +
       '<div class="wt-pasek"><div class="wt-zakresy" role="group" aria-label="Zakres"><span class="wt-suwak"></span><button type="button" data-z="1h">1 h</button><button type="button" data-z="24h">24 h</button><button type="button" data-z="7d">7 dni</button></div>' +
-      '<button type="button" class="wt-zamknij">Zamknij</button></div>' +
+      (osadzona ? '' : '<button type="button" class="wt-zamknij">Zamknij</button>') + '</div>' +
       '<div class="wt-wykres"><canvas></canvas><canvas aria-hidden="true"></canvas><div class="wt-pusto" hidden></div><div class="wt-dymek"></div></div>' +
       '<div class="wt-leg"><span><i style="background:linear-gradient(180deg,rgba(30,111,217,.9),rgba(18,162,181,.25))"></i>temperatura</span><span><i style="height:0;border-top:2px dashed #5d6470;border-radius:0"></i>zadana</span>' +
       '<span><i style="background:rgba(224,112,31,.22);border-bottom:3px solid #e0701f"></i>grzanie</span><span><i style="background:repeating-linear-gradient(135deg,#8a929d 0 1.5px,transparent 1.5px 5px);opacity:.6"></i>pompa stoi</span></div>' +
       '<div class="wt-stat"><div><span>minimum</span><b class="wt-s-min">–</b></div><div><span>maksimum</span><b class="wt-s-max">–</b></div><div><span>średnia</span><b class="wt-s-sr">–</b></div><div><span>grzanie łącznie</span><b class="wt-s-grz" style="color:#e0701f">–</b></div></div>' +
-      '<div class="wt-stopka"></div></div>';
-    document.body.appendChild(el);
-    [cv, ov] = el.querySelectorAll('canvas'); cx = cv.getContext('2d'); ox = ov.getContext('2d');
-    otwarte = { el, ob };
-    const zamknij = () => { if (!otwarte) return; el.classList.remove('widac'); otwarte = null; kursor = null; setTimeout(() => el.remove(), 260); document.removeEventListener('keydown', esc); };
-    const esc = (e) => { if (e.key === 'Escape') zamknij(); };
-    el.addEventListener('click', (e) => { if (e.target === el) zamknij(); });
-    el.querySelector('.wt-zamknij').addEventListener('click', zamknij); document.addEventListener('keydown', esc);
-    const przyc = [...el.querySelectorAll('.wt-zakresy button')], suw = el.querySelector('.wt-suwak');
-    const ustaw = () => { const b = przyc.find(x => x.dataset.z === zakres); suw.style.width = b.offsetWidth + 'px'; suw.style.transform = 'translateX(' + (b.offsetLeft - 3) + 'px)'; przyc.forEach(x => x.setAttribute('aria-pressed', String(x === b))); };
+      '<div class="wt-stopka"></div>';
+    return k;
+  }
+  /* wspólne dla obu miejsc: płótna, zakresy, kursor, zmiana rozmiaru, pierwszy rysunek, pętla nakładki.
+     `root` = to, co wisi w dokumencie (tło okna albo sama karta), `k` = karta. */
+  function podlacz(root, k, ob, osadzona) {
+    [cv, ov] = k.querySelectorAll('canvas'); cx = cv.getContext('2d'); ox = ov.getContext('2d');
+    otwarte = { el: root, karta: k, ob, osadzona }; kursor = null;
+    const przyc = [...k.querySelectorAll('.wt-zakresy button')], suw = k.querySelector('.wt-suwak');
+    const ustaw = () => { const b = przyc.find(x => x.dataset.z === zakres); if (!b.offsetWidth) return;
+      suw.style.width = b.offsetWidth + 'px'; suw.style.transform = 'translateX(' + (b.offsetLeft - 3) + 'px)'; przyc.forEach(x => x.setAttribute('aria-pressed', String(x === b))); };
     przyc.forEach(b => b.addEventListener('click', () => { if (b.dataset.z === zakres) return; zakres = b.dataset.z; try { localStorage.setItem(PREF + 'zakres', zakres); } catch (e) {}
       ustaw(); widok = zbuduj(zakres); rysuj(true); }));
-    const pw = el.querySelector('.wt-wykres');
+    const pw = k.querySelector('.wt-wykres');
     const ruch = (e) => { const r = pw.getBoundingClientRect(), x = e.clientX - r.left; kursor = (x >= pole.l && x <= pole.r && widok && widok.surowe.length) ? x : null; };
     pw.addEventListener('pointermove', ruch); pw.addEventListener('pointerdown', ruch); pw.addEventListener('pointerleave', () => { kursor = null; });
-    new ResizeObserver(() => { if (!otwarte) return; wymiary(); widok = zbuduj(zakres); rysuj(false); ustaw(); }).observe(pw);
-    requestAnimationFrame(() => { el.classList.add('widac'); wymiary(); ustaw(); widok = zbuduj(zakres); rysuj(false); requestAnimationFrame(nakladka); });
+    /* 0 px = karta chwilowo poza dokumentem (przenosiny między ramkami hali) - nie zerujemy płócien */
+    new ResizeObserver(() => { if (!otwarte || otwarte.karta !== k || !pw.clientWidth) return; wymiary(); widok = zbuduj(zakres); rysuj(false); ustaw(); }).observe(pw);
+    requestAnimationFrame(() => { if (!osadzona) root.classList.add('widac'); if (!pw.clientWidth) return;
+      wymiary(); ustaw(); widok = zbuduj(zakres); rysuj(false); requestAnimationFrame(nakladka); });
   }
+  let zamknijOkno = () => {};
+  function otworz() {
+    if (otwarte) return;
+    const ob = ostatnie ? ostatnie.ob : 0, el = document.createElement('div'); el.className = 'wt-tlo'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Wykres temperatury wody');
+    const k = karta(ob, false); el.appendChild(k); document.body.appendChild(el);
+    const esc = (e) => { if (e.key === 'Escape') zamknijOkno(); };
+    zamknijOkno = () => { if (!otwarte || otwarte.el !== el) return; el.classList.remove('widac'); otwarte = null; kursor = null; setTimeout(() => el.remove(), 260); document.removeEventListener('keydown', esc); };
+    el.addEventListener('click', (e) => { if (e.target === el) zamknijOkno(); });
+    k.querySelector('.wt-zamknij').addEventListener('click', zamknijOkno); document.addEventListener('keydown', esc);
+    podlacz(el, k, ob, false);
+  }
+  /* OSADZENIE W HALI [28.09]: hala przebudowuje ekran przy każdej paczce (render) i za każdym razem woła osadz()
+     z NOWĄ ramką. Istniejącą kartę tego samego obiegu PRZENOSIMY (appendChild przenosi węzeł; płótna trzymają
+     rysunek, przenikanie trwa dalej), nową budujemy tylko przy pierwszym wejściu albo zmianie obiegu.
+     Przeniesienie dzieje się w tym samym zadaniu co przebudowa, więc przeglądarka nie rysuje klatki bez karty. */
+  window.WYKRES = {
+    osadz(kont, ob) {
+      ob = typeof ob === 'number' ? ob : (ostatnie ? ostatnie.ob : 0);
+      if (otwarte && otwarte.osadzona && otwarte.ob === ob) { if (otwarte.el.parentNode !== kont) kont.appendChild(otwarte.el); return; }
+      if (otwarte && !otwarte.osadzona) zamknijOkno();
+      otwarte = null;
+      const k = karta(ob, true); kont.appendChild(k); podlacz(k, k, ob, true);
+    }
+  };
 })();
