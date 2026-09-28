@@ -1153,7 +1153,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = 'd707e92b7c';
+window.APKA_WERSJA = '7ee4f034fa';
 window.APKA_KLUCZ = 'test3:';
 if ('serviceWorker' in navigator) { var _odsw = false;
   document.addEventListener('visibilitychange', function () { if (document.visibilityState !== 'visible') return;
@@ -2464,6 +2464,18 @@ window.HMI_ZBUDOWANO = '2026-09-26 11:26';
               tre:'Na magistrali 1-Wire nigdy go nie było — podłącz czujnik albo zdejmij go z konfiguratora',
               src:srcObiekt(), cz:kiedy('c_tpow_brak')});
     else delete ALARM_KIEDY['c_tpow_brak'];
+    /* FUNKCJA WYLACZONA PO AWARIACH (bity 37/38) [B.0z-69, Tomasz 27.09: 'z alarmem na panelu ... info, ze
+       sterownik dziala dalej z wylaczona funkcja']. Teksty jak hmi_teksty.h (G10/G11). */
+    if (S.awOdcQuic)
+      w.push({tyt:'Łączność QUIC wyłączona po awariach',
+              tre:'Sterownik pracuje dalej — dane idą zwykłą drogą. Funkcję wyłączyły powtarzające się błędy programu; potrzebna aktualizacja oprogramowania — zgłoś serwisowi',
+              src:srcObiekt(), cz:kiedy('c_odc_quic')});
+    else delete ALARM_KIEDY['c_odc_quic'];
+    if (S.awOdcDziennik)
+      w.push({tyt:'Zapis dziennika wyłączony po awariach',
+              tre:'Sterownik pracuje dalej — historia zdarzeń zostaje tylko do restartu. Funkcję wyłączyły powtarzające się błędy programu; potrzebna aktualizacja oprogramowania — zgłoś serwisowi',
+              src:srcObiekt(), cz:kiedy('c_odc_dz')});
+    else delete ALARM_KIEDY['c_odc_dz'];
     if (S.awTempBrak)
       w.push({tyt:'Czujnik temperatury niewykryty',
               tre:'Na magistrali 1-Wire nigdy go nie było — podłącz czujnik '+
@@ -5997,6 +6009,7 @@ window.HMI_ZBUDOWANO = '2026-09-26 11:26';
       window.DUO_AKC_TERM = (d.akc_term !== undefined) ? d.akc_term : undefined;
       S.awTermikAkc = !!d.termikAkc;
       S.awTempPowBrak = !!d.awTempPowBrak;   /* [D-207b] */
+      S.awOdcQuic = !!d.awOdcQuic; S.awOdcDziennik = !!d.awOdcDziennik;   /* [B.0z-69] */
       /* ⚠ ZATRZASK AWARII WODNEJ NA EKRAN [2026-09-01]. Panel pokazywał
          go od dawna (AWARIA WODNA + zawór zablokowany), makieta nie znała
          tego stanu w ogóle - a to zatrzask, który ZATRZYMUJE pompę
@@ -11584,3 +11597,5 @@ body:not(.bez-wody) .screen,body.bez-wody .screen{border-radius:0}
   }, { capture: true, passive: true });
 })();
 </script>
+
+<script src="wykres_temp.js"></script>   <!-- wykres temperatury (apka T3) -->

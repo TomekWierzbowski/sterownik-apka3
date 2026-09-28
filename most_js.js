@@ -276,6 +276,7 @@
       termik: alm(8),
       termikAkc: alm(34),
       awTempPowBrak: almBit(36),
+      awOdcQuic: almBit(37), awOdcDziennik: almBit(38),   /* [B.0z-69] */
       awsonda: alm(2), awmano: alm(4), awtemp: alm(6), awtempBrak: alm(28),
       /* [D-241] alarmy kwitowalne bez klucza - jak most.py */
       awDolew: alm(0), awBwNiesk: alm(12), awZuzycie: alm(19), awPrefill: almBit(o === 0 ? 21 : 32), awWyciek: alm(26),
