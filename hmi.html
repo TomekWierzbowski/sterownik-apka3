@@ -782,12 +782,16 @@
      zadnych strzalek. Proba stalej wysokosci 32 px byla bledem: wysokosc
      ekranu jest STALA (720 px), wiec to wiersze maja sie dopasowac do
      ekranu, a nie ekran do wierszy. W LVGL to flex_grow=1 na wierszu. */
-  /* PLUKANIE [Tomasz 2026-08-26: wiersze jak w filtracji (40 raw = 80 px), dni
-     przewijane palcem jak w serwisie; reszta ekranu stoi] */
-  .tyd.przewijany{overflow-y:auto}
-  .tyd.przewijany .dzien{flex:0 0 40px;min-height:40px}
+  /* JEDNA WYSOKOSC DNIA WE WSZYSTKICH TRZECH HARMONOGRAMACH [Tomasz 28.09: „harmonogramy - wszystkie 3 mają
+     różne wysokości dni, zrównaj, żeby wszystkie były spójne”]. Do dzis FILTRACJA i TRYB CICHY rozciagaly dni na
+     cala wysokosc (flex:1), a PLUKANIE mialo stale 40 raw - trzy rozne wysokosci. Teraz jedna liczba dla trzech
+     = ta, przy ktorej FILTRACJA wypelnia ekran [Tomasz 28.09: „harmonogramy ułóż tak, by wykorzystać ekran”];
+     PLUKANIE przewija dni palcem (ustalone 26.08), TRYB CICHY ma linijke objasnienia na koncu listy.
+     Tab5: EHP_DZIEN_WYS 152 px (panel_tab5 ekran_harm_pluk.c); tu z pomiaru sonda. */
+  :root{--dzien-h:76px}
   .tyd{flex:1;display:flex;flex-direction:column;padding:0 8px 2px;gap:3px;min-height:0;   /* odstep 14 raw cofniety [Tomasz 2026-08-27: "bloczki za male"] */
-       overflow:hidden}
+       overflow-y:auto}
+  .tyd .dzien{flex:0 0 var(--dzien-h);min-height:var(--dzien-h)}
   /* KAFEL DNIA BEZ CIENIA [Tomasz 2026-08-27: "tam cienie nie pasuja" - proba
      cieni jak na glownym cofnieta]; gap 5 i padding 6, bo trzy przedzialy przy
      fontach +30 % musza sie zmiescic w 342 raw */
@@ -1158,7 +1162,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '88e7ffc100';
+window.APKA_WERSJA = 'a48a492241';
 window.APKA_KLUCZ = 'test3:';
 if ('serviceWorker' in navigator) { var _odsw = false;
   document.addEventListener('visibilitychange', function () { if (document.visibilityState !== 'visible') return;
@@ -1655,7 +1659,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-09-28 07:39';
+window.HMI_ZBUDOWANO = '2026-09-28 08:13';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -4021,7 +4025,8 @@ window.HMI_ZBUDOWANO = '2026-09-28 07:39';
               <span class="ch">›</span></div>`;
     });
     /* tekst do akceptacji Tomasza */
-    h += `</div><div class="info cichyinfo" data-lv="cichy.info">Początek okna włącza tryb cichy, koniec — wyłącza.<br>Kafel i przycisk przy niecce przełączają w każdej chwili.</div>`;
+    /* linijka objasnienia NA KONCU LISTY (przewija sie z dniami) - dni maja wysokosc jak w filtracji [28.09] */
+    h += `<div class="info cichyinfo" data-lv="cichy.info">Początek okna włącza tryb cichy, koniec — wyłącza.<br>Kafel i przycisk przy niecce przełączają w każdej chwili.</div></div>`;
     return h;
   }
 
