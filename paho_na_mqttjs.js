@@ -28,6 +28,13 @@
    ⚠ Ponawianie: `reconnectPeriod: 0` — ponawia APKA (D-310), dokładnie jak przy Paho `reconnect:false`.
    ⚠ Właściwości MQTT 5 (wygaśnięcie sesji, aliasy tematów) celowo jeszcze NIE — najpierw pomiar
      „to samo co apka2, tylko po v5" (skill loxone-mqtt5 §2a, D-498).
+   ⛔ JEDEN WŁAŚCICIEL POŁĄCZENIA [Astra 11, 29.09.2026]: próba = numer generacji (`_gen`) + jeden termin całej
+     operacji (QUIC i wss razem, `timeout` z opcji). Nowe connect() / disconnect() w trakcie próby WYCOFUJE starą:
+     jej klient MQTT.js jest zamykany, a jej zdarzenia i zegary nie wołają już niczego. Spóźnione „connect" starej
+     próby (np. QUIC doszedł po przejściu na wss) zamyka ją od razu — dawniej zostawała żywa z tym samym clientId,
+     broker przejmował sesję i wyrzucał dobrą (A→B→sukces B→późne A). wss po nieudanym QUIC dostaje RESZTĘ terminu,
+     nie pełny limit od nowa (dawniej do 4+1+10+1 s, a formularz liczył 10). Sesja WebTransport zamyka się przy
+     końcu strumienia, błędzie i close() - raz; strumień otwarty po anulowaniu jest od razu porzucany.
    ============================================================================================ */
 (function () {
   'use strict';
@@ -35,6 +42,8 @@
   var V5_NA_V3 = { 0x84: 1, 0x85: 2, 0x88: 3, 0x89: 3, 0x86: 4, 0x87: 5, 0x8C: 5 };
   var hex = function (n) { return '0x' + (+n).toString(16).toUpperCase(); };
   var utf8 = new TextDecoder('utf-8');
+  var SEK = window.APKA_SEKUNDA_MS || 1000;   /* [Astra 11] test offline skraca sekundę (_test_polaczenie11.html) */
+  var WSS_MIN_MS = SEK;                       /* mniej niż tyle z terminu po porażce QUIC = od razu „timed out" */
   var enc = new TextEncoder();
 
   /* ------------------------------------------------------------------------------------------
@@ -81,8 +90,10 @@
       this.onopen = this.onclose = this.onerror = this.onmessage = null;
       try { this._wt = new WebTransport(url.replace(/^wss?:/, 'https:')); }
       catch (e) { setTimeout(() => this._blad(e), 0); return; }
-      this._wt.ready.then(() => this._wt.createBidirectionalStream()).then(s => {
-        if (this.readyState !== 0) return;
+      /* [Astra 11] anulowane przed ready: strumienia nie otwieramy; otwarty mimo to (wyścig) - porzucamy od razu */
+      this._wt.ready.then(() => (this.readyState === 0 ? this._wt.createBidirectionalStream() : null)).then(s => {
+        if (!s) return;
+        if (this.readyState !== 0) { try { s.writable.abort(); } catch (e) {} try { s.readable.cancel(); } catch (e) {} return; }
         this._pisz = s.writable.getWriter(); this.readyState = 1;
         this._zdarz('open', new Event('open')); this._czytaj(s.readable.getReader());
       }).catch(e => this._blad(e));
@@ -104,12 +115,18 @@
       this.bufferedAmount += u.byteLength;
       this._pisz.write(u).then(() => { this.bufferedAmount -= u.byteLength; }, e => this._blad(e));
     }
-    close() { if (this.readyState >= 2) return; this.readyState = 2; try { this._wt.close(); } catch (e) {} this._koniec(); }
+    close() { if (this.readyState >= 2) return; this.readyState = 2; this._koniec(); }
     _blad(e) {
       if (this.readyState === 3) return;
       const ev = new Event('error'); ev.message = String((e && e.message) || e); this._zdarz('error', ev); this._koniec();
     }
-    _koniec() { if (this.readyState === 3) return; this.readyState = 3; this._zdarz('close', new CloseEvent('close', { code: 1006 })); }
+    /* [Astra 11] KONIEC = zamknięcie CAŁEJ sesji WebTransport (dawniej EOF strumienia zostawiał sesję otwartą) - raz */
+    _koniec() {
+      if (this.readyState === 3) return;
+      this.readyState = 3;
+      if (this._wt && !this._wtZamkniete) { this._wtZamkniete = true; try { this._wt.close(); } catch (e) {} }
+      this._zdarz('close', new CloseEvent('close', { code: 1006 }));
+    }
     _zdarz(t, ev) { this.dispatchEvent(ev); const h = this['on' + t]; if (typeof h === 'function') h.call(this, ev); }
   }
   WTjakoWS.CONNECTING = 0; WTjakoWS.OPEN = 1; WTjakoWS.CLOSING = 2; WTjakoWS.CLOSED = 3;
@@ -130,14 +147,34 @@
     if (typeof port === 'string' && clientId === undefined && path === undefined) { this._uri = host; this.clientId = port; }
     else { this._host = host; this._port = port; this._path = path || '/mqtt'; this.clientId = clientId; }
     this._k = null; this._polaczony = false;
+    this._gen = 0; this._proba = null;   /* [Astra 11] generacja i bieżąca próba (null = brak próby w toku) */
     this.onConnectionLost = null; this.onMessageArrived = null; this.onConnected = null;
   }
+  /* [Astra 11] Wycofaj próbę w toku BEZ wywołań zwrotnych: zegar stop, klient MQTT.js zamknięty, zdarzenia martwe. */
+  Client.prototype._wycofaj = function () {
+    var p = this._proba; this._proba = null; this._gen++;
+    if (!p) return;
+    p.martwa = true; clearTimeout(p.zegar);
+    try { if (p.k) p.k.end(true); } catch (e) {}
+    if (this._k === p.k) this._k = null;
+  };
   Client.prototype.isConnected = function () { return !!this._polaczony; };
 
   Client.prototype.connect = function (o) {
     o = o || {};
     if (this._polaczony) throw new Error('AMQJS0011E Invalid state already connected.');
+    this._wycofaj();                     /* [Astra 11] poprzednia próba w toku - wycofana, nie równoległa */
     var ja = this, wss = this._uri || ((o.useSSL ? 'wss://' : 'ws://') + this._host + ':' + this._port + this._path);
+    var p = { gen: this._gen, martwa: false, k: null, zegar: null, koniec: Date.now() + (o.timeout || 30) * SEK };
+    this._proba = p;
+    var pozostalo = function () { return p.koniec - Date.now(); };
+    /* koniec CAŁEJ operacji porażką - jedno onFailure, dopiero gdy nie ma już drogi w terminie */
+    var porazkaOperacji = function (r) {
+      if (p.martwa) return;
+      p.martwa = true; clearTimeout(p.zegar);
+      if (ja._proba === p) ja._proba = null;
+      if (o.onFailure) o.onFailure(r);
+    };
     /* [D-500 Q2] QUIC NAJPIERW, wss JAKO ZAPAS — tylko dla serwera z mapy QUIC_DROGI i przeglądarki z WebTransport.
        Porażka QUIC (UDP zablokowane, bramka nie działa, stary telefon) = od razu wss, niewidocznie dla apki,
        i przez QUIC_PRZERWA_MIN nie próbujemy QUIC na tym serwerze (inaczej każde ponowne łączenie czekałoby na
@@ -145,39 +182,45 @@
        złe hasło zostaje złym hasłem — apka ma dostać tę odmowę, a nie drugą taką samą po wss. */
     var q = (!this._uri && o.useSSL) ? QUIC_DROGI[this._host + ':' + this._port] : null;
     if (q && window.WebTransport && !quicZawodzi(this._host)) {
-      var oq = {}; for (var x in o) oq[x] = o[x];
-      oq.timeout = Math.min(o.timeout || 30, QUIC_LIMIT_S);
-      oq.onFailure = function (r) {
-        if (r && r.errorCode === 6) { if (o.onFailure) o.onFailure(r); return; }
+      this._polacz(p, o, 'wss://' + this._host + ':' + q + this._path, function (u) { return new WTjakoWS(u); },
+                   Math.min(QUIC_LIMIT_S * SEK, pozostalo()), function (r) {
+        if (r && r.errorCode === 6) { porazkaOperacji(r); return; }
         quicZapamietaj(ja._host, r && r.errorMessage);
-        ja._polacz(o, wss, null);
-      };
-      this._polacz(oq, 'wss://' + this._host + ':' + q + this._path, function (u) { return new WTjakoWS(u); });
+        var zost = pozostalo();                   /* [Astra 11] wss dostaje RESZTĘ terminu, nie pełny limit od nowa */
+        if (zost < WSS_MIN_MS) { porazkaOperacji({ errorCode: 1, errorMessage: 'AMQJS0001E Connect timed out.', invocationContext: o.invocationContext }); return; }
+        ja._polacz(p, o, wss, null, zost, porazkaOperacji);
+      });
       return;
     }
-    this._polacz(o, wss, null);
+    this._polacz(p, o, wss, null, pozostalo(), porazkaOperacji);
   };
 
-  /* Jedno podejście do połączenia jedną drogą (wss albo WebTransport). `budowniczy` = null -> zwykły WebSocket. */
-  Client.prototype._polacz = function (o, uri, budowniczy) {
+  /* Jedno podejście do połączenia jedną drogą (wss albo WebTransport) w ramach próby `p`. `budowniczy` = null ->
+     zwykły WebSocket; `limitMs` = ile z terminu próby ma ta droga; `naPorazke` = co dalej (zapas albo koniec). */
+  Client.prototype._polacz = function (p, o, uri, budowniczy, limitMs, naPorazke) {
     var ja = this;
+    if (p.martwa) return;
     var zamkniety = false, udane = false, bladGniazda = null, bladKeepalive = false, powodV5 = null;
     var droga = budowniczy ? uri.replace(/^wss?:/, 'webtransport:') : uri;   /* do dziennika łącza apki: widać, którą drogą */
+    /* [Astra 11] czy ten klient to wciąż BIEŻĄCA droga bieżącej generacji (inaczej: wycofany, spóźniony) */
+    var biezacy = function () { return !p.martwa && p.gen === ja._gen && ja._k === k; };
     var zakoncz = function () { if (zamkniety) return; zamkniety = true; try { k.end(true); } catch (e) {} };
-    var porazka = function (kod, txt) { clearTimeout(zegar); zakoncz(); if (o.onFailure) o.onFailure({ errorCode: kod, errorMessage: txt, invocationContext: o.invocationContext }); };
+    var porazka = function (kod, txt) { clearTimeout(zegar); zakoncz(); if (!biezacy()) return; naPorazke({ errorCode: kod, errorMessage: txt, invocationContext: o.invocationContext }); };
     var k = mqtt.connect(uri, {
       protocolVersion: 5, clientId: this.clientId, username: o.userName, password: o.password,
       keepalive: o.keepAliveInterval != null ? o.keepAliveInterval : 60, clean: o.cleanSession !== false,
       /* ⚠ connectTimeout 0 w MQTT.js NIE wyłącza limitu - ustawia ZEROWY (zmierzone 26.09: natychmiastowe
-         „connack timeout"). Limit = `timeout` z opcji Paho; nasz zegar niżej jest zapasem o sekundę dłuższym. */
-      reconnectPeriod: 0, connectTimeout: (o.timeout || 30) * 1000, resubscribe: false,
+         „connack timeout"). Limit = reszta terminu próby; nasz zegar niżej jest zapasem o 1/4 s dłuższym. */
+      reconnectPeriod: 0, connectTimeout: Math.max(1, Math.round(limitMs)), resubscribe: false,
       createWebsocket: budowniczy || undefined,
     });
-    this._k = k;
-    var zegar = setTimeout(function () { if (!udane && !zamkniety) porazka(1, 'AMQJS0001E Connect timed out.'); }, (o.timeout || 30) * 1000 + 1000);
+    p.k = k; this._k = k;
+    var zegar = setTimeout(function () { if (!udane && !zamkniety) porazka(1, 'AMQJS0001E Connect timed out.'); }, limitMs + SEK / 4);
+    p.zegar = zegar;
     k.on('connect', function () {
-      if (zamkniety || ja._k !== k) return;
+      if (zamkniety || !biezacy()) { zamkniety = true; try { k.end(true); } catch (e) {} return; }   /* [Astra 11] spóźniona: zamknij */
       clearTimeout(zegar); udane = true; ja._polaczony = true;
+      p.martwa = true; if (ja._proba === p) ja._proba = null;   /* próba zakończona sukcesem - połączenie trzyma `_k` */
       if (o.onSuccess) o.onSuccess({ invocationContext: o.invocationContext });
       ja.droga = droga;
       if (ja.onConnected) ja.onConnected(false, droga);
@@ -201,7 +244,7 @@
       if (ja._k !== k) return;
       if (!udane) { if (!zamkniety) porazka(7, 'AMQJS0007E Socket error:' + (bladGniazda ? (bladGniazda.message || bladGniazda) : 'polaczenie zamkniete przed CONNACK') + '.'); return; }
       if (!ja._polaczony) return;
-      ja._polaczony = false; zamkniety = true; try { k.end(true); } catch (e) {}
+      ja._polaczony = false; ja._k = null; zamkniety = true; try { k.end(true); } catch (e) {}
       var r = bladKeepalive ? { errorCode: 4, errorMessage: 'AMQJS0004E Ping timed out.' }
             : bladGniazda ? { errorCode: 7, errorMessage: 'AMQJS0007E Socket error:' + (bladGniazda.message || bladGniazda) + '.' }
             : { errorCode: 8, errorMessage: 'AMQJS0008I Socket closed.' + (powodV5 ? ' (MQTT 5 DISCONNECT ' + hex(powodV5) + ')' : '') };
@@ -210,8 +253,12 @@
   };
 
   Client.prototype.disconnect = function () {
-    if (!this._polaczony) throw new Error('AMQJS0011E Invalid state not connected.');
-    var k = this._k; this._polaczony = false; this._k = null;
+    if (!this._polaczony) {
+      /* [Astra 11] anulowanie próby w toku: wycofana bez wywołań zwrotnych (zdecydowała apka), bez wyjątku */
+      if (this._proba) { this._wycofaj(); return; }
+      throw new Error('AMQJS0011E Invalid state not connected.');
+    }
+    var k = this._k; this._polaczony = false; this._k = null; this._gen++;
     try { k.end(false); } catch (e) {}
     if (this.onConnectionLost) this.onConnectionLost({ errorCode: 0, errorMessage: 'AMQJS0000I OK.' });
   };
@@ -243,5 +290,6 @@
   Client.prototype.publish = Client.prototype.send;
 
   window.Paho = { Client: Client, Message: Message, MQTT: { Client: Client, Message: Message } };
+  window.Paho._WTjakoWS = WTjakoWS;   /* [Astra 11] tylko dla testu offline (_test_polaczenie11.html) */
   window.Paho.MQTT_WERSJA = 5;   /* apka3 może pokazać, którą drogą idzie */
 })();
