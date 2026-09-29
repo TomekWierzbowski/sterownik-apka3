@@ -2077,11 +2077,14 @@
         ⚠ DZIALAJACEGO NIE ZRYWAMY. Gdy sterownik poda inny adres, a nasze polaczenie o tym numerze
           wlasnie dziala - zapisujemy na nastepne uruchomienie i mowimy o tym w dzienniku. Podmiana
           w locie dotyczy tylko polaczen, ktore i tak nie stoja. */
+    /*  [Astra 12] ZAPIS TAM, SKĄD PRZYSZŁO LOGOWANIE: sesja bez „zapamiętaj" żyje w sessionStorage (ten sam klucz
+        z przedrostkiem apki) - poprawka adresu trafia do niej i znika z kartą; zapamiętane - do localStorage. */
     const zapiszUstawienie = (pole, wart) => {
-      try { const z = JSON.parse(localStorage.getItem(KL('odbior_mqtt')) || 'null');
+      try { const mag = sessionStorage.getItem(KL('odbior_mqtt')) ? sessionStorage : localStorage;
+            const z = JSON.parse(mag.getItem(KL('odbior_mqtt')) || 'null');
             if (!z || z[pole] === wart) return false;
-            z[pole] = wart; localStorage.setItem(KL('odbior_mqtt'), JSON.stringify(z)); return true;
-      } catch (e) { return false; }   /* logowanie bez „zapamietaj" - polaczymy sie mimo to, tylko na ten raz */
+            z[pole] = wart; mag.setItem(KL('odbior_mqtt'), JSON.stringify(z)); return true;
+      } catch (e) { return false; }
     };
     const dodajSerwer = (nr, host, powod) => {
       const a = adres(host);
@@ -2132,20 +2135,30 @@
       if (_zrodlo && s.ja) { _zrodlo.slot = s.ja;
         if (_zrodlo.slotOst !== s.ja) { _zrodlo.slotOst = s.ja;
           zapisz(etyk(_zrodlo) + 'to jest slot ' + s.ja + ' sterownika'); } }
-      const nasz = adres(o.host).host;
-      const kand = [];
+      /*  [Astra 12] PUNKT KOŃCOWY = transport + host + port efektywny + ścieżka, nie sam host. Stary broker
+          (8886/8887) i broker v5 (8888/8889) stoją pod TĄ SAMĄ nazwą - porównanie po hoście sklejało je w jeden
+          serwer i drugi nigdy nie wchodził. Sterownik podaje port NATYWNY; apka łączy się WebSocketem po TLS, więc:
+          znane pary naszych brokerów tłumaczymy wprost, reszta po dostawcy (adres()), a wpis bez TLS pomijamy
+          (apka zna tylko wss - zwykłe TCP i tak by nie wstało). */
+      const WS_Z_NATYWNEGO = { 8886: 8887, 8888: 8889 };
+      const kluczPK = a => 'wss://' + String(a.host || '').toLowerCase() + ':' + a.port + '/mqtt';
+      const nasz = kluczPK(adres(o.host, o.port));
+      const kand = [], kandKl = [];
       ['glowny', 'zapas1', 'zapas2'].forEach(k => {
         const w = s[k]; const h = ((w && w.host) || '').trim();
         if (!h || (w && w.lan)) return;                       /* pusto albo adres domowy - nie dla apki */
-        const a = adres(h).host;
-        if (a !== nasz && kand.indexOf(a) < 0) kand.push(h);   /* glownego apki nie dublujemy */
+        if (w && w.tls === 0) return;                         /* bez TLS - nie dla przeglądarki */
+        const a = adres(h);
+        if (w && WS_Z_NATYWNEGO[w.port]) a.port = WS_Z_NATYWNEGO[w.port];
+        const kl = kluczPK(a);
+        if (kl !== nasz && kandKl.indexOf(kl) < 0) { kandKl.push(kl); kand.push(a.host + ':' + a.port); }   /* glownego nie dublujemy */
       });
       [2, 3].forEach((nr, i) => {
         const host = kand[i];
         if (!host) return;                    /* sterownik nie ma tylu uzytecznych adresow */
         const nowy = adres(host);
         const c = POL.find(x => x.nr === nr);
-        if (c && c.host === nowy.host) return;                /* juz to mamy - cisza */
+        if (c && kluczPK(c) === kluczPK(nowy)) return;         /* juz to mamy - cisza */
         zapiszUstawienie(nr === 2 ? 'host2' : 'host3', host);
         if (!c) { dodajSerwer(nr, host, 'spis ze sterownika'); return; }
         if (c.stan.stan === 'ok') {

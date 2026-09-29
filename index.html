@@ -93,7 +93,8 @@
   const el = id => document.getElementById(id);
   const q = new URLSearchParams(location.search);
   const HOST = 'aquareact.duckdns.org:8889', HOST2 = '';
-  let z = null; try { z = JSON.parse(localStorage.getItem('test3:odbior_mqtt') || 'null'); } catch(e){}
+  /* [Astra 12] ta sama kolejnosc co w HMI: sesja tej karty (bez zapamietania) przed zapamietanym kontem */
+  let z = null; try { z = JSON.parse(sessionStorage.getItem('test3:odbior_mqtt') || localStorage.getItem('test3:odbior_mqtt') || 'null'); } catch(e){}
   try { localStorage.setItem('test3:pwa', '1'); } catch(e){}
   /* zapamiętane dane i nikt nie prosił o ekran logowania -> prosto do HMI */
   if (z && z.user && z.pass && q.get('login') !== '1') { location.replace('hmi.html?mqtt=1'); return; }
@@ -102,8 +103,12 @@
   /* NAZWA STEROWNIKA → użytkownik brokera [D-304]: „Gliczarów wanna" → „gliczarow-wanna"; każdy obiekt ma
      własne konto na brokerze (dziś HiveMQ: konta w konsoli; docelowo Mosquitto na HA z ACL na prefiks tematu). */
   const slug = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').replace(/Ł/g, 'L').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  /* [Astra 12] NAZWA OBIEKTU ≠ LOGIN: nazwa w KSZTAŁCIE loginu (litery, cyfry, - i _, bez spacji i ogonków) idzie
+     do loginu BEZ zmiany wielkości liter („Master" zostaje „Master" - broker rozróżnia); tylko nazwa opisowa
+     („Gliczarów wanna") zamienia się na login klienta małymi literami (D-304). */
+  const loginZNazwy = s => /^[A-Za-z0-9_-]+$/.test(String(s || '').trim()) ? String(s).trim() : slug(String(s || ''));
   el('nazwa').value = (z && z.nazwa) || q.get('nazwa') || ((z && z.user) ? z.user : '');
-  el('user').value = (z && z.user) ? z.user : slug(el('nazwa').value);
+  el('user').value = (z && z.user) ? z.user : loginZNazwy(el('nazwa').value);
   /* [D-312] konto serwisowe: jawny ptaszek zamiast zgadywania z kształtu loginu; stary zapis bez pola = dawna zasada */
   el('serw').checked = (z && z.serwis !== undefined) ? !!z.serwis : (!!el('user').value && el('user').value.indexOf('-') < 0);
   /* [D-317] drugi broker wypełnia się sam: adres z wbudowanej stałej, konto = to samo z dwójką, hasło to samo.
@@ -124,7 +129,7 @@
   el('serw').addEventListener('change', () => { serwRecznie = true; });
   el('user').addEventListener('input', () => { userRecznie = (el('user').value.trim() !== '');
     if (!serwRecznie) el('serw').checked = (!!el('user').value.trim() && el('user').value.trim().indexOf('-') < 0); });
-  el('nazwa').addEventListener('input', () => { if (!userRecznie) el('user').value = slug(el('nazwa').value); });
+  el('nazwa').addEventListener('input', () => { if (!userRecznie) el('user').value = loginZNazwy(el('nazwa').value); });
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).then(() => {
@@ -167,7 +172,7 @@
     ev.preventDefault();
     const host = el('host').value.trim(), nazwa = el('nazwa').value.trim(), pass = el('pass').value;
     /*  [D-326] bierzemy to, CO STOI W POLU (może być poprawione ręcznie), a gdy puste - liczymy z nazwy */
-    const user = el('user').value.trim() || slug(nazwa);
+    const user = el('user').value.trim() || loginZNazwy(nazwa);
     const stan = el('stan'); stan.className = 'stan';
     if (!host || !user || !pass) { stan.className = 'stan zle'; stan.textContent = 'Wpisz nazwę sterownika i hasło.'; return; }
     const Klient = window.Paho && (Paho.Client || (Paho.MQTT && Paho.MQTT.Client));
@@ -187,8 +192,11 @@
                 const host2 = el('host2').value.trim(), user2 = el('user2').value.trim(), pass2 = el('pass2').value;
                 const host3 = el('host3').value.trim(), user3 = el('user3').value.trim(), pass3 = el('pass3').value;
                 const dane = { host, user, pass, nazwa, serwis, host2, user2, pass2, host3, user3, pass3 };
-                try { if (el('zap').checked) localStorage.setItem('test3:odbior_mqtt', JSON.stringify(dane));
-                      else sessionStorage.setItem('odbior_mqtt_tmp', JSON.stringify(dane)); } catch(e){}
+                /* [Astra 12] bez „zapamietaj" = TYLKO ta karta: sessionStorage pod tym samym kluczem z przedrostkiem apki
+                   (HMI czyta go przed zapamietanym kontem); z „zapamietaj" = localStorage, a sesyjny wpis znika,
+                   zeby nie zaslonil swiezo zapamietanego konta. Hasla bez zgody nie zostawiamy na stale. */
+                try { if (el('zap').checked) { localStorage.setItem('test3:odbior_mqtt', JSON.stringify(dane)); sessionStorage.removeItem('test3:odbior_mqtt'); }
+                      else sessionStorage.setItem('test3:odbior_mqtt', JSON.stringify(dane)); } catch(e){}
                 setTimeout(() => location.href = 'hmi.html?mqtt=1', 400); } };
     setTimeout(() => koniec(false, 'Żaden serwer nie odpowiada w 9 s — sprawdź zasięg i nazwę serwera.'), 9000);
     /*  PRÓBUJEMY OBU SERWERÓW NARAZ [D-327, uwaga z audytu]: aplikacja od D-313 słucha dwóch brokerów,

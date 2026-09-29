@@ -1161,8 +1161,8 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    makieta zachowywałaby się jak wzorzec z demo. Brak danych logowania -> strona
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
-try { if (!localStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '59d7921f1d';
+try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
+window.APKA_WERSJA = '6a38fd9c48';
 window.APKA_KLUCZ = 'test3:';
 if ('serviceWorker' in navigator) { var _odsw = false;
   document.addEventListener('visibilitychange', function () { if (document.visibilityState !== 'visible') return;
@@ -1659,7 +1659,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-09-28 08:23';
+window.HMI_ZBUDOWANO = '2026-09-29 16:07';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -6234,7 +6234,10 @@ window.HMI_ZBUDOWANO = '2026-09-28 08:23';
       /* KLUCZ Z PRZEDROSTKIEM APKI [izolacja TEST2, 23.09]: `window.APKA_KLUCZ` ('' klient, 'test2:' TEST2)
          wstawia zbuduj_pwa.py; na moście i na AP go nie ma - przedrostek pusty, klucze jak dotąd. */
       const _KL = k => ((window.APKA_KLUCZ) || '') + k;
-      let z = null; try { z = JSON.parse(localStorage.getItem(_KL('odbior_mqtt')) || 'null'); } catch(e){}
+      /* [Astra 12] sesja bez „zapamiętaj" (sessionStorage) wygrywa z zapamiętanym kontem (localStorage) - to wybór
+         z TEJ karty; ten sam klucz z przedrostkiem apki w obu magazynach (dawniej sesja szła pod 'odbior_mqtt_tmp',
+         którego nikt nie czytał - logowanie bez zapamiętania odsyłało z powrotem na ekran logowania). */
+      let z = null; try { z = JSON.parse(sessionStorage.getItem(_KL('odbior_mqtt')) || localStorage.getItem(_KL('odbior_mqtt')) || 'null'); } catch(e){}
       /* APLIKACJA (PWA, D-270): dane logowania zbiera strona startowa index.html;
          prompt() w zainstalowanej aplikacji wygląda jak awaria. `pwa` ustawia index.html. */
       let _pwa = false; try { _pwa = localStorage.getItem(_KL('pwa')) === '1'; } catch(e){}
