@@ -50,17 +50,48 @@
     }
     return s;
   }
-  function dekoduj(m0, s) {
-    const p = []; let m = m0 - 1, zad = -1, i = 0;
+  /* [Astra 14, 29.09.2026] ROZBIÓR Z GRANICAMI. Dawniej znacznik „!”/„z” bez kropki dawał indexOf = -1, więc indeks
+     wracał na 0 i pętla kręciła się bez końca (zawieszony ekran), a zła próbka (litera spoza a-d, ucięte 3 znaki)
+     wchodziła do wykresu jako NaN albo ujemna flaga - udawała pomiar. Teraz: każdy krok PRZESUWA indeks albo KOŃCZY
+     rozbiór; rekord sprawdzany przed użyciem (kropka w zasięgu, cyfry base36, flaga a-d, pełne 3 znaki, dodatnia
+     przerwa, limit próbek); pierwszy błąd kończy serię - zostaje poprawny początek, a `blad` mówi gdzie i czemu.
+     Następny zapis serii (co minutę) przepisuje ją bez uszkodzonego końca - naprawa bez udziału człowieka. */
+  const MAX_PROBEK = 8 * 24 * 60;                            /* 7 dni po minucie + doba zapasu */
+  function dekoduj(m0, s, blad) {
+    const p = [];
+    const zle = (opis, poz) => { if (blad) { blad.opis = opis; blad.poz = poz; blad.od = p.length ? p[p.length - 1][0] : null; } };
+    if (typeof s !== 'string' || !Number.isFinite(m0)) { zle('zły nagłówek', 0); return p; }
+    let m = m0 - 1, zad = -1, i = 0;
     while (i < s.length) {
       const c = s[i];
-      if (c === '!' || c === 'z') { const k = s.indexOf('.', i); const v = s.slice(i + 1, k); i = k + 1;
-        if (c === '!') m += parseInt(v, 36) - 1; else zad = v === '' ? -1 : parseInt(v, 36); continue; }
-      m++; p.push([m, parseInt(s.substr(i + 1, 3), 36), zad, c.charCodeAt(0) - 97]); i += 4;
+      if (c === '!' || c === 'z') {
+        const k = s.indexOf('.', i + 1);
+        if (k < 0 || k - i > 9) { zle('znacznik bez kropki', i); break; }
+        const v = s.slice(i + 1, k);
+        if (v !== '' && !/^[0-9a-z]+$/.test(v)) { zle('znacznik z obcym znakiem', i); break; }
+        if (c === '!') { const d = parseInt(v, 36); if (!(d >= 1)) { zle('zła przerwa', i); break; } m += d - 1; }
+        else zad = v === '' ? -1 : parseInt(v, 36);
+        i = k + 1;
+        continue;
+      }
+      const f = c.charCodeAt(0) - 97, t = s.substr(i + 1, 3);
+      if (f < 0 || f > 3 || !/^[0-9a-z]{3}$/.test(t)) { zle('zła próbka', i); break; }
+      if (p.length >= MAX_PROBEK) { zle('za długi zapis', i); break; }
+      m++; p.push([m, parseInt(t, 36), zad, f]); i += 4;
     }
     return p;
   }
-  function wczytaj(ob, sr) { try { const t = localStorage.getItem(klucz(ob, sr)); const j = t ? JSON.parse(t) : null; return j && j.v === 2 ? dekoduj(j.m0, j.s) : []; } catch (e) { return []; } }
+  const uszkodzone = {};                                      /* klucz serii -> {opis, poz, od}: pokazywane w stopce karty */
+  function wczytaj(ob, sr) {
+    const k = klucz(ob, sr);
+    try {
+      const t = localStorage.getItem(k); const j = t ? JSON.parse(t) : null;
+      if (!j || j.v !== 2) return [];
+      const b = {}; const p = dekoduj(j.m0, j.s, b);
+      if (b.opis) { uszkodzone[k] = b; console.warn('wykres: zapis ' + k + ' uszkodzony (' + b.opis + ', znak ' + b.poz + ') - biorę ' + p.length + ' poprawnych próbek'); }
+      return p;
+    } catch (e) { uszkodzone[k] = { opis: 'zapis nieczytelny', poz: 0, od: null }; return []; }
+  }
   function zapisz(ob, p, sr = 'temp') {
     const k = klucz(ob, sr), txt = JSON.stringify({ v: 2, u: Date.now(), m0: p.length ? p[0][0] : 0, s: koduj(p) });
     try {
@@ -360,7 +391,9 @@
     const st = w.stat;
     q('.wt-s-min').textContent = st ? fmt(st.min) + '°' : '–'; q('.wt-s-max').textContent = st ? fmt(st.max) + '°' : '–'; q('.wt-s-sr').textContent = st ? fmt(st.sr) + '°' : '–';
     q('.wt-s-grz').textContent = st ? Math.floor(st.grzMin / 60) + ':' + String(st.grzMin % 60).padStart(2, '0') + ' h' : '–';
-    const p = seria(otwarte.ob); q('.wt-stopka').textContent = p.length ? 'Historia z tego telefonu od ' + dzien(p[0][0] * MIN) + ' ' + hhmm(p[0][0] * MIN) + ' (' + p.length + ' próbek co minutę, 7 dni).' : '';
+    const p = seria(otwarte.ob), u = uszkodzone[klucz(otwarte.ob)];   /* [Astra 14] uszkodzony zapis - jawnie, nie jako zera */
+    q('.wt-stopka').textContent = (p.length ? 'Historia z tego telefonu od ' + dzien(p[0][0] * MIN) + ' ' + hhmm(p[0][0] * MIN) + ' (' + p.length + ' próbek co minutę, 7 dni).' : '')
+      + (u ? ' Część zapisu w telefonie była uszkodzona (' + u.opis + ')' + (u.od !== null ? ' - pokazuję dane do ' + dzien(u.od * MIN) + ' ' + hhmm(u.od * MIN) : ' - pominięta') + '.' : '');
   }
 
   /* NAZWA OBIEGU W TYTULE [Tomasz 28.09: „przy 1 obiegu nie piszemy obieg 1; jak są 2 obiegi, to piszemy jakie, np.
@@ -425,6 +458,7 @@
      rysunek, przenikanie trwa dalej), nową budujemy tylko przy pierwszym wejściu albo zmianie obiegu.
      Przeniesienie dzieje się w tym samym zadaniu co przebudowa, więc przeglądarka nie rysuje klatki bez karty. */
   window.WYKRES = {
+    _dekoduj: dekoduj,                                       /* [Astra 14] tylko dla testu offline (_test_dekoder14.html) */
     osadz(kont, ob) {
       ob = typeof ob === 'number' ? ob : (ostatnie ? ostatnie.ob : 0);
       if (otwarte && otwarte.osadzona && otwarte.ob === ob) { if (otwarte.el.parentNode !== kont) kont.appendChild(otwarte.el); return; }
