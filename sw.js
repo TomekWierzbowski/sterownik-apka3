@@ -6,54 +6,53 @@
    klient i TEST2 siedzą pod jednym origin (GitHub Pages), więc filtr „wszystko poza moją wersją"
    kasował cache drugiej apki i zostawiał ją bez plików do startu offline (zmierzone przez Astrę). */
 const RODZINA = 'test3-basen-hmi-';
-const WERSJA = RODZINA + 'e9a1e01694';
+const WERSJA = RODZINA + '81f648f4ab';
 const PLIKI = ['./', './index.html', './hmi.html', './most_js.js', './mqtt.min.js', './paho_na_mqttjs.js', './wykres_temp.js',
                './manifest.webmanifest', './ikona-192.png', './ikona-512.png', './ikona-maskable-512.png'];
+/* [Astra 15, 29.09.2026] SPÓJNY PAKIET, OKREŚLONY EKRAN, DANE BEZ PAMIĘCI
+   WEJŚCIA:  żądania GET tej strony; pamięć TEJ wersji (WERSJA); sieć.
+   CO Z CZEGO WYNIKA:
+     - pliki aplikacji (strona, skrypty, manifest, ikony) idą z pamięci WŁASNEJ wersji - komplet z jednego wydania.
+       Dawniej: sieć najpierw, a przy limicie czasu kopia z DOWOLNEJ pamięci (caches.match szuka we wszystkich) -
+       hmi.html z serwera mógł trafić na most_js.js z poprzedniej wersji. Nowa wersja przychodzi CAŁA: nowy SW
+       instaluje pełny zestaw (z pominięciem pamięci HTTP - GitHub Pages trzyma pliki 10 min), przejmuje stronę,
+       a strona przeładowuje się w tle (nagłówek hmi.html);
+     - kopii brak -> sieć z limitem: odpowiedź 2xx trafia do pamięci; błąd HTTP (np. 503), brak sieci albo sieć
+       wisząca dłużej niż SIEC_MAX_MS = strona „nie mogę się teraz uruchomić” z przyciskiem (nawigacja) albo
+       błąd pobrania (skrypt) - nigdy wieczne logo i nigdy strona błędu serwera zamiast działającej kopii;
+     - WSZYSTKO INNE (dane, telemetria, komendy, cudze hosty, broker wss) - bez udziału SW: nie z pamięci
+       i nie do pamięci. Cache strony nie może udawać świeżych danych ani wykonanej komendy.
+   WYJŚCIA:  odpowiedź dla strony. */
+const SIEC_MAX_MS = 8000;
+const PAKIET = /\.(html|js|webmanifest|png|svg|ico)$/;
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(WERSJA).then(c => c.addAll(PLIKI)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(WERSJA).then(c => c.addAll(PLIKI.map(p => new Request(p, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== WERSJA && k.startsWith(RODZINA)).map(k => caches.delete(k))))
               .then(() => self.clients.claim()));
 });
+const nieUruchomie = powod => new Response(
+  '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+  '<title>Basen HMI</title><body style="font:16px system-ui;background:#eef1f4;color:#111;padding:24px">' +
+  '<h2 style="margin:0 0 12px">Aplikacja nie może się teraz uruchomić</h2>' +
+  '<p>' + powod + ', a w telefonie nie ma jeszcze zapisanej kopii tej wersji.</p>' +
+  '<p>Sprawdź zasięg i spróbuj ponownie.</p>' +
+  '<button onclick="location.reload()" style="font:inherit;padding:10px 18px">Spróbuj ponownie</button></body>',
+  { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 self.addEventListener('fetch', e => {
   const u = new URL(e.request.url);
   if (e.request.method !== 'GET' || u.origin !== location.origin) return;   // broker (wss) i obce hosty - bez udziału SW
-  /* ⚠ STRONY I SKRYPTY: NAJPIERW SIEĆ [2026-09-09, Tomasz: „mam starą wersję, nie odświeża"].
-     Pierwsza wersja była cache-first i telefon utykał na starych plikach mimo nowej wersji
-     na serwerze. Teraz: gdy jest zasięg — świeży plik (i odśwież kopię offline); bez zasięgu —
-     z pamięci. Ikony/manifest/Paho zostają cache-first (nie zmieniają się, oszczędza transfer). */
-  const swiezy = e.request.mode === 'navigate' || /\.(html|js|webmanifest)$/.test(u.pathname);
-  if (swiezy) {
-    /*  ⛔ SIEC MA LIMIT CZASU [2026-09-13, Tomasz: „pwa nie startuje, staje na logo"]
-        Pierwsza wersja robila `fetch(...).catch(kopia z pamieci)`. `catch` lapie BLAD, ale NIE lapie
-        ZAWIESZENIA: gdy telefon ma zasieg, a transmisja nie idzie (slabe LTE, przeskok WiFi/LTE,
-        sprawdzanie logowania w hotspocie), `fetch` nie odrzuca przez dlugie sekundy - i apka stoi na
-        logo, MIMO ZE ma komplet plikow w pamieci. Nie ma gorszego przypadku niz aplikacja, ktora
-        nie startuje, chociaz wszystko ma.
-        Teraz siec sciga sie z licznikiem: po SIEC_LIMIT_MS oddajemy kopie z pamieci i apka rusza.
-        ⚠ Swiezosc NIE GINIE: odpowiedz z sieci, gdy w koncu przyjdzie, i tak nadpisuje kopie, wiec
-        nastepny start jest juz nowy. Przy sprawnym laczu (kilkadziesiat ms) licznik nie zdazy
-        wystrzelic i dziala dokladnie tak, jak dotad [D-289: „mam stara wersje, nie odswieza"]. */
-    const SIEC_LIMIT_MS = 2500;
-    e.respondWith(new Promise(res => {
-      let dano = false;
-      const daj = o => { if (!dano && o) { dano = true; res(o); } };
-      const zPamieci = () => caches.match(e.request, { ignoreSearch: true }).then(daj);
-      const licznik = setTimeout(zPamieci, SIEC_LIMIT_MS);
-      fetch(e.request).then(odp => {
-        clearTimeout(licznik);
-        if (odp && odp.ok) { const kopia = odp.clone(); caches.open(WERSJA).then(c => c.put(e.request, kopia)); }
-        daj(odp);
-      }).catch(() => {
-        clearTimeout(licznik);
-        zPamieci().then(() => { if (!dano) { dano = true; res(Response.error()); } });
-      });
-    }));
-  } else {
-    e.respondWith(caches.match(e.request, { ignoreSearch: true }).then(r => r || fetch(e.request).then(odp => {
-      if (odp && odp.ok) { const kopia = odp.clone(); caches.open(WERSJA).then(c => c.put(e.request, kopia)); }
-      return odp;
-    })));
-  }
+  const nawigacja = e.request.mode === 'navigate';
+  if (!nawigacja && !PAKIET.test(u.pathname)) return;                        // dane i reszta - wprost do sieci
+  e.respondWith(caches.open(WERSJA).then(c => c.match(e.request, { ignoreSearch: true })).then(kopia => kopia || new Promise(res => {
+    let dano = false;
+    const daj = o => { if (!dano) { dano = true; res(o); } };
+    const limit = setTimeout(() => daj(nawigacja ? nieUruchomie('Serwer aplikacji nie odpowiada') : Response.error()), SIEC_MAX_MS);
+    fetch(e.request).then(odp => {
+      clearTimeout(limit);
+      if (odp && odp.ok) { const k = odp.clone(); caches.open(WERSJA).then(c => c.put(e.request, k)); daj(odp); return; }
+      daj(nawigacja ? nieUruchomie('Serwer aplikacji odpowiedział błędem ' + (odp ? odp.status : '?')) : Response.error());
+    }).catch(() => { clearTimeout(limit); daj(nawigacja ? nieUruchomie('Brak połączenia z serwerem aplikacji') : Response.error()); });
+  })));
 });

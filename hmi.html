@@ -1162,14 +1162,15 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = 'e9a1e01694';
+window.APKA_WERSJA = '81f648f4ab';
 window.APKA_KLUCZ = 'test3:';
 if ('serviceWorker' in navigator) { var _odsw = false;
   document.addEventListener('visibilitychange', function () { if (document.visibilityState !== 'visible') return;
     navigator.serviceWorker.getRegistration().then(function (r) { if (r) { try { r.update(); } catch (e) {} } }).catch(function () {}); });
-  var _reloadWTle = false;
-  navigator.serviceWorker.addEventListener('controllerchange', function () { if (_odsw) return; if (document.visibilityState === 'visible') { _reloadWTle = true; return; } _odsw = true; location.reload(); });
-  document.addEventListener('visibilitychange', function () { if (_reloadWTle && document.visibilityState !== 'visible' && !_odsw) { _odsw = true; location.reload(); } });
+  var _reloadWTle = false, _tloZegar = null;
+  var _przeladuj = function () { if (_odsw || document.visibilityState === 'visible') return; if (window.MOST_JS && MOST_JS.zajety && MOST_JS.zajety()) { _tloZegar = setTimeout(_przeladuj, 10000); return; } _odsw = true; location.reload(); };
+  navigator.serviceWorker.addEventListener('controllerchange', function () { if (_odsw) return; _reloadWTle = true; if (document.visibilityState !== 'visible') _tloZegar = setTimeout(_przeladuj, 30000); });
+  document.addEventListener('visibilitychange', function () { if (!_reloadWTle || _odsw) return; clearTimeout(_tloZegar); if (document.visibilityState !== 'visible') _tloZegar = setTimeout(_przeladuj, 30000); });
   navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (r) { try { r.update(); } catch (e) {} }).catch(function () {}); }
 </script>
 <meta name="apple-mobile-web-app-capable" content="yes">

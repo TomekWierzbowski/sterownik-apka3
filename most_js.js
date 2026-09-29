@@ -647,6 +647,8 @@
         POMIAR W APCE (C6): czas komenda→wynik i komenda→pierwsza paczka zmian po nim idą do dziennika
         („PRZEZ CHMURĘ" na pasku) i do M.pomiar - żeby wiedzieć, jak jest NA TELEFONIE, nie na PC. */
     const oczekuja = new Map(); let idLicz = Math.floor(Math.random() * 9e5) * 1000;
+    /* [Astra 15] czy apka czeka na wynik komendy - wtedy przeładowanie po aktualizacji (nagłówek hmi.html) czeka */
+    M.zajety = () => oczekuja.size > 0 || czekaWynik !== null;
     const nowyId = () => ++idLicz;
     M.pomiar = { wynik_ms: null, zmiana_ms: null, ile: 0 };
     let czekamZmiany = null;              /* {t0, co} - pierwsza paczka zm/blok po komendzie = jej skutek */
