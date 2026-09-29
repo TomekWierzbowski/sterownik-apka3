@@ -1162,7 +1162,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = 'a48a492241';
+window.APKA_WERSJA = 'f3f6bad6a1';
 window.APKA_KLUCZ = 'test3:';
 if ('serviceWorker' in navigator) { var _odsw = false;
   document.addEventListener('visibilitychange', function () { if (document.visibilityState !== 'visible') return;
@@ -1659,7 +1659,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-09-28 08:13';
+window.HMI_ZBUDOWANO = '2026-09-28 08:23';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -2089,6 +2089,23 @@ window.HMI_ZBUDOWANO = '2026-09-28 08:13';
                                                      'i wysokiego ciśnienia wyłączone'],
     ['asonda','Awaria sondy poziomu',
       'Funkcje dolewania, suchobiegu i płukanie filtra zablokowane']];
+  /* „POMPA TEŻ ZATRZYMANA” PRZY USZKODZONYM CZUJNIKU [D-503, Tomasz 2026-09-28; zasada 10]
+     WEJŚCIA:  window.DUO_REAKCJA ({sonda, cisn}: 0 pompa pracuje dalej, 1 zatrzymanie) ze świata
+               sterownika - nastawy 4520+3 i 4600+5 obiegu DUO_REAKCJA_OB.
+     CO Z CZEGO WYNIKA: stały tekst alarmu mówi, co staje ZAWSZE; o pompie mówimy tylko wtedy, gdy
+               naprawdę stoi (nastawa „zatrzymanie pompy”) i tylko dla obiegu, którego nastawy znamy -
+               ta sama reguła i te same słowa co panel (hmi_modbus.c: HMI_SONDA/CISN_STOP_POD).
+               Bez sterownika (makieta sama) - cisza: dopisek wypisany na ślepo byłby fałszywy.
+     WYJŚCIA:  dopisek do treści alarmu albo ''. */
+  const POMPA_STOP_TXT = {
+    asonda: 'Pompa filtracyjna też zatrzymana — tak ustawiono reakcję na uszkodzenie sondy w menu serwisowym „dolewanie i sonda poziomu”',
+    amano:  'Pompa filtracyjna też zatrzymana — tak ustawiono reakcję na uszkodzenie czujnika w menu serwisowym „pomiar ciśnienia”'};
+  const pompaStoiDopisek = (k, suf) => {
+    const r = window.DUO_REAKCJA;
+    if (!POD_STER || !r || !POMPA_STOP_TXT[k]) return '';
+    if ((suf === '_b' ? 0 : 1) !== (window.DUO_REAKCJA_OB | 0)) return '';
+    return (k === 'asonda' ? r.sonda : r.cisn) === 1 ? '. ' + POMPA_STOP_TXT[k] : '';
+  };
   /* DOZOWANIE: przekroczony czas WSTRZYMUJE dozowanie -> kwitowanie przyciskiem */
   const AL_DOZ = [
     ['dozph', 'Dozowanie pH — przekroczony czas',    'Dozowanie wstrzymane. Sprawdź zapas chemii i pompkę'],
@@ -2525,7 +2542,7 @@ window.HMI_ZBUDOWANO = '2026-09-28 08:13';
       .forEach(([suf,src])=>{
       PAR_AL.concat(AL_CZUJ).concat(AL_PRED).concat(AL_INNE).forEach(([k,tyt,tre,ostrz])=>{
         const id = 'c_'+k+suf;
-        if (el(id).checked) w.push({tyt, tre, src, cz:kiedy(id), ostrz:!!ostrz, id});
+        if (el(id).checked) w.push({tyt, tre: tre + pompaStoiDopisek(k, suf), src, cz:kiedy(id), ostrz:!!ostrz, id});
         else { delete ALARM_KIEDY[id]; SKASOWANE.delete(id); }
       });
       /* dozowanie wstrzymane = alarm z przyciskiem kwitowania */
@@ -6062,6 +6079,7 @@ window.HMI_ZBUDOWANO = '2026-09-28 08:13';
       window.DUO_DOLEWKA_PROC = (d.dolewka_proc !== undefined) ? d.dolewka_proc : undefined;   /* p[9] ze sterownika, jak Tab5 */
       if (d.nast && d.nast.pl_ile !== undefined) window.DUO_PL_ILE = d.nast.pl_ile;
       if (d.progiCis)   window.DUO_PROGI_CIS = d.progiCis;
+      if (d.reakcja)  { window.DUO_REAKCJA = d.reakcja; window.DUO_REAKCJA_OB = d.obieg_nr | 0; }   /* [D-503] */
       /* rodzaj układu też pochodzi z nastaw modułu — wskaźnik poziomu
          rysuje się inaczej dla zbiornika przelewowego niż dla skimmera */
       if (d.progiPoz) ust('s_prze_w', !!d.progiPoz.przelew);
@@ -6930,6 +6948,9 @@ const N = {
      ⚠ Przy „pompa pracuje dalej" urwanej sondy nie pilnuje już nic poza
      manometrem — i tylko wtedy, gdy ochrona ciśnieniowa jest włączona. */
   sonda_reakcja:'pracuj',
+  /* REAKCJA NA USZKODZENIE CZUJNIKA CIŚNIENIA [D-503, Tomasz 2026-09-28: „wzorem czujnika poziomu”] -
+     rejestr 4600+obieg·20+5; 'pracuj' = 0 (DOMYŚLNIE), 'stop' = 1. Działa przy 4-20 mA (żywe zero). */
+  cisn_reakcja:'pracuj',
   dol_limit_l:0,                        /* 0 = alarm zużycia nieaktywny */
   dwa_obiegi:false,                     /* DWA obiegi filtracyjne w instalacji [D-135] - w N, bo
                                            inwentarz krecy wariantami bramek wlasnie tutaj */
@@ -7175,6 +7196,9 @@ function pompaStan(){                    /* hierarchia: blokady → HOA */
      zdejmuje tę blokadę tak samo jak w firmware (06_filtration). */
   if (W.awsonda && !SRV_S.obejscie_sonda && N.sonda_reakcja === 'stop')
                               return {on:false, why:'awaria sondy poziomu'};
+  /* [D-503] to samo dla czujnika ciśnienia - obejście manometru zdejmuje blokadę (06_filtration) */
+  if (W.awmano && !SRV_S.obejscie_mano && N.cisn_reakcja === 'stop')
+                              return {on:false, why:'uszkodzony czujnik ciśnienia'};
   if (suchobiegLicz())        return {on:false, why:'suchobieg'};
   if (W.hoa==='zero')         return {on:false, why:'HOA w pozycji „0"'};
   if (W.hoa==='reka')         return {on:true,  why:'HOA — RĘKA'};
@@ -8224,6 +8248,13 @@ function sondaReakcjaPrzelacz(){
   if (window.duoSlij) window.duoSlij();
 }
 
+/* REAKCJA NA USZKODZENIE CZUJNIKA CIŚNIENIA [D-503] - jak sondaReakcjaPrzelacz: przez zapiszZWalidacja
+   (strażnik nastaw), rejestr 4600 + obieg·20 + 5; 0 = pompa pracuje dalej, 1 = zatrzymanie pompy. */
+function cisnReakcjaPrzelacz(){
+  zapiszZWalidacja({ cisn_reakcja: N.cisn_reakcja === 'stop' ? 'pracuj' : 'stop' });
+  if (window.duoSlij) window.duoSlij();
+}
+
 /* ODSTĘP 4 h = TYLKO HARMONOGRAM [Tomasz 2026-08-20: „recznie mozemy plukac
    zawsze, to zbedna komplikacja"]. Nota mowila wczesniej o „minimalnym
    odstepie miedzy plukaniami" bez wskazania zrodla - serwis mogl z tego
@@ -8319,6 +8350,13 @@ function ekrCisn(){
           faktycznie trzyma, sekcja z przyciskiem wraca (to jedyna droga
           wyjścia — patrz też banner na ekranie serwisu). B.4g: zero
           pustych ramek. */''}
+    ${/* USZKODZENIE CZUJNIKA [D-503, Tomasz 2026-09-28: „wzorem czujnika poziomu trzeba zrobić tak samo”]:
+          wybór zachowania pompy przy uszkodzonym przetworniku - jak „Reakcja na uszkodzenie sondy poziomu”.
+          Alarm uszkodzenia jest niekwitowalny i gaśnie sam (obejście manometru albo powrót pomiaru). */''}
+    <div class="grupka" data-lv="g">USZKODZENIE CZUJNIKA CIŚNIENIA</div>
+    <div class="mrow" data-lv="c.cisn_reakcja" onclick="cisnReakcjaPrzelacz()">
+      <span class="t">Reakcja na uszkodzenie czujnika ciśnienia<i>działa przy czujniku 4–20 mA; obejście manometru zdejmuje zatrzymanie</i></span>
+      <span class="w">${N.cisn_reakcja==='stop'?'zatrzymanie pompy':'pompa pracuje dalej'}</span><span class="ch">›</span></div>
     ${W.zatrzask
       ? `<div class="grupka" data-lv="g">WYJŚCIE Z ZATRZASKU</div>
          <div class="alarmuje" data-lv="alarmuje"><b>Zatrzask trzyma:</b> ${W.zatrzask===1?'ciśnienie za niskie':'ciśnienie za wysokie'}.</div>

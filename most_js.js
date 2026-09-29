@@ -45,6 +45,7 @@
     [24, 'pl_ile', 1, 'l'], [25, 'pl_blokuj', 1, 'b'], [26, 'pl_wid_min', 1, 'l'],
     [27, 'pl_wid_max', 1, 'l'], [28, 'cA_prog', 100.0, 'l'], [29, 'cA_min', 1, 'l'],
     [30, 'cB_prog', 100.0, 'l'], [31, 'cC_prog', 100.0, 'l'], [32, 'cC_min', 1, 'l'],
+    [33, 'cisn_reakcja', 1, ['pracuj', 'stop']],   /* [D-503] 4600+5 - reakcja na uszkodzenie czujnika cisnienia */
     [34, 'kal_poz_zak', 1, 'l'], [35, 'kal_cis_zak', 100.0, 'l'],
     [36, 'kal_temp_kor', 10.0, 'z'], [37, 'grz_hist', 10.0, 'l'],
     [38, 'kal_poz_off', 1, 'z'], [39, 'kal_cis_off', 100.0, 'z'],
@@ -320,6 +321,9 @@
                   przelew: !!nastOb(o, 9, 0) },
       progiCis: { min: nastOb(o, 28) / 100.0, ostrz: nastOb(o, 31) / 100.0, kryt: nastOb(o, 30) / 100.0,
                   zak: (nastOb(o, 35) || 600) / 100.0 },
+      /* [D-503] reakcje na uszkodzenie czujnikow (0 pompa pracuje dalej, 1 zatrzymanie) - hala dopisuje przy
+         alarmie „pompa też zatrzymana”, jak panel (hmi_modbus.c). Jak most.py. */
+      reakcja: { sonda: nastOb(o, 3, 0), cisn: nastOb(o, 33, 0) },
       nast: { pl_dolewka: !!nastOb(o, 23, 0), pl_ile: nastOb(o, 24, 0), pl_blokuj: !!nastOb(o, 25, 0),
               pl_wstepna: nastOb(o, 20, 10), pl_koncowa: nastOb(o, 22, 10) },
       limit_wody: 0,
@@ -635,7 +639,7 @@
         PIN: pytamy raz, gdy sterownik odpowie kodem 3 (rejestr serwisowy),
         i trzymamy do zamknięcia karty. Klient (temperatura, grzanie, światło,
         atrakcje) nigdy o PIN nie jest pytany. */
-    let pinSerwis = null, czekaWynik = null;
+    let pinSerwis = null, czekaWynik = null, czekaWynikPref = null;   /* [PWA-7] wynik bez id: tylko od sterownika, ktorego pytalismy */
     /*  ID KOMENDY [D-289, audyt 3.8]: `wynik` nie mówił, na którą komendę odpowiada - dwie szybkie komendy
         i pierwsza dostawała „nie potwierdził w 5 s". Każda komenda niesie `id=`, sterownik odsyła je
         w `wynik` (i odsiewa powtórki - druga droga/dup QoS1 nie przestawia kanału dwa razy). Mapa
@@ -719,6 +723,9 @@
         const q = new URLSearchParams(s.slice(s.indexOf('?') + 1)); const kat = q.get('kat') || 'zdarzenia';
         const odp = o => new Response(JSON.stringify(o), { status: 200, headers: { 'Content-Type': 'application/json' } });
         if (!wybrany || !klGot(wybrany)) return Promise.resolve(odp({ karta: null, pliki: [] }));
+        /*  [PWA-6, Astra 13] NOWA PROSBA KONCZY POPRZEDNIA - wynikiem „zastapiona", nie porzuceniem (porzucona
+            obietnica = ekran na zawsze „odswiezam…"). */
+        if (czekaPliki) { const st = czekaPliki; czekaPliki = null; clearTimeout(st.t); st.res(odp({ karta: null, pliki: [], blad: 'prośba zastąpiona nowszą' })); }
         return new Promise(res => { czekaPliki = { kat, res, pref: wybrany, t: setTimeout(() => { if (czekaPliki && czekaPliki.res === res) { czekaPliki = null; res(odp({ karta: null, pliki: [] })); } }, 8000) }; oglos('pliki:' + kat); }).then(r => r);
       }
       if (s.startsWith('/okres')) {               /* zdarzenia z okresu [D-298]: kawałki aż dalej=0 */
@@ -738,6 +745,10 @@
       if (s.startsWith('/plik?')) {
         const q = new URLSearchParams(s.slice(s.indexOf('?') + 1)); const kat = q.get('kat') || 'zdarzenia', nazwa = q.get('nazwa') || '', json = q.get('json') === '1';
         if (!wybrany || !klGot(wybrany) || !nazwa) return Promise.resolve(new Response(JSON.stringify({ blad: 'brak połączenia' }), { status: 200 }));
+        /*  [PWA-6, Astra 13] drugie pobranie w trakcie pierwszego: pierwsze konczy sie bledem „zastapione" -
+            dawniej `czekaPlik` byl po prostu nadpisywany, a obietnica pierwszego nie rozwiazywala sie nigdy. */
+        if (czekaPlik) { const st = czekaPlik; czekaPlik = null; clearTimeout(st.t);
+                         st.res(new Response(JSON.stringify({ blad: 'prośba zastąpiona nowszą' }), { status: 200 })); }
         return new Promise(res => {
           czekaPlik = { kat, nazwa, od: 0, tekst: '', res, json, t: null, pref: wybrany };
           const nastepny = () => { oglos('plik:' + kat + '/' + nazwa + ':' + czekaPlik.od);
@@ -763,7 +774,7 @@
         const msg = new Paho.Message(tresc); msg.destinationName = wybrany + '/komenda'; msg.qos = 1;
         const kk = klGot(wybrany);   /* [D-313] brokerem, którym ten obiekt nadaje; mógł paść między sprawdzeniem a wysyłką */
         if (!kk) { res({ ok: false, opis: 'brak połączenia z brokerem' }); return; }
-        oczekuja.set(id, { res, t0, co: coTxt }); czekaWynik = res;
+        oczekuja.set(id, { res, t0, co: coTxt, pref: wybrany }); czekaWynik = res; czekaWynikPref = wybrany;   /* [PWA-7] {sterownik, id} */
         czekamZmiany = { t0, co: coTxt };
         kk.send(msg);
         setTimeout(() => { if (oczekuja.has(id)) { oczekuja.delete(id); if (czekaWynik === res) czekaWynik = null;
@@ -820,6 +831,9 @@
         ⚠ Gdy ta sama kategoria pyta drugi raz, STARA prosbe konczymy bledem zamiast ja porzucac -
         porzucona obietnica to zawieszony ekran, a blad ma przynajmniej przycisk „odswiez". */
     const czekaOkres = Object.create(null);
+    /*  BEZPIECZNIK STRON JEDNEJ PROSBY [PWA-6, 29.09]: dziennik tygodnia to kilkadziesiat stron; 300 to zapas,
+        ktory nigdy nie zatrzyma prawdziwej prosby, a zatrzyma kazda petle. */
+    const OKRES_MAX_STRON = 300;
     let prosZdOst = 0;
     /* prośba o pamięć zdarzeń (RAM sterownika); przed połączeniem NIE liczy się jako próba - inaczej wstępne wczytanie
        ze startu apki (D-308) przepadało i dziennik czekał 15 s na kolejną */
@@ -1261,8 +1275,11 @@
       }
       if (rodzaj === 'pliki') {                     /* lista plików z karty [D-297]: "#kat\nnazwa;rozmiar\n..." albo "!brak karty" */
         if (!czekaPliki || czekaPliki.pref !== cz.slice(0, -1).join('/')) return;   /* tylko od pytanego sterownika [2026-09-26] */
-        const c = czekaPliki; czekaPliki = null; clearTimeout(c.t);
         const l = m.payloadString.split('\n').filter(x => x.trim()); const brak = l.some(x => x[0] === '!');
+        /*  [PWA-6] odpowiedz o INNEJ kategorii (spozniona po zastapieniu) nie konczy biezacej prosby */
+        const katOdp = (l[0] && l[0][0] === '#') ? l[0].slice(1).trim() : null;
+        if (katOdp !== null && katOdp !== czekaPliki.kat) return;
+        const c = czekaPliki; czekaPliki = null; clearTimeout(c.t);
         const pliki = l.filter(x => x[0] !== '#' && x[0] !== '!').map(x => { const [nazwa, rozmiar] = x.split(';'); return { nazwa, rozmiar: +rozmiar }; }).sort((a, b) => a.nazwa < b.nazwa ? 1 : -1);
         c.res(new Response(JSON.stringify({ karta: !brak, pliki }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
         return;
@@ -1278,22 +1295,44 @@
             konczyla prosbe zadana warsztatowi i jej wiersze szly do tabeli warsztatu. Ten sam blad co przy
             `zapas` (tam naprawiony wczesniej warunkiem `pref !== wybrany`). */
         if (c.pref !== cz.slice(0, -1).join('/')) return;
+        /*  ⛔ ODPOWIEDZ MUSI BYC NA PROSBE, KTORA JEST W DRODZE: od, do i kursor [PWA-6, Astra 02/13, 29.09]
+            ------------------------------------------------------------
+            WEJSCIA:  naglowek „#kat;od;do;pomin;n;dalej;nast" (sterownik odsyla pola prosby bez zmian,
+                      21_karta_sd.h) i prosba w drodze `c` (od, dok, poz).
+            CO Z CZEGO WYNIKA: tylko odpowiedz z tymi samymi od/do/pomin dopisuje linie, zatrzymuje licznik
+                      czasu i prosi o nastepna strone. Duplikat z drugiego brokera (sterownik nadaje
+                      odpowiedz na WSZYSTKIE drogi) albo spozniona strona nie zmienia NICZEGO.
+            WYJSCIA:  kolejna prosba albo rozwiazana obietnica.
+            ⛔ DLACZEGO: dawniej `c.nastepny()` szlo takze po odpowiedzi, ktora nie pasowala - kazdy duplikat
+            dokladal prosbe o strone, ktora juz byla w drodze, i liczba prosb PODWAJALA SIE co strone.
+            28.09 21:35 trzy apki wyslaly po 256 = 2^8 prosb w minute, a sterownik warsztatu dwa razy
+            zatrzymal strażnik rdzenia 0 (dowody/2026-09-28, paczka 02). */
+        if (+nag[1] !== c.od || +nag[2] !== c.dok || +nag[3] !== c.poz) return;
         clearTimeout(c.t);
         const n = +nag[4], dalej = +nag[5], nast = +nag[6] || 0;
         if (n < 0) { delete czekaOkres[c.kat]; c.res(new Response(JSON.stringify({ blad: 'brak karty' }), { status: 200 })); return; }
-        if (+nag[3] === c.poz) { c.linie = c.linie.concat(m.payloadString.slice(nl + 1).split('\n').filter(x => x.trim())); c.poz = nast; }
-        if (dalej && nast) { c.nastepny(); return; }
+        c.linie = c.linie.concat(m.payloadString.slice(nl + 1).split('\n').filter(x => x.trim()));
+        c.strony = (c.strony || 0) + 1;
+        /*  kursor MUSI isc naprzod (ten sam = sterownik stoi w miejscu) i stron jest skonczenie wiele -
+            bezpiecznik na wypadek bledu po drugiej stronie; ucieta odpowiedz mowi o tym wprost */
+        if (dalej && nast && nast !== c.poz && c.strony < OKRES_MAX_STRON) { c.poz = nast; c.nastepny(); return; }
+        if (dalej && nast) zapisz('okres ' + c.kat + ': zatrzymane po ' + c.strony + ' stronach (kursor ' + nast + ')');
         delete czekaOkres[c.kat];
         c.res(new Response(JSON.stringify({ kat: c.kat, od: c.od, do: c.dok, linie: c.linie }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
         return;
       }
       if (rodzaj === 'plik') {                      /* kawałek pliku: "#kat/nazwa;rozmiar;od;n\n<linie>" */
         if (!czekaPlik || czekaPlik.pref !== cz.slice(0, -1).join('/')) return;   /* tylko od pytanego sterownika [2026-09-26] */
-        const c = czekaPlik; clearTimeout(c.t);
+        const c = czekaPlik;
         const nl = m.payloadString.indexOf('\n'); const nag = m.payloadString.slice(1, nl).split(';');
         const rozmiar = +nag[1], od = +nag[2], n = +nag[3]; const dane = m.payloadString.slice(nl + 1);
+        /*  [PWA-6, Astra 13] kawalek MUSI byc tego pliku (kat/nazwa z naglowka) i z tego miejsca (offset) -
+            sprawdzone PRZED licznikiem czasu i buforem. Odpowiedz A.csv nie konczy pobierania B.csv, a duplikat
+            z drugiego brokera nie prosi drugi raz o ten sam kawalek (ta sama petla co przy `okres`). */
+        if (nag[0] !== c.kat + '/' + c.nazwa || od !== c.od) return;
+        clearTimeout(c.t);
         if (n < 0) { czekaPlik = null; c.res(new Response(JSON.stringify({ blad: 'brak pliku albo karty' }), { status: 200 })); return; }
-        if (od === c.od) { c.tekst += dane; c.od = od + n; }
+        c.tekst += dane; c.od = od + n;
         if (n > 0 && c.od < rozmiar) { c.nastepny(); return; }
         czekaPlik = null;
         if (c.json) c.res(new Response(JSON.stringify({ kat: c.kat, nazwa: c.nazwa, linie: c.tekst.split('\n').filter(x => x.trim()) }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
@@ -1323,17 +1362,23 @@
         return;
       }
       if (rodzaj === 'wynik') {
+        /*  [PWA-7, Astra 13] WYNIK = PARA {sterownik, id}, TYLKO SWIEZY.
+            - retained to wynik zastany (sprzed subskrypcji) - nigdy odpowiedz na biezaca komende;
+            - ten sam numer id od INNEGO sterownika (konto serwisowe slucha kilku) nie jest nasz;
+            - wynik bez id (starsze firmware) konczy komende tylko od sterownika, ktorego pytalismy. */
+        if (m.retained) return;
+        const prefW = cz.slice(0, -1).join('/');
         let w = {}; try { w = JSON.parse(m.payloadString); } catch (e) { w = { kod: 1, opis: m.payloadString }; }
         const r = { ok: w.kod === 0, kod: w.kod, opis: w.opis || (w.kod === 0 ? 'wykonano' : 'odmowa') };
         if (w.id != null) {
           const p = oczekuja.get(w.id);
-          if (!p) return;                                  /* cudza komenda albo powtórka wyniku (dwie drogi) */
+          if (!p || p.pref !== prefW) return;              /* cudza komenda, inny sterownik albo powtórka wyniku (dwie drogi) */
           oczekuja.delete(w.id); if (czekaWynik === p.res) czekaWynik = null;
           const ms = Date.now() - p.t0; M.pomiar.wynik_ms = ms; M.pomiar.ile++;
           zapisz('wynik ' + p.co + ': ' + ms + ' ms' + (w.kod ? ' kod ' + w.kod : ''));
           p.res(r); return;
         }
-        if (czekaWynik) { const f = czekaWynik; czekaWynik = null; f(r); }
+        if (czekaWynik && czekaWynikPref === prefW) { const f = czekaWynik; czekaWynik = null; f(r); }
         return;
       }
       if (rodzaj === 'zm') {
@@ -1946,7 +1991,7 @@
         else if (r.kod === 3) res('zle');
         else res(r.opis || 'sterownik nie przyjął PIN-u');
       };
-      oczekuja.set(id, { res: mój, t0: Date.now(), co: 'PIN' }); czekaWynik = mój;
+      oczekuja.set(id, { res: mój, t0: Date.now(), co: 'PIN', pref: wybrany }); czekaWynik = mój; czekaWynikPref = wybrany;   /* [PWA-7] */
       const kk = klGot(wybrany); if (!kk) { res('brak połączenia z brokerem'); return; }
       kk.send(msg);
       setTimeout(() => { if (oczekuja.has(id)) { oczekuja.delete(id); if (czekaWynik === mój) czekaWynik = null; res('sterownik nie odpowiedział w 5 s'); } }, 5000);
