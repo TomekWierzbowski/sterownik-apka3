@@ -185,8 +185,13 @@
       const i = s.lastIndexOf(':');
       if (i > 0 && /^\d+$/.test(s.slice(i + 1))) return { host: s.slice(0, i), port: +s.slice(i + 1) };
       return { host: s, port: domyslny || (/emqxsl\.com$/i.test(s) ? 8084 : 8884) }; };
-    let gotowe = false;
-    const koniec = (ok, txt) => { if (gotowe) return; gotowe = true; el('idz').disabled = false;
+    /*  [Astra T01, 30.09.2026] PÓŹNY SUKCES WYGRYWA. Drzwi mają sztywne 9 s, a nakładka apki T3 przy nieudanym
+        QUIC próbuje potem WSS (najgorzej 4 + 7 = 11 s). Połączenie w 10. sekundzie trafiało w zamknięte już
+        „żaden serwer nie odpowiada” i było ignorowane - klient na słabym zasięgu widział porażkę, choć sieć działała
+        (test Astry audyt-offline.cjs T01 odtwarzał to jeszcze na 70e2efd3c9). Teraz: porażka pokazuje się po 9 s jak
+        dotąd, ale sukces, który przyjdzie później, zmienia komunikat i otwiera HMI. Po sukcesie nic już go nie cofa. */
+    let gotowe = false, udane = false;
+    const koniec = (ok, txt) => { if (udane || (gotowe && !ok)) return; gotowe = true; if (ok) udane = true; el('idz').disabled = false;
       stan.className = 'stan ' + (ok ? 'ok' : 'zle'); stan.textContent = txt;
       if (ok) { const serwis = el('serw').checked;
                 const host2 = el('host2').value.trim(), user2 = el('user2').value.trim(), pass2 = el('pass2').value;
