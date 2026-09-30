@@ -11,6 +11,8 @@
  *       nastawa_na_rejestr, akc, wycisz-alarmy, ustaw-czas)
  *   [5] klient AP: /blok.txt co 1 s, /rej co 10 s, /cmd?adr=;
  *       podaje pakiety makiecie i przechwytuje fetch('/cmd?co=...')
+ *   [5a] trwa edycja: wspolny znacznik otwartych edytorow makiet -> M.zajety()
+ *       (przeladowanie apki po aktualizacji czeka, karta Astry 15)
  *
  *  [1] PO CO [Tomasz 2026-09-06: „strona na AP - da sie zrobic 1:1 jak
  *  wyglada i dziala most sadzawki?" - „pelne"]. Most (most.py) liczy
@@ -280,6 +282,7 @@
       awOdcQuic: almBit(37), awOdcDziennik: almBit(38),   /* [B.0z-69] */
       awRtcOdczyt: almBit(39),                            /* [D-505] zegar nie odpowiada */
       awWejscia: almBit(40),                              /* [D-506] wejścia nieczytelne - pompy stoją */
+      awNastawyFabr: almBit(41),                          /* [D-507] nastawy fabryczne po odrzuconym zapisie */
       awsonda: alm(2), awmano: alm(4), awtemp: alm(6), awtempBrak: alm(28),
       /* [D-241] alarmy kwitowalne bez klucza - jak most.py */
       awDolew: alm(0), awBwNiesk: alm(12), awZuzycie: alm(19), awPrefill: almBit(o === 0 ? 21 : 32), awWyciek: alm(26),
@@ -574,6 +577,73 @@
   };
   /* wystawione dla makiety: dziennik zdarzeń tłumaczy numer rejestru na etykietę nastawy [D-295] */
   M.nastawaNaRejestr = (klucz, wart, o) => nastawaNaRejestr(klucz, wart, o);
+
+  /* ---------------------------------------------------------- [5a] TRWA EDYCJA
+     [karta Astry 15, luka 9.1-d z ODPOWIEDZ_NA_ROZWOJ_ASTRY.md, 30.09.2026]
+     WEJŚCIA:  źródła edycji zgłoszone przez makiety: `M.edycjaZrodlo(nazwa, czyOtwarty)`, gdzie
+               czyOtwarty() mówi, czy TEN edytor jest w tej chwili otwarty (hala: edytor harmonogramu,
+               pola rezerwy w oknie USTAWIENIA; serwis: edytor nastawy +/- przed ZAPISZ, wpis sieci,
+               zegar, nazwa kanału, nowy PIN);
+               dotknięcia i klawisze w dokumencie = ostatnia czynność człowieka.
+     CO Z CZEGO WYNIKA: edycja TRWA, gdy którekolwiek źródło odpowiada „otwarty" I od ostatniej
+               czynności człowieka minęło mniej niż EDYCJA_WYGASA_MS.
+     WYJŚCIA:  `M.trwaEdycja()` - prawda / fałsz; `M.edycjeOtwarte()` - nazwy otwartych (sondy, testy);
+               `M.zajety()` = trwa edycja ALBO komenda czeka na wynik. O `zajety()` pyta nagłówek
+               hmi.html (zbuduj_pwa.py), zanim przeładuje stronę po aktualizacji service workera -
+               przy „zajęty" ponawia za 10 s.
+
+     PO CO: service worker przeładowuje stronę po 30 s w tle i nie wtedy, gdy komenda czeka na wynik.
+       Edytorów to nie obejmowało: człowiek ustawia okno filtracji (najpierw „od", potem „do") albo
+       kręci nastawę w serwisie przed ZAPISZ, przełącza się na chwilę do innej aplikacji (telefon,
+       hasło z menedżera, zdjęcie tabliczki) - i wraca na ekran główny, bez swojej zmiany.
+
+     ⚠ ŹRÓDŁO JEST PYTANE, A NIE ZGŁASZA SIĘ SAMO. Stan edytora żyje w makiecie (S.ekran, H.edy,
+       wpisane pola) i tylko ona wie, co znaczy „otwarty". Pytamy w chwili decyzji, więc znacznik nie
+       może się rozjechać z ekranem (np. zostać „otwarty" po wyjściu drogą, która zapomniała go zdjąć).
+     ⚠ WYGASANIE PO BEZCZYNNOŚCI, NIE OD OTWARCIA - I ODNAWIA JE TYLKO CZŁOWIEK. Ekran przerysowuje się
+       z każdą paczką ze sterownika (kilka razy na sekundę, także w tle), więc gdyby „jestem otwarty"
+       odnawiało czas, edytor zostawiony w kieszeni blokowałby aktualizację bez końca. Zegar odnawiają
+       wyłącznie dotknięcie i klawisz - nie rysowanie i nie pytanie o stan.
+     ⚠ WYJĄTEK W ŹRÓDLE = ŹRÓDŁO MILCZY (fałsz). Błąd w makiecie nie może zatrzymać aktualizacji,
+       która może go właśnie naprawiać. */
+  /*  ILE BEZCZYNNOŚCI, ZANIM OTWARTY EDYTOR PRZESTAJE WSTRZYMYWAĆ AKTUALIZACJĘ [ms].
+      10 min, bo:
+        1. to ten sam czas, po którym menu serwisowe samo wylogowuje (panel4_serwis.html, auto-logout
+           10 min od ostatniego dotknięcia - wychodzi na start i zamyka edytor) i po którym sklejka nie
+           odtwarza już sesji serwisu (zbuduj_hmi.py, D-225b). Dłuższe czekanie chroniłoby edycję,
+           którą aplikacja i tak uznaje za porzuconą;
+        2. mieści przerwy dłuższe niż 30 s z nagłówka (rozmowa telefoniczna, szukanie hasła, zejście
+           do pompy sprawdzić tabliczkę) - na krótkie przełączenia wystarcza samo 30 s w tle;
+        3. telefon odłożony z otwartym edytorem nie siedzi na starym kodzie godzinami: po 10 min
+           przeładowanie przechodzi przy najbliższym ponowieniu (co 10 s) - ⚠ o ile przeglądarka nie
+           zamroziła strony w tle (Chrome na Androidzie po ~5 min); wtedy przy następnym pobycie w tle. */
+  const EDYCJA_WYGASA_MS = 10 * 60 * 1000;
+  const zrodlaEdycji = new Map();            /* nazwa -> czyOtwarty() */
+  let edycjaOstCzynnosc = Date.now();        /* ostatnie dotknięcie / klawisz człowieka */
+  M.edycjaZrodlo = (nazwa, czyOtwarty) => {
+    if (typeof czyOtwarty === 'function') zrodlaEdycji.set(String(nazwa), czyOtwarty);
+    else zrodlaEdycji.delete(String(nazwa));   /* null = wyrejestruj */
+  };
+  M.edycjeOtwarte = () => {
+    const out = [];
+    zrodlaEdycji.forEach((f, n) => { let t = false; try { t = !!f(); } catch (e) { t = false; } if (t) out.push(n); });
+    return out;
+  };
+  /*  [30.09, przegląd k15] Zegar ścienny może się COFNĄĆ (telefon poprawia czas z sieci) - różnica wychodzi wtedy
+      ujemna i bez `dt >= 0` edycja „trwałaby” do czasu, aż zegar dogoni dawny znacznik. Ujemna = wygasła. */
+  M.trwaEdycja = () => { const dt = Date.now() - edycjaOstCzynnosc;
+    return dt >= 0 && dt < EDYCJA_WYGASA_MS && M.edycjeOtwarte().length > 0; };
+  M.EDYCJA_WYGASA_MS = EDYCJA_WYGASA_MS;     /* do wglądu dla testów i sond, nie do zmiany */
+  /*  Czynność człowieka: tylko zdarzenia, które robi ręka (nie przerysowanie, nie paczka ze sterownika).
+      Faza przechwytywania - zanim ekran zdąży przebudować węzeł, w który trafił palec. */
+  if (typeof document !== 'undefined' && document.addEventListener)
+    ['pointerdown', 'keydown', 'input'].forEach(z =>
+      document.addEventListener(z, () => { edycjaOstCzynnosc = Date.now(); }, true));
+  /*  Komendy czekające na wynik zna tylko klient chmury [6] - podmienia tę funkcję przy starcie.
+      Na AP i pod mostem nie ma service workera, więc zostaje sam znacznik edycji. */
+  let komendyCzekaja = () => false;
+  M.zajety = () => M.trwaEdycja() || komendyCzekaja();
+
   /* ---------------------------------------------------------- [6] KLIENT CHMURY (MQTT)
      [Tomasz 2026-09-08: „a gdyby apka budowała się na podstawie MQTT jak HMI?"]
      WEJŚCIA:  broker po WebSocket TLS (HiveMQ 8884), temat `basen/+/+/blok` -
@@ -649,8 +719,9 @@
         POMIAR W APCE (C6): czas komenda→wynik i komenda→pierwsza paczka zmian po nim idą do dziennika
         („PRZEZ CHMURĘ" na pasku) i do M.pomiar - żeby wiedzieć, jak jest NA TELEFONIE, nie na PC. */
     const oczekuja = new Map(); let idLicz = Math.floor(Math.random() * 9e5) * 1000;
-    /* [Astra 15] czy apka czeka na wynik komendy - wtedy przeładowanie po aktualizacji (nagłówek hmi.html) czeka */
-    M.zajety = () => oczekuja.size > 0 || czekaWynik !== null;
+    /* [Astra 15] czy apka czeka na wynik komendy - wtedy przeładowanie po aktualizacji (nagłówek hmi.html) czeka.
+       [30.09, luka 9.1-d] Druga połowa `M.zajety()` - otwarte edytory - siedzi w [5a]; tu tylko komendy. */
+    komendyCzekaja = () => oczekuja.size > 0 || czekaWynik !== null;
     const nowyId = () => ++idLicz;
     M.pomiar = { wynik_ms: null, zmiana_ms: null, ile: 0 };
     let czekamZmiany = null;              /* {t0, co} - pierwsza paczka zm/blok po komendzie = jej skutek */
@@ -1990,10 +2061,16 @@
       const tSter = zg ? Math.floor(zg.czas + (Date.now() - zg.kiedy) / 1000) : Math.floor(Date.now() / 1000);
       const id = nowyId();
       const msg = new Paho.Message('t=' + tSter + ';id=' + id + ';pin=' + pin); msg.destinationName = wybrany + '/komenda'; msg.qos = 1;
+      /*  [D-510, 30.09] DWA POZIOMY PIN-U: „PIN OK” = serwisowy (menu serwisowe), „PIN OK klient” = PIN obiektu,
+          który otwiera tylko nastawy użytkowe - do menu serwisowego NIE wpuszczamy (zapisy i tak byłyby odrzucane);
+          blokada zgadywania ma własny tekst (zasada 10), a nie „zły PIN”. */
       const mój = r => {
-        if (r.kod === 0) { pinSerwis = pin; res('ok'); }
+        const op = r.opis || '';
+        if (r.kod === 0 && /PIN OK klient/.test(op)) res('to PIN obiektu (klienta) - otwiera tylko nastawy użytkowe; menu serwisowe otwiera PIN serwisowy (6 cyfr)');
+        else if (r.kod === 0) { pinSerwis = pin; res('ok'); }
+        else if (r.kod === 3 && /zablokowany/.test(op)) res('PIN zablokowany po złych próbach - spróbuj za kilkanaście minut');
         else if (r.kod === 3) res('zle');
-        else res(r.opis || 'sterownik nie przyjął PIN-u');
+        else res(op || 'sterownik nie przyjął PIN-u');
       };
       oczekuja.set(id, { res: mój, t0: Date.now(), co: 'PIN', pref: wybrany }); czekaWynik = mój; czekaWynikPref = wybrany;   /* [PWA-7] */
       const kk = klGot(wybrany); if (!kk) { res('brak połączenia z brokerem'); return; }

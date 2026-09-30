@@ -1162,7 +1162,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = 'ca66dec2d5';
+window.APKA_WERSJA = '5746905129';
 window.APKA_KLUCZ = 'test3:';
 if ('serviceWorker' in navigator) { var _odsw = false;
   document.addEventListener('visibilitychange', function () { if (document.visibilityState !== 'visible') return;
@@ -1660,7 +1660,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-09-29 23:43';
+window.HMI_ZBUDOWANO = '2026-09-30 10:38';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -2515,6 +2515,12 @@ window.HMI_ZBUDOWANO = '2026-09-29 23:43';
               tre:'Sterownik nie może odczytać swoich wejść (ekspander wejść albo magistrala I2C), więc nie widzi termika pompy ani przełącznika AUTO-0-RĘKA. Pompy stoją; ruszą same po 10 s poprawnych odczytów — jeśli nie wracają, wezwij serwis',
               src:srcObiekt(), cz:kiedy('c_wejscia')});
     else delete ALARM_KIEDY['c_wejscia'];
+    /* NASTAWY FABRYCZNE (bit 41) [D-507] - tekst jak hmi_teksty.h G13 */
+    if (S.awNastawyFabr)
+      w.push({tyt:'Nastawy fabryczne — zapis odrzucony',
+              tre:'Sterownik nie mógł przyjąć zapisanych nastaw (zapis z innej wersji oprogramowania albo błąd pamięci) i pracuje na nastawach fabrycznych — mogą być wyłączone ochrony ciśnieniowe. Przywróć nastawy z kopii albo ustaw je w serwisie; alarm zgaśnie po zapisie nastaw',
+              src:srcObiekt(), cz:kiedy('c_nastawy_fabr')});
+    else delete ALARM_KIEDY['c_nastawy_fabr'];
     if (S.awTempBrak)
       w.push({tyt:'Czujnik temperatury niewykryty',
               tre:'Na magistrali 1-Wire nigdy go nie było — podłącz czujnik '+
@@ -4203,6 +4209,19 @@ window.HMI_ZBUDOWANO = '2026-09-29 23:43';
         <span class="obj" style="margin:0 auto">${tyt}</span><span style="width:30px"></span></div>
       <div class="edy">${tresc}</div>`;
   }
+
+  /* ===== TRWA EDYCJA HARMONOGRAMU - ŹRÓDŁO DLA ZNACZNIKA W most_js.js ==========
+     [karta Astry 15, luka 9.1-d, 30.09.2026]
+     WEJŚCIA:  S.ekran, H.edy - ten sam warunek, którym render() wybiera ekranEdy().
+     CO Z CZEGO WYNIKA: edytor otwarty (dzień filtracji / trybu cichego, okno od–do, dzień i czas
+       płukania) = człowiek jest w połowie ustawiania: zmiany lecą do sterownika na bieżąco, ale
+       ustawienie okna to kilka kroków („od", potem „do", potem następny dzień). Przeładowanie apki
+       w środku wyrzuciłoby go na ekran główny i kazało szukać miejsca od nowa.
+     WYJŚCIA:  prawda / fałsz. Pyta o to MOST_JS (sekcja [5a] most_js.js) przy decyzji o przeładowaniu
+       po aktualizacji - rejestracja w bloku „MOST W PRZEGLĄDARCE" niżej (musi iść PO most_js.js).
+     ⚠ Temperatura i czas płukania +/- nie potrzebują osobnego źródła: Nastawa wysyła po 220 ms ciszy
+       (dużo przed 30 s w tle), a wysłaną komendę do wyniku pilnuje już `zajety()` w most_js. */
+  function halaEdycjaOtwarta(){ return S.ekran === 'harm' && H.edy !== null; }
 
   /* ============ OKNA NIE MOGĄ NA SIEBIE NACHODZIĆ [D Tomasz 2026-08-09] ==
      Zamiast pilnowac tego komunikatem ("nie mozesz tak ustawic"), system
@@ -6079,6 +6098,7 @@ window.HMI_ZBUDOWANO = '2026-09-29 23:43';
       S.awOdcQuic = !!d.awOdcQuic; S.awOdcDziennik = !!d.awOdcDziennik;   /* [B.0z-69] */
       S.awRtcOdczyt = !!d.awRtcOdczyt;   /* [D-505] zegar DS3231 nie odpowiada (bit 39) */
       S.awWejscia = !!d.awWejscia;       /* [D-506] wejścia sterownika nieczytelne (bit 40) */
+      S.awNastawyFabr = !!d.awNastawyFabr;   /* [D-507] nastawy fabryczne (bit 41) */
       /* ⚠ ZATRZASK AWARII WODNEJ NA EKRAN [2026-09-01]. Panel pokazywał
          go od dawna (AWARIA WODNA + zawór zablokowany), makieta nie znała
          tego stanu w ogóle - a to zatrzask, który ZATRZYMUJE pompę
@@ -6219,6 +6239,12 @@ window.HMI_ZBUDOWANO = '2026-09-29 23:43';
    Tu: bez rodzica, pod http, otwieramy ten sam strumien, co most.html,
    i podajemy pakiety SOBIE przez postMessage - odbior jest jeden. */
 (function(){
+  /*  TRWA EDYCJA [karta Astry 15, 30.09]: edytor harmonogramu zgłaszamy jako źródło znacznika
+      (most_js.js [5a], opis przy halaEdycjaOtwarta). Tutaj, bo dopiero ten blok stoi PO most_js.js
+      - główny skrypt hali wykonuje się, zanim MOST_JS istnieje. PRZED warunkami trybu niżej:
+      znacznik ma działać w każdym trybie, w którym most_js jest załadowany. */
+  if (window.MOST_JS && window.MOST_JS.edycjaZrodlo)
+    window.MOST_JS.edycjaZrodlo('hala: harmonogram', halaEdycjaOtwarta);
   /*  ⚠ TRYB CHMURY (?mqtt=1) SPRAWDZANY PRZED WARUNKIEM RODZICA. Ten tryb jest
       JAWNY - ktos wpisal go w adresie - wiec ma dzialac takze w ramce (portal,
       sonda). Pozostale drogi (most /stan, AP /blok.txt) nadal wymagaja okna
@@ -6383,9 +6409,30 @@ window.HMI_ZBUDOWANO = '2026-09-29 23:43';
             const f = ms => { const x = new Date(ms); return x.toTimeString().slice(0, 8); };
             const txt = dl.slice(-40).map(e => f(e.t) + ' ' + e.txt).join(String.fromCharCode(10));
             if (dz && dz.textContent !== txt) { dz.textContent = txt; dz.scrollTop = dz.scrollHeight; } };
-          const ustPokaz = w => { u.style.display = w ? 'flex' : 'none'; if (w) ustDziennik(); };
+          /*  TRWA EDYCJA W POLACH REZERWY - ŹRÓDŁO ZNACZNIKA most_js.js [5a]  [karta Astry 15, 30.09]
+              WEJŚCIA:  wpisywanie w pola rezerwy (adres, port, użytkownik, hasło); zamknięcie okna;
+                        wynik „Zapisz w sterowniku".
+              CO Z CZEGO WYNIKA: okno otwarte, człowiek coś wpisał, a jeszcze nie zapisał = formularz
+                        w połowie. Hasło rezerwy przepisuje się z innej aplikacji (menedżer haseł, poczta),
+                        więc wyjście z apki na dłużej niż 30 s jest tu normą, nie wyjątkiem.
+              WYJŚCIA:  `ustRezPisze` -> MOST_JS.edycjaZrodlo('hala: ustawienia - rezerwa', ...) niżej.
+              ⚠ NIE „pole niepuste": adres i port wpisuje sama apka jako podpowiedź ze spisu serwerów
+                (`_podpowiedziane`), więc samo otwarcie okna edycją nie jest. Liczy się zdarzenie
+                `input` - przypisanie `.value` z kodu go nie wywołuje, robi je tylko człowiek. */
+          /*  [30.09, przegląd k15] ZAMKNIĘCIE OKNA BEZ ZAPISU = SZKIC PORZUCONY. Okno jest trwałym węzłem DOM,
+              więc wpisane i niezapisane wartości zostawały w polach, a źródło mówiło „nie edytuje” - po ponownym
+              otwarciu formularz udawał, że coś pamięta (i trzymał wpisane hasło w ukrytym polu). Czyścimy
+              TYLKO pola, w które pisał człowiek (`ustRezDotkniete`); podpowiedzi apki (adres, port) zostają. */
+          let ustRezPisze = false;
+          const ustRezDotkniete = new Set();
+          const ustPokaz = w => { u.style.display = w ? 'flex' : 'none'; if (w) { ustDziennik(); return; }
+            ustRezDotkniete.forEach(p => { p.value = ''; }); ustRezDotkniete.clear(); ustRezPisze = false; };
           document.getElementById('chmura-ust').onclick = () => ustPokaz(u.style.display === 'none');
           document.getElementById('ust-zamknij').onclick = () => ustPokaz(false);
+          document.getElementById('ust-rezerwa').addEventListener('input', e => {
+            ustRezPisze = true; if (e.target && 'value' in e.target) ustRezDotkniete.add(e.target); });
+          if (window.MOST_JS && window.MOST_JS.edycjaZrodlo)
+            window.MOST_JS.edycjaZrodlo('hala: ustawienia - rezerwa', () => ustRezPisze && u.style.display !== 'none');
           /*  REZERWA - OBSLUGA PRZYCISKOW [D-412]
               ⚠ KAZDY PRZYCISK GASNIE NA CZAS CZEKANIA. Rozkaz idzie do sterownika i wraca meldunkiem
                 po sekundach (przy `zapas:test` nawet po kilkudziesieciu - sterownik naprawde probuje
@@ -6412,7 +6459,9 @@ window.HMI_ZBUDOWANO = '2026-09-29 23:43';
               czekam('zapisuję w sterowniku…');
               r.ustaw(el('ust-rez-host').value, el('ust-rez-port').value || 8883,
                       el('ust-rez-user').value, el('ust-rez-pass').value)
-               .then(t => { wynik(t); el('ust-rez-pass').value = ''; }); };
+               .then(t => { wynik(t); el('ust-rez-pass').value = '';
+                 /* [30.09] rozkaz wyszedł = formularz załatwiony; odmowa przed wysłaniem = człowiek poprawia dalej */
+                 if (!NIEPOSZLO.test(t)) { ustRezPisze = false; ustRezDotkniete.clear(); } }); };
             /*  SZYFROWANIE WYNIKA Z PORTU, WIEC MOWIMY O TYM PRZY POLU [poprawka po przegladzie].
                 Sterownik nie ma osobnego ptaszka „szyfruj" - liczy `tls = (port == 8883 || 8884)`.
                 Wpisanie 1883 daje polaczenie GOLE i, przy brokerze wymagajacym szyfrowania, cicho
@@ -7140,7 +7189,7 @@ async function pinDoSterownika(pin){
       const r = await window.MOST_JS.sprawdzPin(pin);
       if (r === 'ok')  return 'ok';
       /* kod 3 przychodzi także, gdy sterownik NIE MA ustawionego PIN-u strony (basen 09.09) - mówimy o obu */
-      if (r === 'zle') return 'sterownik odrzucił PIN: zły PIN albo sterownik nie ma ustawionego PIN-u strony (ustawia się przy szafie: serwis → sieć → strona)';
+      if (r === 'zle') return 'sterownik odrzucił PIN: zły PIN serwisowy (6 cyfr) albo - gdy serwisowego jeszcze nie ustawiono - zły PIN obiektu / brak PIN-u strony (ustawia się przy szafie: serwis → sieć → strona) [D-510]';
       return r;                                  /* brak połączenia / timeout — pokaż powód, nie wpuszczaj */
     }
     return 'brak';
@@ -10996,6 +11045,31 @@ function pokazOdmowe(blad){
   /* odmowa łańcucha poza edytorem — krótki alert makiety; w LVGL: pasek */
   alert('Odmowa zapisu — ' + blad + '. Nic się nie zmieniło.');
 }
+
+/* ===== TRWA EDYCJA W SERWISIE - ŹRÓDŁO DLA ZNACZNIKA W most_js.js =======
+   [karta Astry 15, luka 9.1-d, 30.09.2026]
+   WEJSCIA:  ekran serwisu i bufory edytorów: SRV_S.edytowana/SRV_S.eBuf (nastawa +/-), SRV_S.siecEdy (wpis sieci),
+             SRV_S.czasReka (zegar przestawiony, jeszcze bez USTAW ZEGAR), AKC_NAZ_EDYT (pole nazwy kanału),
+             SRV_S.pinNowy (nowy PIN po pierwszym kroku).
+   CO Z CZEGO WYNIKA: każdy z tych stanów to wartość WPISANA, a jeszcze NIE ZATWIERDZONA - leży tylko
+             w pamięci strony i do sterownika pójdzie dopiero po ZAPISZ / USTAW ZEGAR / zapisz.
+             Przeładowanie apki po aktualizacji zgubiłoby ją bez śladu (a sklejka odtwarza po przeładowaniu
+             sam ekran, nie bufor).
+   WYJSCIA:  prawda / fałsz. Pyta o to MOST_JS (sekcja [5a] most_js.js) przy decyzji o przeładowaniu.
+   ⚠ Warunek na EKRAN, nie tylko na bufor: bufory zostają po wyjściu ANULUJ / strzałką (SRV_S.czasReka,
+     SRV_S.siecEdy), a zamknięty edytor nie ma czego chronić.
+   ⚠ Rejestracja tylko, gdy most_js jest załadowany (sklejka: apka, webhmi, most). Serwis otwarty
+     sam nie ma service workera - nie ma czego wstrzymywać. */
+function srvEdycjaOtwarta(){
+  const e = SRV_S.ekran;
+  return (e === 'edytor' && SRV_S.edytowana !== null)
+      || (e === 'siec_edy' && !!SRV_S.siecEdy)
+      || (e === 'czas' && !!SRV_S.czasReka)
+      || (e === 'atrakcje' && AKC_NAZ_EDYT >= 0)
+      || ((e === 'pinzmiana' || e === 'pinnowy') && SRV_S.pinNowy.length > 0);
+}
+if (window.MOST_JS && window.MOST_JS.edycjaZrodlo)
+  window.MOST_JS.edycjaZrodlo('serwis', srvEdycjaOtwarta);
 
 /* ===== RENDER ========================================================== */
 /* ⚠ PRZEWINIĘCIE PRZEŻYWA ODŚWIEŻENIE [Tomasz 2026-09-02: „długie menu,
