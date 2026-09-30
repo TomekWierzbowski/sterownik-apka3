@@ -1162,7 +1162,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '81f648f4ab';
+window.APKA_WERSJA = '70e2efd3c9';
 window.APKA_KLUCZ = 'test3:';
 if ('serviceWorker' in navigator) { var _odsw = false;
   document.addEventListener('visibilitychange', function () { if (document.visibilityState !== 'visible') return;
@@ -1660,7 +1660,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-09-29 16:07';
+window.HMI_ZBUDOWANO = '2026-09-29 23:43';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -2503,6 +2503,18 @@ window.HMI_ZBUDOWANO = '2026-09-29 16:07';
               tre:'Sterownik pracuje dalej — historia zdarzeń zostaje tylko do restartu. Funkcję wyłączyły powtarzające się błędy programu; potrzebna aktualizacja oprogramowania — zgłoś serwisowi',
               src:srcObiekt(), cz:kiedy('c_odc_dz')});
     else delete ALARM_KIEDY['c_odc_dz'];
+    /* ZEGAR NIE ODPOWIADA (bit 39) [D-505] - tekst jak hmi_teksty.h G12; osobno od baterii (17) */
+    if (S.awRtcOdczyt)
+      w.push({tyt:'Zegar nie odpowiada',
+              tre:'Sterownik nie może odczytać zegara (moduł DS3231 albo magistrala I2C) — czas liczy z pamięci, a z internetem poprawia go serwerami czasu. Po restarcie bez zegara czas będzie nieznany — wezwij serwis',
+              src:srcObiekt(), cz:kiedy('c_rtc_odczyt')});
+    else delete ALARM_KIEDY['c_rtc_odczyt'];
+    /* WEJŚCIA STEROWNIKA NIECZYTELNE (bit 40) [D-506] - tekst jak hmi_teksty.h F4; pompy stoją */
+    if (S.awWejscia)
+      w.push({tyt:'Wejścia sterownika nieczytelne — pompy zatrzymane',
+              tre:'Sterownik nie może odczytać swoich wejść (ekspander wejść albo magistrala I2C), więc nie widzi termika pompy ani przełącznika AUTO-0-RĘKA. Pompy stoją; ruszą same po 10 s poprawnych odczytów — jeśli nie wracają, wezwij serwis',
+              src:srcObiekt(), cz:kiedy('c_wejscia')});
+    else delete ALARM_KIEDY['c_wejscia'];
     if (S.awTempBrak)
       w.push({tyt:'Czujnik temperatury niewykryty',
               tre:'Na magistrali 1-Wire nigdy go nie było — podłącz czujnik '+
@@ -6065,6 +6077,8 @@ window.HMI_ZBUDOWANO = '2026-09-29 16:07';
       S.awTermikAkc = !!d.termikAkc;
       S.awTempPowBrak = !!d.awTempPowBrak;   /* [D-207b] */
       S.awOdcQuic = !!d.awOdcQuic; S.awOdcDziennik = !!d.awOdcDziennik;   /* [B.0z-69] */
+      S.awRtcOdczyt = !!d.awRtcOdczyt;   /* [D-505] zegar DS3231 nie odpowiada (bit 39) */
+      S.awWejscia = !!d.awWejscia;       /* [D-506] wejścia sterownika nieczytelne (bit 40) */
       /* ⚠ ZATRZASK AWARII WODNEJ NA EKRAN [2026-09-01]. Panel pokazywał
          go od dawna (AWARIA WODNA + zawór zablokowany), makieta nie znała
          tego stanu w ogóle - a to zatrzask, który ZATRZYMUJE pompę
@@ -8917,7 +8931,8 @@ function siecMqttBlad(k){
       2:'broker odrzucił nazwę klienta', 3:'broker niedostępny',
       4:'zły użytkownik albo hasło', 5:'broker nie autoryzował'}[k & 255])
       || ('broker odmówił, kod ' + (k & 255));
-  return ({104:'połączenie zerwane przez drugą stronę', 110:'upłynął czas oczekiwania',
+  return ({513:'certyfikat serwera wygasł', 514:'certyfikat serwera jeszcze nieważny — sprawdź zegar sterownika',
+           104:'połączenie zerwane przez drugą stronę', 110:'upłynął czas oczekiwania',
            111:'nikt nie słucha na tym porcie — broker nie działa?',
            113:'host nieosiągalny', 118:'sieć nieosiągalna'}[k]) || ('błąd gniazda ' + k);
 }
@@ -9109,7 +9124,22 @@ const MQTT_SERW = [
   { nr:1, st:3180, wysl:3181, bled:3182, kod:3183, wl:4824, port:4825, host:4827, user:4859, haslo:4875 },
   { nr:2, st:3192, wysl:3193, bled:3194, kod:3195, wl:4920, port:4921, host:4922, user:4954, haslo:4970 },
 ];
+/* [D-504 pkt 4] bit 3 rejestru stanu = serwer nie przyjął warunku połączenia (subskrypcji) - bez winy użytkownika;
+   liczy się tylko przy sesji (bit 1). Ten sam tekst i warunek w panelach (srv_siec.c). */
+const mqttWarunek = s => (siecS(s.st) & 2) && (siecS(s.st) & 8);
+/* [D-504 pkt 3, Tomasz 29.09: „łączyć z informacją, że się nie uda, bo zegar nie ustawiony”] certyfikat serwera:
+   b4 = połączono bez sprawdzenia dat (zegar), b5 = sprawdzony z datami; kody 513/514 = odmowa za daty.
+   Ten sam tekst i warunek w panelach (srv_siec.c, S_MQTT_CERT). */
+function mqttCert(s){
+  const st = siecS(s.st), kod = siecS(s.kod);
+  if ((st & 2) && (st & 16)) return siecOdczyt('Certyfikat serwera', 'sprawdzenie ważności się nie uda — zegar sterownika nie jest ustawiony', 'bez dat', true);
+  if ((st & 2) && (st & 32)) return siecOdczyt('Certyfikat serwera', 'urząd, nazwa i daty ważności', 'sprawdzony');
+  if (!(st & 2) && (kod === 513 || kod === 514)) return siecOdczyt('Certyfikat serwera', siecMqttBlad(kod), 'odrzucony', true);
+  return siecOdczyt('Certyfikat serwera', (st & 2) ? 'połączenie bez certyfikatu' : 'brak połączenia', '—');
+}
+const mqttZle = s => ((siecS(s.st) & 1) && !(siecS(s.st) & 2)) || mqttWarunek(s);
 const mqttSkrot = s => !(siecS(s.st) & 1) ? 'wyłączony'
+                     : mqttWarunek(s) ? 'nie spełniono warunku połączenia'
                      : (siecS(s.st) & 2) ? siecS(s.wysl) + ' wysłanych'
                      : (siecS(s.kod) ? 'błąd' : 'łączy się…');
 
@@ -9142,7 +9172,7 @@ function ekrSiec(){
       <span class="w ${(sta & 1) && !(sta & 4) ? 'zle' : ''}">${staTxt}</span><span class="ch">›</span></div>
     <div class="grupka" data-lv="g">TELEMETRIA</div>
     <div class="mrow" data-lv="idz.siec_mqtt" onclick="idz('siec_mqtt')"><span class="t">MQTT<i>wysyłanie stanu do serwerów — tylko wysyłanie, sterownik niczego nie przyjmuje</i></span>
-      <span class="w ${MQTT_SERW.some(s => (siecS(s.st) & 1) && !(siecS(s.st) & 2)) ? 'zle' : ''}">${mqTxt}</span><span class="ch">›</span></div>
+      <span class="w ${MQTT_SERW.some(mqttZle) ? 'zle' : ''}">${mqTxt}</span><span class="ch">›</span></div>
     ${(siecS(3187) & 16) ? `<div class="grupka" data-lv="g">DOSTĘP</div>
     <div class="mrow" data-lv="idz.siec_web" onclick="idz('siec_web')"><span class="t">Strona sterownika<i>kto może ją otworzyć i czy widać hasła sieci</i></span>
       <span class="w ${siecS(3188) ? 'zle' : ''}">${(siecS(3187) & 1) ? 'punkt dostępu i sieć' : 'tylko punkt dostępu'}</span><span class="ch">›</span></div>` : ''}
@@ -9352,7 +9382,7 @@ function ekrSiecMqtt(){
     <div class="grupka" data-lv="g">SERWERY</div>
     ${MQTT_SERW.map(s => `<div class="mrow" onclick="idz('siec_mq${s.nr}')"><span class="t">Serwer ${s.nr}${
         s.nr === 1 ? '<i>zwykle broker w sieci obiektu</i>' : '<i>zwykle serwer centralny przez internet</i>'}</span>
-      <span class="w ${(siecS(s.st) & 1) && !(siecS(s.st) & 2) ? 'zle' : ''}">${mqttSkrot(s)}</span><span class="ch">›</span></div>`).join('')}
+      <span class="w ${mqttZle(s) ? 'zle' : ''}">${mqttSkrot(s)}</span><span class="ch">›</span></div>`).join('')}
     <div class="grupka" data-lv="g">WSPÓLNE DLA OBU</div>
     ${siecWierszLb(4826, 'Co ile wysyłać', 'najmniej 5 s — częściej nie ma po co', 5, 3600, 's')}
     ${siecWierszTxt(4891, 16, 'Początek tematu', 'np. basen — pod nim idą basen/stan i basen/status')}
@@ -9369,12 +9399,14 @@ function ekrSiecSerw(nr){
   return `<div class="tresc">
     ${siecBanery(true)}
     <div class="grupka" data-lv="g">STAN</div>
-    ${siecOdczyt('Połączenie', (st & 2) ? 'zalogowany' : ((st & 1) ? 'próbuje' : 'wyłączony'), (st & 2) ? 'jest' : 'brak', (st & 1) && !(st & 2))}
+    ${mqttWarunek(s) ? siecOdczyt('Połączenie', 'nie spełniono warunku połączenia', 'nie', true)
+      : siecOdczyt('Połączenie', (st & 2) ? 'zalogowany' : ((st & 1) ? 'próbuje' : 'wyłączony'), (st & 2) ? 'jest' : 'brak', (st & 1) && !(st & 2))}
     ${kod ? `<div class="alarmuje" data-lv="alarmuje"><b>Ostatni błąd: ${siecMqttBlad(kod)}.</b>
        Sterownik próbuje dalej — telemetria nie zatrzymuje niczego w wodzie.${
        tls ? ' Przy szyfrowaniu sprawdź też datę w sterowniku: certyfikat ocenia się wobec zegara.' : ''}</div>` : ''}
     ${siecOdczyt('Wysłanych', 'licznik pakietów stanu od włączenia', siecS(s.wysl))}
     ${siecOdczyt('Błędów', 'nieudane próby wysłania albo połączenia', siecS(s.bled), siecS(s.bled) > 0)}
+    ${mqttCert(s)}
     <div class="grupka" data-lv="g">NASTAWY</div>
     ${siecPtaszek(s.wl, 0, 'Wysyłaj na ten serwer', 'sterownik tylko publikuje stan — nie przyjmuje stamtąd komend')}
     ${siecWierszTxt(s.host, 32, 'Adres serwera', 'adres IP albo nazwa')}
@@ -9984,7 +10016,8 @@ function ekrCzas(){
      lokalny -> gettery UTC); kręcenie +/- zamraża go do chwili USTAW ZEGAR */
   if (window.DUO_CZAS && !SRV_S.czasReka){ const m = new Date(window.DUO_CZAS * 1000);
     SRV_S.czas = new Date(m.getUTCFullYear(), m.getUTCMonth(), m.getUTCDate(), m.getUTCHours(), m.getUTCMinutes());
-    SRV_S.kal = {rok: SRV_S.czas.getFullYear(), mies: SRV_S.czas.getMonth()}; }
+    /* [przegląd] kalendarz ustawiamy raz przy wejściu - odświeżanie sekcji zegara co minutę cofało przewijany miesiąc */
+    if (!SRV_S.kal) SRV_S.kal = {rok: SRV_S.czas.getFullYear(), mies: SRV_S.czas.getMonth()}; }
   const d = SRV_S.czas, p = n => String(n).padStart(2,'0');
   if (!SRV_S.kal) SRV_S.kal = {rok: d.getFullYear(), mies: d.getMonth()};
   const off = (new Date(SRV_S.kal.rok, SRV_S.kal.mies, 1).getDay() + 6) % 7;   /* getDay: 0 = niedziela */
@@ -10009,7 +10042,75 @@ function ekrCzas(){
       <span class="dwukropek">:</span>
       <span class="pm" onclick="czasKrok('min',-1)">−</span><span class="w czasw">${p(d.getMinutes())}</span><span class="pm" onclick="czasKrok('min',1)">+</span></div>
     <div class="abtn" data-lv="abtn" onclick="ustawZegar()">USTAW ZEGAR — ${p(d.getDate())}.${p(d.getMonth()+1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}</div>
+    ${zegSekcja()}
   </div>` + pasek('SERWIS · data i czas', 'serwis');
+}
+/* ----- [D-505] CZAS Z INTERNETU I ZMIANA CZASU -----------------------------------------------------------------
+   Rejestry: 3159 stan (b0-2 źródło, b3 czas letni, b4 z sieci, b5 czeka na człowieka, b6 błąd odczytu, b7 zaufany,
+   b8-11 stan NTP, b15 funkcja jest), 3028 minuty od synchronizacji, 3029 przestawienie [s], 4069 nastawa (b0 NTP,
+   b1 zmiana czasu), 4070 wyzwalacz (1 synchronizuj, 2 przyjmij). Teksty 1:1 z panelami (srv_czas.c zeg_teksty). */
+const ZEG_ZR = ['od startu bez zmian', 'ustawiony ręcznie', 'poprawiony z internetu', 'zmieniony na czas letni',
+                'zmieniony na czas zimowy', 'ustawiony z konsoli'];
+function zegTeksty(st, min, kor){
+  const zr = st & 7, kod = (st >> 8) & 15, a = Math.abs(kor);
+  const r = {zw: '', zo: '', zz: false, nw: '—', no: 'pierwsze pytanie minutę po połączeniu z siecią', zn: false};
+  if (st & 64){ r.zw = 'nie odpowiada'; r.zo = 'czas liczony z pamięci sterownika — sprawdź zegar DS3231'; r.zz = true; }
+  else if (!(st & 128)){ r.zw = 'NIEPEWNY'; r.zo = 'ustaw ręcznie albo poczekaj na czas z internetu'; r.zz = true; }
+  else { r.zw = (st & 8) ? 'czas letni' : 'czas zimowy';
+         /* [przegląd] w stanie CZEKA 3029 niesie różnicę z sieci, nie ostatnie przestawienie - wtedy bez liczby */
+         r.zo = (zr && kor && kod !== 7) ? `${ZEG_ZR[zr] || ZEG_ZR[0]} o ${kor > 0 ? '+' : ''}${kor} s` : (ZEG_ZR[zr] || ZEG_ZR[0]); }
+  const zn = (w, o) => { r.nw = w; r.no = o; r.zn = true; };
+  if (kod === 1){ r.nw = 'zgodny'; r.no = min === 0xFFFF ? 'sprawdzony z serwerami czasu' : `sprawdzony ${min} min temu (serwery GUM)`; }
+  else if (kod === 2){ r.nw = 'wyłączony'; r.no = 'zegar sterownika bez porównania z internetem'; }
+  else if (kod === 3){ r.nw = 'brak sieci'; r.no = 'liczy zegar sterownika (DS3231)'; }
+  else if (kod === 4) zn('brak odpowiedzi', 'serwery czasu nie odpowiadają — sieć bez internetu albo zablokowany port 123');
+  else if (kod === 5) zn('niezgodne', 'serwery czasu podały różny czas — nie przyjęto');
+  else if (kod === 6) zn('odrzucony', 'czas z internetu wcześniejszy niż program sterownika');
+  else if (kod === 7){ const zn_ = kor > 0 ? '+' : '';
+    zn(a >= 32767 ? `różnica ponad ${kor > 0 ? '+' : '-'}9 h`
+       : a < 120 ? `różnica ${zn_}${kor} s` : a < 7200 ? `różnica ${zn_}${Math.trunc(kor / 60)} min` : `różnica ${zn_}${Math.trunc(kor / 3600)} h`,
+       'zegar ustawiony, nie poprawiam sam — przyjmij czas z internetu albo ustaw ręcznie'); }
+  else if (kod === 8) zn('błąd zapisu', 'zegar nie przyjął poprawki — sprawdź DS3231');
+  else if (kod === 9) zn('błąd', 'brak pamięci na zadanie czasu');
+  else if (kod === 10) zn('tylko jeden', 'odpowiedział tylko jeden serwer czasu — za mało do porównania, nie przyjęto');
+  return r;
+}
+async function zegOdswiez(){
+  if (SRV_S.ekran !== 'czas') return;
+  try {
+    const a = await pilotRej(3028, 2), b = await pilotRej(3159, 1), c = await pilotRej(4069, 1);
+    const z = {min: a[0], kor: a[1] > 32767 ? a[1] - 65536 : a[1], st: b[0], cfg: c[0]};
+    if (JSON.stringify(z) !== JSON.stringify(SRV_S.zeg)){ SRV_S.zeg = z; srvRender(false); }
+  } catch(e){}
+}
+setInterval(zegOdswiez, 1500);
+function zegPtaszek(bit){
+  if (!SRV_S.zeg) return;
+  SRV_S.zeg.cfg ^= bit; srvRender(false);                 /* [przegląd] od razu - drugie kliknięcie liczy się od pierwszego */
+  siecSlij(4069, SRV_S.zeg.cfg).then(() => setTimeout(zegOdswiez, 400));
+}
+function zegSync(){
+  if (!SRV_S.zeg) return;
+  const kod = (SRV_S.zeg.st >> 8) & 15, czeka = kod === 7;
+  /* [przegląd] odmowa z komunikatem (zasada 10) - sterownik odpowiada wtedy kodem 3 */
+  if (!(SRV_S.zeg.cfg & 1)){ poka('Czas z internetu wyłączony — zaznacz „Porównuj z internetem”'); return; }
+  if (kod === 3){ poka('Brak sieci — nie ma kogo zapytać'); return; }
+  siecSlij(4070, czeka ? 2 : 1).then(() => { poka(czeka ? 'Przyjmuję czas z internetu' : 'Pytam serwery czasu'); setTimeout(zegOdswiez, 3000); });
+}
+function zegSekcja(){
+  const z = SRV_S.zeg;
+  if (!z || !(z.st & 0x8000)) return '';            /* starszy sterownik - funkcji nie ma */
+  const t = zegTeksty(z.st, z.min, z.kor), czeka = ((z.st >> 8) & 15) === 7;
+  const odcz = (et, w, o, zle) => `<div class="mrow odczyt" data-lv="o"><span class="t">${et}<i>${o}</i></span>
+      <span class="w ${zle ? 'zle' : ''}">${w}</span></div>`;
+  const pt = (bit, et, o) => `<div class="mrow ${(z.cfg & bit) ? 'wl' : ''}" data-lv="p.zeg${bit}" onclick="zegPtaszek(${bit})">
+      <span class="ptaszek">${PTASZEK}</span><span class="t">${et}<i>${o}</i></span></div>`;
+  return `<div class="grupka" data-lv="g">CZAS Z INTERNETU</div>
+    ${odcz('Zegar', t.zw, t.zo, t.zz)}
+    ${odcz('Czas z internetu', t.nw, t.no, t.zn)}
+    ${pt(1, 'Porównuj z internetem (NTP)', 'serwery GUM — czas urzędowy; bez sieci liczy zegar sterownika')}
+    ${pt(2, 'Zmiana czasu letni / zimowy', 'sama, w ostatnią niedzielę marca i października — także bez sieci')}
+    <div class="abtn" data-lv="abtn" onclick="zegSync()">${czeka ? 'PRZYJMIJ CZAS Z INTERNETU' : 'SYNCHRONIZUJ Z INTERNETEM'}</div>`;
 }
 
 function ekrPrzezn(){
@@ -10435,6 +10536,12 @@ function zdTekst(w) {
     /*  TRYB CICHY [D-495, 2026-09-26] - 06b_tryb_cichy.h [6] e). a = 0 żądanie (b włączony/wyłączony,
         c = AkcPowod wyłączenia: 3 upłynął czas, 4 czas graniczny), a = 1 zawór sam (b dno/zbiornik,
         c = powód zaworu na zbiorniku). Tekst do akceptacji Tomasza - ten sam w panelu (srv_dziennik.c). */
+    case 29: { const d = ((b << 16) | c) | 0, ad = Math.abs(d), zn_ = d > 0 ? '+' : '';
+      const ile = (ad && ad % 3600 === 0) ? `${zn_}${d / 3600} h` : ad < 120 ? `${zn_}${d} s`
+                : ad < 7200 ? `${zn_}${Math.trunc(d / 60)} min` : `${zn_}${Math.trunc(d / 3600)} h`;
+      return a === 3 ? `zegar: zmiana na czas letni (${ile})` : a === 4 ? `zegar: zmiana na czas zimowy (${ile})`
+           : a === 2 ? `zegar: poprawiony z internetu o ${ile}` : a === 5 ? `zegar: ustawiony z konsoli o ${ile}`
+           : `zegar: ustawiony ręcznie o ${ile}`; }   /* [D-505] 1:1 z panelami (srv_dziennik.c case 29) */
     case 28: if (a === 0) return `tryb cichy${obieg}: ${b ? 'włączony' : 'wyłączony'}`
                                  + (!b && c === 3 ? ' · upłynął czas' : !b && c === 4 ? ' · czas graniczny' : '');
              return b ? `tryb cichy${obieg}: zawór na dno`
