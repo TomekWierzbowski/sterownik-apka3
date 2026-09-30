@@ -1,0 +1,889 @@
+<!doctype html>
+<html lang="pl"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2a2e35">
+<title>Pomiar QUIC TLS</title>
+<!-- ==========================================================================================
+     POMIAR QUIC KONTRA TLS NA TELEFONIE  [karta 36 Astry, Tomasz 30.09.2026: „Tylko telefon”]
+     ------------------------------------------------------------------------------------------
+     PO CO: przed sobotą (Gliczarów 3.10) zmierzyć autem, na trasie ze słabym zasięgiem, czy QUIC
+     (WebTransport przez bramkę aquareact_quic) daje apce na telefonie ZMIERZONĄ korzyść wobec TLS
+     (wss). Decyzja o QUIC ma wynikać z liczb, nie z zapowiedzi (D-499 pkt 3, karta 36, ODPOWIEDZ 5.3-f).
+
+     WEJŚCIA:  konto brokera v5 (użytkownik domyślnie „pomiar”, hasło wpisuje człowiek — W PLIKU GO NIE MA,
+               telefon zapamiętuje je w localStorage pod kluczem pomiar36:haslo); GPS, stan sieci telefonu,
+               widoczność strony; biblioteki mqtt.min.js (MQTT.js 5) i paho_na_mqttjs.js (klasa WebTransport
+               udająca WebSocket, `Paho._WTjakoWS`) z tej samej apki T3; pomiar_logika.js (wszystkie liczby).
+     CO Z CZEGO WYNIKA:
+               • DWA połączenia NARAZ, to samo konto, te same nastawy (keepalive, ponawianie, QoS 1, czysta sesja):
+                 TLS  = MQTT.js po wss://aquareact.duckdns.org:8889/mqtt (broker v5 wprost),
+                 QUIC = MQTT.js po WebTransport https://aquareact.duckdns.org:8890/mqtt (bramka → broker v5).
+                 ⛔ QUIC NIE PRZECHODZI na wss — porażka QUIC zostaje porażką QUIC (apka T3 by przeszła).
+               • co 2 s echo na obu: publikacja {seq,t} na pomiar/<sesja>/<tls|quic> i odbiór z tego samego
+                 tematu → czas echa (RTT) i osobno czas PUBACK; echo nieodebrane w 30 s = zgubione;
+               • zdarzenia połączenia (connect/close/offline/reconnect/error) z czasem → zerwania, przerwy, powrót;
+               • każda próbka: GPS (położenie, dokładność, prędkość), sieć (typ, effectiveType, rtt, downlink),
+                 widoczność strony, spóźnienie ticku; Wake Lock trzyma ekran, licznik pominiętych ticków mówi,
+                 ile razy strona w tle zgubiła rytm;
+               • zapis w IndexedDB (baza aqr_pomiar36 — przeżywa przeładowanie; przerwany przejazd da się wznowić;
+                 bez bazy przejazdy zostają w tej karcie, z eksportem), podsumowanie na żywo, eksport CSV (próbki,
+                 zdarzenia) i JSON (całość);
+               • każda odmowa (CONNACK, SUBACK, PUBACK), brak https i brak API telefonu ma zdanie na ekranie (zasada 10),
+                 a wiersz „Przeglądarka” w „Otoczeniu” mówi, czego telefon nie ma — sprawdzić na postoju przed jazdą;
+                 transport bez gotowości dłużej niż POMIAR.ALARM_BEZ_GOTOWOSCI_MS (20 s) — zdanie z ostatnim błędem
+                 gniazda i tym, co sprawdzić (QUIC: bramka aquareact_quic, UDP 8890, adres strony);
+               • QUIC, który nie połączył się ANI RAZU (przy działającym TLS), daje wynik QUIC_NIE_DZIALA — poza
+                 porównaniem, nigdy „QUIC gorszy” (logika, [9]).
+     WYJŚCIA:  ekran, pliki CSV/JSON do pobrania; tematy pomiar/# na brokerze v5 (konto „pomiar” ma prawo
+               WYŁĄCZNIE do nich).
+     ⚠ Strona STATYCZNA, bez budowania: leży obok apki T3 (ten sam origin — bramka QUIC wpuszcza tylko
+       https://tomekwierzbowski.github.io). Pamięć strony w telefonie trzyma service worker T3: po zmianie tego
+       pliku użyj przycisku „Pobierz nową wersję strony” na dole (kasuje kopię i pobiera świeżą).
+     ⚠ Na ESP-IDF nie dotyczy — narzędzie przeglądarki. Plan i decyzje: docs/36_pomiar_quic_tls_telefon.md.
+     Kryteria korzyści: poniżej w nagłówku strony, z liczbami z pomiar_logika.js (KRYTERIA) — test
+     narzedzia_hmi/proby_audyt/pwa/proba_pomiar36.cjs pilnuje, żeby tekst tutaj, w logice i w docs/36 był ten sam.
+     ========================================================================================== -->
+<style>
+  :root{ --ink:#14161a; --ink2:#5d6470; --line:#dfe3e8; --page:#eef1f4; --card:#fff; --ok:#1b7f3a; --uwaga:#a15c00; --zle:#b3261e; --woda:#1e6fd9; }
+  html,body{ margin:0; background:var(--page); color:var(--ink); font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  main{ max-width:560px; margin:0 auto; padding:14px 12px 40px; }
+  h1{ font-size:20px; margin:4px 0 2px; } h2{ font-size:16px; margin:0 0 8px; }
+  .pod,.mala{ color:var(--ink2); font-size:13px; } .pod{ margin:0 0 10px; }
+  .karta{ background:var(--card); border-radius:12px; padding:12px; box-shadow:0 1px 2px rgba(20,22,26,.06),0 6px 18px rgba(20,22,26,.05); margin-bottom:10px; }
+  label{ display:block; font-size:13px; color:var(--ink2); margin:8px 0 3px; }
+  input[type=text],input[type=password]{ width:100%; box-sizing:border-box; font:inherit; padding:10px; border:1px solid var(--line); border-radius:9px; background:#fafbfc; }
+  .rz{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+  button{ font:600 15px/1 system-ui,sans-serif; padding:12px 16px; border:0; border-radius:11px; background:var(--woda); color:#fff; cursor:pointer; }
+  button.cichy{ background:#e6ebf0; color:var(--ink); } button.stop{ background:var(--zle); } button.maly{ padding:7px 10px; font-size:13px; }
+  button:disabled{ opacity:.5; cursor:default; }
+  table{ width:100%; border-collapse:collapse; font-size:14px; font-variant-numeric:tabular-nums; table-layout:fixed; }
+  td,th{ overflow-wrap:anywhere; } #tab th:first-child{ width:40%; } #otoczenie th:first-child{ width:28%; }
+  th,td{ padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; vertical-align:top; }
+  th:first-child,td:first-child{ text-align:left; color:var(--ink2); font-weight:400; }
+  thead th{ font-size:15px; color:var(--ink); font-weight:700; }
+  .ok{ color:var(--ok); } .uw{ color:var(--uwaga); } .zle{ color:var(--zle); }
+  #alarmy div{ background:#fff4f2; border:1px solid #f0c9c4; color:var(--zle); border-radius:10px; padding:8px 10px; margin-bottom:6px; font-size:14px; }
+  #alarmy div.uw{ background:#fff8ec; border-color:#f1dcb6; color:var(--uwaga); }
+  .wynik{ font-size:18px; font-weight:700; } .duze{ font-size:22px; font-weight:700; }
+  ol{ padding-left:20px; margin:6px 0; } li{ margin:3px 0; font-size:13px; }
+  details summary{ cursor:pointer; font-weight:600; }
+  .dz{ font:12px/1.35 ui-monospace,Consolas,monospace; white-space:pre-wrap; max-height:240px; overflow:auto; background:#f6f8fa; border-radius:8px; padding:6px; }
+  .ses{ border-top:1px solid var(--line); padding:8px 0; } .ses:first-child{ border-top:0; }
+  .ses .rz{ margin-top:6px; } .zapam{ display:flex; gap:6px; align-items:center; font-size:13px; }
+</style></head>
+<body><main>
+  <h1>Pomiar QUIC kontra TLS</h1>
+  <p class="pod">Karta 36 · telefon · strona <span id="w_strony"></span> · logika <span id="w_logiki"></span></p>
+
+  <details class="karta" id="kryteria" open>
+    <summary>Kryteria korzyści — ustalone PRZED pomiarem (30.09.2026)</summary>
+    <!-- KRYTERIA-START (tekst 1:1 z PomiarLogika.opisKryteriow(); zmiana liczb = pomiar_logika.js + docs/36 + tu) -->
+    <ol id="kryt_lista">
+      <li>Kryteria z 2026-09-30, ustalone przed pierwszym przejazdem. Oba połączenia naraz, to samo konto, te same nastawy; QUIC bez zapasu wss.</li>
+      <li>Przejazd ważny: co najmniej 20 min, 95 % ticków w terminie przy widocznej stronie, TLS i QUIC połączone choć raz, WebTransport w przeglądarce i w stronie oraz słaby zasięg obecny (na którymś transporcie, który choć raz był gotowy: p95 echa ≥ 300 ms albo dostarczone &lt; 99,5 % albo choć jedno zerwanie).</li>
+      <li>P1 przewaga QUIC: p95 echa QUIC ≤ 0,8 × TLS i krótsze o co najmniej 100 ms.</li>
+      <li>P2 przewaga QUIC: dostarczone QUIC ≥ TLS + 2 punkty procentowe.</li>
+      <li>P3 przewaga QUIC: czas bez gotowości QUIC ≤ 0,5 × TLS i krótszy o co najmniej 30 s.</li>
+      <li>G1 pogorszenie: dostarczone QUIC &lt; TLS − 1 punkt procentowy.</li>
+      <li>G2 pogorszenie: p95 echa QUIC &gt; 1,2 × TLS i dłuższe o ponad 100 ms.</li>
+      <li>G3 pogorszenie: czas bez gotowości QUIC &gt; 1,5 × TLS i dłuższy o ponad 30 s.</li>
+      <li>Wynik przejazdu: QUIC_LEPSZY (jest P, nie ma G), QUIC_GORSZY (nie ma P, jest G), MIESZANY (są oba), BEZ_ROZNICY (żadnego); QUIC_NIE_DZIALA, gdy TLS połączył się, a QUIC ani razu — przejazd poza porównaniem (najpierw bramka, UDP 8890, adres strony), nigdy QUIC_GORSZY.</li>
+      <li>Werdykt serii (aplikacja na telefonie): mniej niż 3 ważne przejazdy = BRAK_DANYCH; QUIC_LEPSZY w co najmniej 2/3 ważnych, ani jednego QUIC_GORSZY i ani jednego zaznaczonego QUIC_NIE_DZIALA = PREFEROWANY; żadnego QUIC_LEPSZY albo QUIC_GORSZY co najmniej tyle razy co QUIC_LEPSZY = ODLOZONY; pozostałe = OPCJONALNY.</li>
+    </ol>
+    <!-- KRYTERIA-KONIEC -->
+    <p class="mala" id="nastawy_opis"></p>
+  </details>
+
+  <div id="alarmy"></div>
+
+  <form class="karta" id="f_start" autocomplete="on" onsubmit="return false">
+    <h2>Przejazd</h2>
+    <label for="user">Użytkownik brokera v5</label>
+    <input type="text" id="user" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="username">
+    <label for="haslo">Hasło</label>
+    <input type="password" id="haslo" autocomplete="current-password">
+    <label for="opis">Opis przejazdu (trasa, numer, uwagi)</label>
+    <input type="text" id="opis" placeholder="np. trasa A, przejazd 1, telefon w uchwycie">
+    <div class="rz">
+      <button type="button" id="b_start">START</button>
+      <button type="button" id="b_stop" class="stop" disabled>STOP</button>
+      <button type="button" id="b_zapomnij" class="cichy maly">zapomnij hasło</button>
+    </div>
+    <div id="wznow" class="rz" hidden></div>
+    <p class="mala" id="stan_ogolny"></p>
+  </form>
+
+  <section class="karta">
+    <h2>Na żywo</h2>
+    <table id="tab"></table>
+    <p class="mala">Echo = publikacja i odbiór tej samej wiadomości (telefon → broker → telefon). PUBACK = broker przyjął.
+      Dostarczone = echo w 30 s wśród wszystkich ticków (także bez połączenia). Percentyle metodą najbliższej rangi — przy małym n p99 = maksimum.</p>
+  </section>
+
+  <section class="karta">
+    <h2>Ocena tego przejazdu</h2>
+    <div id="ocena"></div>
+  </section>
+
+  <section class="karta">
+    <h2>Otoczenie</h2>
+    <table id="otoczenie"></table>
+  </section>
+
+  <section class="karta">
+    <h2>Zapisane przejazdy</h2>
+    <div id="seria"></div>
+    <div id="lista"></div>
+  </section>
+
+  <details class="karta">
+    <summary>Dziennik zdarzeń (ostatnie)</summary>
+    <div class="dz" id="dziennik"></div>
+  </details>
+
+  <div class="rz">
+    <button type="button" id="b_odswiez" class="cichy maly">Pobierz nową wersję strony</button>
+  </div>
+</main>
+<script src="mqtt.min.js"></script>
+<script src="paho_na_mqttjs.js"></script>
+<script src="pomiar_logika.js"></script>
+<script>
+/* ============================================================================================
+   SILNIK STRONY POMIARU  [karta 36, 30.09.2026]
+   SPIS TREŚCI
+     [A] Nastawy połączenia (te same dla obu dróg) i stan strony
+     [B] Pomocnicze: czas, losowe identyfikatory, formaty
+     [C] Zapis w telefonie (IndexedDB) — próbki, zdarzenia, przejazdy
+     [D] Zdarzenia i komunikaty (zasada 10: każda odmowa ma zdanie na ekranie)
+     [E] Połączenia MQTT: TLS i QUIC, gotowość = CONNACK + SUBACK
+     [F] Echo: tick co 2 s, odbiór, PUBACK, zgubione
+     [G] Otoczenie: GPS, sieć, widoczność, Wake Lock
+     [H] START / STOP / wznowienie po przeładowaniu
+     [I] Ekran: tabela na żywo, ocena, otoczenie, lista przejazdów, dziennik
+     [J] Eksport CSV / JSON, nowa wersja strony, start strony
+   ============================================================================================ */
+(function () {
+  'use strict';
+  const POMIAR_WERSJA = '2026-09-30c';
+  const LOGIKA_OCZEKIWANA = '2026-09-30c';   /* pomiar_logika.js z tej samej wersji — inna = stara kopia w telefonie */
+  const L = window.PomiarLogika;
+
+  /* ------------------------------------------------------------------------------------------
+     [A] NASTAWY POŁĄCZENIA — JEDNE DLA OBU DRÓG (różni je tylko adres i sposób otwarcia gniazda)
+     Wartości jak w apce (most_js.js: keepAliveInterval 30, timeout 10, cleanSession true; pierwszy odstęp
+     ponawiania przy widocznej apce 1 s). ⚠ Apka ponawia rosnąco (1, 2, 3, 5 s), tu MQTT.js ponawia co stały
+     odstęp — tak samo na obu drogach, więc porównanie jest uczciwe, ale czas powrotu jest czasem TEJ strony.
+     ------------------------------------------------------------------------------------------ */
+  const NASTAWY = {
+    URL_TLS: 'wss://aquareact.duckdns.org:8889/mqtt',    /* broker v5, WebSocket po TLS */
+    URL_QUIC: 'wss://aquareact.duckdns.org:8890/mqtt',   /* bramka QUIC; klasa WebTransport zamienia wss: na https: */
+    KEEPALIVE_S: 30,
+    CONNECT_TIMEOUT_MS: 10000,
+    RECONNECT_MS: 1000,
+    QOS: 1,
+    TEMAT: 'pomiar',                                     /* konto „pomiar” ma prawo wyłącznie do pomiar/# */
+    USER_DOMYSLNY: 'pomiar',
+    DZIENNIK_NA_EKRANIE: 60,
+    /* OTOCZENIE PRÓBKI — GPS [30.09, przegląd sceptyka: zasada 7; tu, żeby kopia nastaw w przejeździe (meta.nastawy)
+       mówiła, z jakim GPS mierzono]: wysoka dokładność, odczyt zawsze świeży (0 = bez pamięci), limit na odczyt */
+    GPS_WYSOKA_DOKLADNOSC: true,
+    GPS_MAX_WIEK_MS: 0,
+    GPS_LIMIT_MS: 15000
+  };
+  /* STAŁE STRONY — bez wpływu na pomiar (identyfikatory, format ekranu, pobieranie pliku) [30.09, zasada 7] */
+  const STALE = {
+    ZNAKI_WCZYTANIA: 8,        /* losowe znaki szesnastkowe w id wczytania strony (inst) */
+    ZNAKI_KLIENTA: 8,          /* …w identyfikatorze klienta MQTT (pomiar-<tr>-…) — nowy na każde połączenie */
+    ZNAKI_PRZEJAZDU: 4,        /* …na końcu id przejazdu (data-godzina-…) */
+    MIEJSCA_GPS: 6,            /* położenie w próbce: 6 miejsc ≈ 0,1 m (tak jak CSV w logice) */
+    MIEJSCA_GPS_EKRAN: 5,      /* położenie na ekranie: 5 miejsc ≈ 1 m, mieści się w komórce na 360 px */
+    SEKUNDY_OD_MS: 10000,      /* czas ≥ tyle ms pokazujemy w sekundach */
+    ZWOLNIJ_POBRANIE_MS: 2000  /* po tylu ms adres pliku do pobrania jest zwalniany (przeglądarka zdążyła go pobrać) */
+  };
+  const KLUCZ = 'pomiar36:';          /* przedrostek localStorage: origin dzielimy z apką klienta, T2 i T3 */
+  const BAZA = 'aqr_pomiar36', BAZA_WERSJA = 1;
+  /* KODY ODMOWY CONNACK (MQTT 5) — ostateczne: ponawianie nic nie da, człowiek musi coś poprawić */
+  const ODMOWY_OSTATECZNE = { 0x84: 'broker nie przyjął wersji protokołu', 0x85: 'broker nie przyjął identyfikatora klienta',
+    0x86: 'zły użytkownik albo hasło', 0x87: 'konto bez uprawnień (brak roli na brokerze v5)', 0x8A: 'konto zablokowane',
+    0x8C: 'zła metoda logowania' };
+
+  const S = {
+    inst: null, sesja: null, probki: [], zdarzenia: [],
+    idx: { tls: new Map(), quic: new Map() }, oczek: { tls: new Map(), quic: new Map() },
+    kl: { tls: null, quic: null },
+    rytm: { dziala: false, startM: 0, ostK: -1, seq: 1, zegar: null },
+    gps: null, gpsBlad: null, gpsWatch: null, wake: null, wakeStan: 'nie wzięta (po START)',
+    db: null, dbBlad: null, lista: [], alarmyStale: [], ostatniBladZapisu: null,
+    /* PRZEJAZDY BEZ BAZY [30.09, przegląd]: gdy IndexedDB nie działa, przejazd żyje tylko w tej karcie. Dawniej lista
+       czytała WYŁĄCZNIE bazę, więc po STOP przejazdu nie było na liście — ekran kazał „eksportować CSV”, a przycisku
+       eksportu nie było, a następny START kasował poprzedni. Tu id → { s, probki, zdarzenia } (te same tablice, do
+       których pomiar dopisuje), lista łączy je z bazą. */
+    pamiec: new Map()
+  };
+
+  /* ------------------------------------------------------------------------------------------
+     [B] POMOCNICZE
+     ------------------------------------------------------------------------------------------ */
+  const $ = id => document.getElementById(id);
+  const los = n => {
+    try { const b = new Uint8Array(Math.ceil(n / 2)); crypto.getRandomValues(b); return Array.from(b, x => x.toString(16).padStart(2, '0')).join('').slice(0, n); }
+    catch (e) { let s = ''; while (s.length < n) s += Math.random().toString(16).slice(2); return s.slice(0, n); }
+  };
+  S.inst = 'i' + los(STALE.ZNAKI_WCZYTANIA);
+  const pkt = () => ({ t: Date.now(), m: performance.now(), inst: S.inst });
+  const dwa = x => String(x).padStart(2, '0');
+  const godz = t => { const d = new Date(t); return dwa(d.getHours()) + ':' + dwa(d.getMinutes()) + ':' + dwa(d.getSeconds()); };
+  const data = t => { const d = new Date(t); return d.getFullYear() + '-' + dwa(d.getMonth() + 1) + '-' + dwa(d.getDate()) + ' ' + godz(t); };
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const f = (x, m) => (L ? L.fmt(x, m) : String(x));
+  const ms = x => (x == null ? '—' : x >= STALE.SEKUNDY_OD_MS ? f(x / 1000, 1) + ' s' : f(x, 0) + ' ms');
+  const hex = n => '0x' + (+n).toString(16).toUpperCase();
+  const lsCzytaj = k => { try { return localStorage.getItem(KLUCZ + k); } catch (e) { return null; } };
+  const lsZapisz = (k, v) => { try { if (v == null) localStorage.removeItem(KLUCZ + k); else localStorage.setItem(KLUCZ + k, v); } catch (e) {} };
+  const temat = tr => NASTAWY.TEMAT + '/' + S.sesja.id + '/' + tr;
+  const utf8 = new TextDecoder('utf-8');
+
+  /* ------------------------------------------------------------------------------------------
+     [C] ZAPIS W TELEFONIE (IndexedDB)
+     WEJŚCIA:  obiekty próbek, zdarzeń i przejazdów.
+     CO Z CZEGO WYNIKA: próbka ma klucz [sesja, tr, seq] — kolejny zapis tej samej (wysłana → odebrana) NADPISUJE;
+       zdarzenia dostają numer kolejny. Brak bazy (tryb prywatny, blokada) = pomiar działa dalej w pamięci,
+       ale ekran MÓWI, że przeładowanie go skasuje (zasada 10).
+     WYJŚCIA:  S.db albo S.dbBlad.
+     ------------------------------------------------------------------------------------------ */
+  /* ⚠ OTWARCIE BAZY MA LIMIT [30.09, zmierzone w Edge bez okna na file://]: `indexedDB.open` potrafi nie odpowiedzieć
+     w czasie (ani sukces, ani błąd) — strona czekałaby bez końca z nieczynnym STARTEM. Po BAZA_LIMIT_MS START rusza
+     w pamięci, a ekran to mówi. Baza, która odezwie się później, jest PRZYJMOWANA, dopóki nie ruszył żaden przejazd
+     (wtedy nic nie poszło obok zapisu); w trakcie przejazdu — zamykana (jedno źródło zapisu na przejazd). */
+  const BAZA_LIMIT_MS = 5000;
+  function dbOtworz() {
+    return new Promise(res => {
+      let r, rozstrzygniete = false;
+      const pozno = db => {
+        if (db && !S.db && !S.sesja) { S.db = db; S.dbBlad = null; porzuconePrzerwij().then(() => { rysuj(); odswiezListe(); }); return; }
+        try { if (db) db.close(); } catch (e) {}
+      };
+      const koniec = (db, blad) => { if (rozstrzygniete) { pozno(db); return; } rozstrzygniete = true; if (blad) S.dbBlad = blad; res(db); };
+      try { if (!window.indexedDB) throw new Error('przeglądarka bez IndexedDB'); r = indexedDB.open(BAZA, BAZA_WERSJA); }
+      catch (e) { koniec(null, String(e.message || e)); return; }
+      setTimeout(() => koniec(null, 'baza w telefonie nie odpowiedziała w ' + BAZA_LIMIT_MS / 1000 + ' s'), BAZA_LIMIT_MS);
+      r.onupgradeneeded = () => {
+        const d = r.result;
+        if (!d.objectStoreNames.contains('sesje')) d.createObjectStore('sesje', { keyPath: 'id' });
+        if (!d.objectStoreNames.contains('probki')) d.createObjectStore('probki', { keyPath: ['sesja', 'tr', 'seq'] }).createIndex('sesja', 'sesja');
+        if (!d.objectStoreNames.contains('zdarzenia')) d.createObjectStore('zdarzenia', { keyPath: 'nr', autoIncrement: true }).createIndex('sesja', 'sesja');
+      };
+      r.onsuccess = () => koniec(r.result, null);
+      r.onerror = () => koniec(null, String(r.error && r.error.message || r.error || 'nie otwarto bazy'));
+      r.onblocked = () => { S.dbBlad = 'baza zablokowana przez inną kartę tej strony — zamknij ją'; };
+    });
+  }
+  function bladZapisu(e) { S.ostatniBladZapisu = String(e && e.message || e); }
+  function dbPut(magazyn, obj) {
+    if (!S.db) return;
+    try { const tx = S.db.transaction(magazyn, 'readwrite'); tx.objectStore(magazyn).put(obj); tx.onerror = () => bladZapisu(tx.error); }
+    catch (e) { bladZapisu(e); }
+  }
+  function dbWszystkie(magazyn, klucz) {
+    return new Promise(res => {
+      if (!S.db) { res([]); return; }
+      try {
+        const st = S.db.transaction(magazyn, 'readonly').objectStore(magazyn);
+        const r = klucz === undefined ? st.getAll() : st.index('sesja').getAll(klucz);
+        r.onsuccess = () => res(r.result || []); r.onerror = () => { bladZapisu(r.error); res([]); };
+      } catch (e) { bladZapisu(e); res([]); }
+    });
+  }
+  function dbUsunSesje(id) {
+    return new Promise(res => {
+      if (!S.db) { res(); return; }
+      try {
+        const tx = S.db.transaction(['sesje', 'probki', 'zdarzenia'], 'readwrite');
+        tx.objectStore('sesje').delete(id);
+        ['probki', 'zdarzenia'].forEach(m => {
+          const c = tx.objectStore(m).index('sesja').openCursor(IDBKeyRange.only(id));
+          c.onsuccess = () => { const k = c.result; if (k) { k.delete(); k.continue(); } };
+        });
+        tx.oncomplete = () => res(); tx.onerror = () => { bladZapisu(tx.error); res(); };
+      } catch (e) { bladZapisu(e); res(); }
+    });
+  }
+  /* echa w drodze z porzuconego wczytania strony (przeładowanie w trakcie przejazdu) nie wrócą — PRZERWANE, nie zgubione:
+     to nie transport je zgubił, tylko strona przestała słuchać */
+  async function porzuconePrzerwij() {
+    if (!S.db) return;
+    for (const s of await dbWszystkie('sesje')) if (!s.koniec_t)
+      for (const p of await dbWszystkie('probki', s.id)) if (p.stan === 'wyslany') { p.stan = 'przerwany'; dbPut('probki', p); }
+  }
+  const zapiszProbke = p => dbPut('probki', p);
+  const zapiszSesje = () => { if (S.sesja) dbPut('sesje', S.sesja); };
+
+  /* ------------------------------------------------------------------------------------------
+     [D] ZDARZENIA I KOMUNIKATY
+     ------------------------------------------------------------------------------------------ */
+  function zdarz(tr, typ, opis) {
+    const e = Object.assign({ sesja: S.sesja ? S.sesja.id : null, tr: tr, typ: typ, opis: opis == null ? '' : String(opis) }, pkt());
+    if (S.sesja) { S.zdarzenia.push(e); dbPut('zdarzenia', e); }
+    dziennikDopisz(e);
+    return e;
+  }
+  const DZ = [];
+  function dziennikDopisz(e) {
+    DZ.push(godz(e.t) + '.' + String(e.t % 1000).padStart(3, '0') + ' ' + (e.tr || '').padEnd(4) + ' ' + e.typ + (e.opis ? ' — ' + e.opis : ''));
+    while (DZ.length > NASTAWY.DZIENNIK_NA_EKRANIE) DZ.shift();
+    const el = $('dziennik'); if (el) el.textContent = DZ.slice().reverse().join('\n');
+  }
+  /* KOMUNIKATY: każda blokada, brak i odmowa ma zdanie; lista liczona od nowa przy każdym rysowaniu */
+  function komunikaty() {
+    const a = S.alarmyStale.map(x => ['', x]);   /* [klasa, tekst]; stałe = wykryte przy starcie strony */
+    if (!L) a.push(['', 'Brak pliku pomiar_logika.js — strona nie może liczyć. Pobierz nową wersję strony.']);
+    else if (L.WERSJA !== LOGIKA_OCZEKIWANA) a.push(['', 'Logika w wersji ' + L.WERSJA + ', strona oczekuje ' + LOGIKA_OCZEKIWANA + ' — w telefonie są pliki z różnych wydań. Pobierz nową wersję strony.']);
+    if (!window.mqtt || !window.mqtt.connect) a.push(['', 'Brak biblioteki MQTT (mqtt.min.js) — pomiar nie ruszy.']);
+    if (!window.Paho || typeof window.Paho._WTjakoWS !== 'function') a.push(['', 'Brak klasy WebTransport z nakładki (paho_na_mqttjs.js) — QUIC nie ruszy; wynik QUIC byłby 0 % z powodu strony, nie sieci.']);
+    /* [30.09, przegląd] GPS, blokada wygaszania i WebTransport działają TYLKO w bezpiecznym kontekście (https albo
+       localhost) — strona otwarta po http:// albo z pliku w telefonie straciłaby je po cichu */
+    if (window.isSecureContext === false) a.push(['', 'Strona otwarta bez https — przeglądarka wyłącza GPS, blokadę wygaszania i WebTransport. Otwórz ją z adresu https://tomekwierzbowski.github.io/sterownik-apka3/pomiar.html.']);
+    if (!window.WebTransport) a.push(['', 'Ta przeglądarka nie ma WebTransport — QUIC nie może się połączyć; przejazd będzie NIEWAŻNY (to telefon, nie sieć). Użyj Chrome na Androidzie.']);
+    if (S.dbBlad && !S.db) a.push(['uw', 'Zapis w telefonie niedostępny (' + S.dbBlad + ') — pomiar działa, przejazdy trzyma tylko ta karta: przeładowanie albo zamknięcie strony je skasuje. Po każdym STOP pobierz JSON z listy niżej.']);
+    if (S.ostatniBladZapisu) a.push(['uw', 'Ostatni zapis w telefonie nie wyszedł: ' + S.ostatniBladZapisu]);
+    if (S.rytm.dziala) {
+      if (S.wakeStan !== 'aktywna') a.push(['uw', 'Blokada wygaszania ekranu: ' + S.wakeStan + ' — gdy ekran zgaśnie, telefon dławi zegary i przejazd przestaje być ważny.']);
+      if (S.gpsBlad) a.push(['uw', 'GPS: ' + S.gpsBlad + ' — pomiar idzie dalej, próbki bez położenia.']);
+      if (document.visibilityState === 'hidden') a.push(['uw', 'Strona w tle — ticki gubią rytm (licznik niżej).']);
+    }
+    L && L.TRANSPORTY.forEach(tr => {
+      const k = S.kl[tr];
+      if (k && (k.stan === 'odmowa' || k.stan === 'brak')) a.push(['', tr.toUpperCase() + ': ' + k.opis]);
+      else if (k && S.rytm.dziala && !k.gotowy && k.niegotowyOdM != null) {
+        const ile = performance.now() - k.niegotowyOdM;
+        if (ile >= L.POMIAR.ALARM_BEZ_GOTOWOSCI_MS) a.push(alarmNiegotowy(tr, k, ile));
+      }
+      if (k && k.pubOdmowa) a.push(['', tr.toUpperCase() + ': ' + k.pubOdmowa]);
+    });
+    return a;
+  }
+  /* TRANSPORT NIEGOTOWY DŁUŻEJ NIŻ POMIAR.ALARM_BEZ_GOTOWOSCI_MS [30.09, przegląd sceptyka; zasada 10]
+     Dawniej QUIC, który nie łączył się wcale (bramka stoi po restarcie HA albo aktualizacji Supervisora, zgubione
+     przekierowanie UDP 8890, odmowa źródła strony), był w tabeli tylko „łączy”, a treść błędu szła do zwiniętego
+     dziennika — na postoju nie było widać, że przejazd nic nie zmierzy. Teraz:
+       • nie połączył się ANI RAZU od uruchomienia pomiaru (START albo wznowienie) → czerwone zdanie z ostatnim błędem
+         i tym, co sprawdzić; przejazd skończy się QUIC_NIE_DZIALA (QUIC) albo NIEWAŻNY (TLS);
+       • był gotowy, a teraz jest bez połączenia tak długo → żółta uwaga z ostatnim błędem (na słabym zasięgu to
+         bywa sam pomiar; gdy trwa przy gotowym drugim transporcie — sprawdzić bramkę na najbliższym postoju). */
+  const CO_SPRAWDZIC = {
+    quic: 'sprawdź dodatek aquareact_quic w HA (działa?), przekierowanie UDP 8890 na routerze i czy strona jest otwarta z https://tomekwierzbowski.github.io',
+    tls: 'sprawdź zasięg, użytkownika i hasło oraz broker v5 (wss 8889)'
+  };
+  const SKUTEK_ANI_RAZU = { quic: 'przejazd wyjdzie QUIC_NIE_DZIALA (poza porównaniem)', tls: 'przejazd będzie NIEWAŻNY' };
+  function alarmNiegotowy(tr, k, ile) {
+    const blad = k.ostBlad ? 'ostatni błąd: „' + k.ostBlad + '”' : 'bez komunikatu błędu (gniazdo nie odpowiada)';
+    const drugi = S.kl[tr === 'tls' ? 'quic' : 'tls'], TEN = tr.toUpperCase(), TAMTEN = tr === 'tls' ? 'QUIC' : 'TLS';
+    if (!k.bylGotowy)
+      return ['', TEN + ': nie połączył się od uruchomienia pomiaru (' + f(ile / 1000, 0) + ' s) — ' + blad + '. Nie jedź: ' + CO_SPRAWDZIC[tr] + ' — inaczej ' + SKUTEK_ANI_RAZU[tr] + '.'];
+    return ['uw', TEN + ': bez połączenia od ' + f(ile / 1000, 0) + ' s — ' + blad + '.' +
+                  (drugi && drugi.gotowy ? ' ' + TAMTEN + ' jest gotowy — gdy to trwa, na postoju ' + CO_SPRAWDZIC[tr] + '.' : '')];
+  }
+  /* „Czekam na pierwsze połączenie” zamiast czerwonej etykiety przez pierwsze ALARM_BEZ_GOTOWOSCI_MS na żywo — QUIC
+     zwykle łączy się chwilę po TLS i ocena na żywo migałaby „QUIC_NIE_DZIALA” przy każdym START. Po STOP bez zmian. */
+  function quicJeszczeCzeka() {
+    const k = S.kl.quic;
+    return !!(S.rytm.dziala && k && !k.bylGotowy && k.stan !== 'odmowa' && k.stan !== 'brak' && k.niegotowyOdM != null &&
+              performance.now() - k.niegotowyOdM < L.POMIAR.ALARM_BEZ_GOTOWOSCI_MS);
+  }
+
+  /* ------------------------------------------------------------------------------------------
+     [E] POŁĄCZENIA MQTT
+     WEJŚCIA:  transport, konto (użytkownik, hasło, nowy identyfikator klienta na wczytanie strony).
+     CO Z CZEGO WYNIKA:
+       • opcje z PomiarLogika.opcjePolaczenia — jedno źródło, test porównuje oba transporty;
+       • 'connect' (CONNACK) → subskrypcja własnego tematu; GOTOWY dopiero po SUBACK < 0x80 (wcześniej echo
+         nie ma szans wrócić — liczenie go jako zgubione obciążałoby transport, nie sieć);
+       • pierwsze close/offline po gotowości = 'utrata' (początek przerwy); kolejne nieudane próby — tylko dziennik;
+       • odmowa CONNACK z kodem ostatecznym (zły login, brak roli) = transport stoi z komunikatem, bez ponawiania
+         (MQTT.js sam wstrzymuje ponawianie); inne kody (serwer zajęty/niedostępny) — ponawiamy po RECONNECT_MS;
+       • SUBACK ≥ 0x80 = konto bez prawa do pomiar/# — komunikat, bez echa.
+     WYJŚCIA:  S.kl[tr] = { k, stan, opis, gotowy, gen }.
+     ------------------------------------------------------------------------------------------ */
+  function polacz(tr, konto) {
+    /* niegotowyOdM / bylGotowy / ostBlad — do zdania „nie połączył się od …” (komunikaty, POMIAR.ALARM_BEZ_GOTOWOSCI_MS) */
+    const kl = { k: null, stan: 'laczy', opis: 'łączę…', gotowy: false, gen: 0, connM: 0,
+                 niegotowyOdM: performance.now(), bylGotowy: false, ostBlad: null };
+    S.kl[tr] = kl;
+    if (tr === 'quic' && !window.WebTransport) {
+      kl.stan = 'brak'; kl.opis = 'przeglądarka bez WebTransport — QUIC nie ruszy (bez przejścia na wss)';
+      zdarz(tr, 'brak', kl.opis); return;
+    }
+    /* klasa WebTransport opakowana, żeby znać JEJ instancję: po SUBACK zapisujemy `reliability` sesji — dowód, że
+       to naprawdę QUIC/HTTP3 (a nie zapas HTTP/2 przeglądarki), karta 36 pkt 1 „potwierdzaj używany transport”.
+       ⚠ BŁĄD SESJI WebTransport [30.09, przegląd sceptyka]: MQTT.js w przeglądarce NIE przekazuje błędów gniazda do
+       zdarzenia 'error' klienta (tylko błędy z kodem), więc „Opening handshake failed” itp. ginęło — ekran mówił
+       tylko „łączy”. Nasłuch na instancji klasy: treść do kl.ostBlad (zdanie na ekranie) i zdarzenie 'blad_gniazda'
+       (dziennik, eksport, ostatni_blad w ocenie). */
+    const WT = window.Paho && window.Paho._WTjakoWS;
+    const WTzapis = typeof WT === 'function' ? function (u) {
+      const w = new WT(u); kl.ostWT = w;
+      try {
+        if (typeof w.addEventListener === 'function') w.addEventListener('error', ev => {
+          if (S.kl[tr] !== kl) return;
+          kl.ostBlad = String(ev && ev.message || 'błąd sesji WebTransport bez opisu');
+          zdarz(tr, 'blad_gniazda', kl.ostBlad); rysuj();
+        });
+      } catch (e) {}
+      return w;
+    } : null;
+    let o;
+    try { o = L.opcjePolaczenia(tr, NASTAWY, Object.assign({ clientId: 'pomiar-' + tr + '-' + los(STALE.ZNAKI_KLIENTA) }, konto), WTzapis); }
+    catch (e) { kl.stan = 'brak'; kl.opis = String(e.message || e); zdarz(tr, 'brak', kl.opis); return; }
+    let k;
+    try { k = window.mqtt.connect(o.url, o.opcje); }
+    catch (e) { kl.stan = 'brak'; kl.opis = 'MQTT.js odmówił: ' + (e.message || e); zdarz(tr, 'brak', kl.opis); return; }
+    kl.k = k;
+    zdarz(tr, 'laczy', o.url + (tr === 'quic' ? ' (WebTransport, bez zapasu wss)' : ''));
+    const moj = () => S.kl[tr] === kl && kl.k === k;
+    const utrata = powod => {
+      if (!moj()) return;
+      if (kl.gotowy) { kl.gotowy = false; kl.niegotowyOdM = performance.now(); zdarz(tr, 'utrata', powod); }
+      if (kl.stan !== 'odmowa') { kl.stan = 'przerwa'; kl.opis = powod; }
+    };
+    k.on('connect', ack => {
+      if (!moj()) return;
+      const gen = ++kl.gen; kl.connM = performance.now(); kl.stan = 'laczy'; kl.opis = 'CONNACK, czekam na SUBACK';
+      zdarz(tr, 'connect', 'CONNACK' + (ack && ack.sessionPresent ? ' (sesja była)' : ''));
+      try {
+        k.subscribe(temat(tr), { qos: NASTAWY.QOS }, (blad, dane) => {
+          if (!moj() || kl.gen !== gen || !k.connected) return;   /* spóźniony SUBACK starego połączenia */
+          const kod = dane && dane[0] ? dane[0].qos : 0x80;
+          if (blad || kod >= 0x80) {
+            kl.stan = 'odmowa'; kl.opis = 'broker nie pozwolił subskrybować ' + temat(tr) + ' (SUBACK ' + hex(kod) + ') — konto bez prawa do ' + NASTAWY.TEMAT + '/#';
+            zdarz(tr, 'odmowa', kl.opis); rysuj(); return;
+          }
+          kl.gotowy = true; kl.stan = 'gotowy'; kl.bylGotowy = true; kl.niegotowyOdM = null;
+          let droga = '';
+          if (tr === 'quic') { try { const wt = kl.ostWT && kl.ostWT._wt; droga = ', WebTransport reliability=' + (wt && wt.reliability ? wt.reliability : 'nieznane'); } catch (e) {} }
+          kl.opis = 'gotowy';
+          zdarz(tr, 'gotowy', 'SUBACK ' + Math.round(performance.now() - kl.connM) + ' ms po CONNACK' + droga);
+          rysuj();
+        });
+      } catch (e) { zdarz(tr, 'error', 'subskrypcja: ' + (e.message || e)); }
+    });
+    k.on('message', (t, dane) => odbior(tr, dane));
+    k.on('reconnect', () => { if (!moj()) return; if (kl.stan !== 'odmowa') { kl.stan = kl.stan === 'przerwa' ? 'przerwa' : 'laczy'; } zdarz(tr, 'reconnect', ''); });
+    k.on('close', () => { if (!moj()) return; zdarz(tr, 'close', ''); utrata('close'); rysuj(); });
+    k.on('offline', () => { if (!moj()) return; zdarz(tr, 'offline', ''); utrata('offline'); });
+    k.on('disconnect', p => { if (!moj()) return; zdarz(tr, 'disconnect', 'DISCONNECT od brokera ' + hex(p && p.reasonCode || 0)); });
+    k.on('end', () => { if (!moj()) return; zdarz(tr, 'end', ''); });
+    k.on('error', e => {
+      if (!moj()) return;
+      const kod = e && typeof e.code === 'number' ? e.code : null;
+      kl.ostBlad = String(e && e.message || e) + (kod != null ? ' (' + hex(kod) + ')' : '');
+      zdarz(tr, 'error', kl.ostBlad);
+      if (kod != null && kod >= 0x80) {
+        if (ODMOWY_OSTATECZNE[kod]) {
+          kl.stan = 'odmowa'; kl.opis = 'broker odrzucił logowanie: ' + ODMOWY_OSTATECZNE[kod] + ' (' + hex(kod) + ', konto „' + konto.user + '”) — popraw i zrób nowy START';
+        } else {
+          kl.stan = 'przerwa'; kl.opis = 'broker odmówił chwilowo (' + hex(kod) + ') — ponawiam';
+          setTimeout(() => { if (moj() && S.rytm.dziala && !k.connected) { try { k.reconnect(); } catch (x) {} } }, NASTAWY.RECONNECT_MS);
+        }
+        rysuj();
+      }
+    });
+  }
+  function rozlacz(tr) {
+    const kl = S.kl[tr]; if (!kl) return;
+    const k = kl.k; kl.k = null; kl.gotowy = false; if (kl.stan !== 'odmowa' && kl.stan !== 'brak') { kl.stan = 'stop'; kl.opis = 'zatrzymany'; }
+    try { if (k) k.end(true); } catch (e) {}
+  }
+
+  /* ------------------------------------------------------------------------------------------
+     [F] ECHO
+     WEJŚCIA:  zegar strony (performance.now), gotowość transportów.
+     CO Z CZEGO WYNIKA:
+       • tick k w chwili start + k·2 s (PomiarLogika.planTicku); przegapione ticki NIE są nadrabiane — idą do
+         licznika i zdarzenia 'pominiete' (strona w tle, telefon oszczędza energię);
+       • na każdym ticku KAŻDY transport dostaje próbkę z tym samym seq: gotowy → publikacja QoS 1 i stan
+         'wyslany'; niegotowy → 'bez_polaczenia' (liczy się do dostarczonych jako brak — to widzi człowiek);
+       • odbiór: pierwsze echo = 'odebrany' + czas; po limicie = zostaje 'zgubiony', czas idzie do `spozn`;
+         kolejne kopie = duplikaty; echo z innego wczytania strony — pomijane;
+       • PUBACK (wywołanie zwrotne publikacji) = osobny czas; błąd publikacji zapisany przy próbce.
+     WYJŚCIA:  S.probki, zapis w bazie, rysowanie.
+     ------------------------------------------------------------------------------------------ */
+  function otoczenie() {
+    const g = S.gps, c = navigator.connection;
+    const w = { widok: document.visibilityState, lat: null, lon: null, dokl: null, v: null, gps_wiek: null,
+                n_typ: null, n_eff: null, n_rtt: null, n_down: null };
+    if (g && g.coords) {
+      const r = 10 ** STALE.MIEJSCA_GPS; w.lat = Math.round(g.coords.latitude * r) / r; w.lon = Math.round(g.coords.longitude * r) / r;
+      w.dokl = Math.round(g.coords.accuracy); w.v = typeof g.coords.speed === 'number' ? g.coords.speed : null;
+      w.gps_wiek = Math.max(0, Date.now() - g.timestamp);
+    }
+    if (c) { w.n_typ = c.type || null; w.n_eff = c.effectiveType || null;
+             w.n_rtt = typeof c.rtt === 'number' ? c.rtt : null; w.n_down = typeof c.downlink === 'number' ? c.downlink : null; }
+    return w;
+  }
+  function tick() {
+    const r = S.rytm; if (!r.dziala) return;
+    const plan = L.planTicku(r.startM, L.POMIAR.INTERWAL_MS, r.ostK, performance.now());
+    if (plan.pominiete > 0) zdarz('*', 'pominiete', String(plan.pominiete));
+    r.ostK = plan.k;
+    const seq = r.seq++, env = otoczenie();
+    L.TRANSPORTY.forEach(tr => {
+      const kl = S.kl[tr];
+      const p = Object.assign({ sesja: S.sesja.id, tr: tr, seq: seq, opozn: Math.round(plan.opozn) }, pkt(), env);
+      if (kl && kl.gotowy && kl.k && kl.k.connected) {
+        p.stan = 'wyslany'; S.oczek[tr].set(seq, p);
+        try {
+          kl.k.publish(temat(tr), JSON.stringify({ seq: seq, t: p.t, tr: tr, inst: S.inst }), { qos: NASTAWY.QOS },
+                       blad => puback(tr, seq, blad));
+        } catch (e) { S.oczek[tr].delete(seq); p.stan = 'bez_polaczenia'; p.puback_blad = 'publikacja: ' + (e.message || e); }
+      } else p.stan = 'bez_polaczenia';
+      S.probki.push(p); S.idx[tr].set(seq, p); zapiszProbke(p);
+    });
+    const teraz = performance.now();
+    L.TRANSPORTY.forEach(tr => {
+      L.przeterminowane(Array.from(S.oczek[tr].values()), teraz, L.POMIAR.LIMIT_ZGUBIENIA_MS).forEach(p => {
+        p.stan = 'zgubiony'; S.oczek[tr].delete(p.seq); zapiszProbke(p);
+      });
+    });
+    rysuj();
+    r.zegar = setTimeout(tick, Math.max(0, r.startM + (r.ostK + 1) * L.POMIAR.INTERWAL_MS - performance.now()));
+  }
+  function odbior(tr, dane) {
+    let d;
+    try { d = JSON.parse(utf8.decode(dane)); } catch (e) { zdarz(tr, 'obce', 'nieczytelna wiadomość na temacie pomiaru'); return; }
+    if (!d || d.inst !== S.inst) return;                     /* echo z poprzedniego wczytania strony */
+    const p = S.idx[tr].get(d.seq); if (!p || p.inst !== S.inst) return;
+    const teraz = performance.now();
+    if (p.stan === 'wyslany') { p.stan = 'odebrany'; p.rtt = Math.round((teraz - p.m) * 10) / 10; S.oczek[tr].delete(p.seq); }
+    else if (p.stan === 'zgubiony' && p.spozn == null) p.spozn = Math.round(teraz - p.m);
+    else if (p.stan === 'odebrany' || p.stan === 'zgubiony') p.dup = (p.dup || 0) + 1;
+    else return;
+    zapiszProbke(p);
+  }
+  /* PUBACK z kodem przyczyny ≥ 0x80 (MQTT 5: np. 0x87 brak prawa publikacji) = broker ODMÓWIŁ, a nie zgubił:
+     echo nigdy nie wróci, a sama liczba „bł. PUBACK” w tabeli wyglądałaby jak zła sieć [30.09, przegląd; zasada 10].
+     Komunikat raz na przejazd i transport, pomiar idzie dalej (odmowa może dotyczyć tylko części tematów). */
+  function puback(tr, seq, blad) {
+    const p = S.idx[tr].get(seq); if (!p || p.inst !== S.inst) return;
+    if (blad) {
+      p.puback_blad = String(blad.message || blad);
+      const kl = S.kl[tr], kod = typeof blad.code === 'number' ? blad.code : null;
+      if (kl && kod != null && kod >= 0x80 && !kl.pubOdmowa) {
+        kl.pubOdmowa = 'broker odmówił publikacji na ' + temat(tr) + ' (PUBACK ' + hex(kod) + ') — konto bez prawa publikacji do ' + NASTAWY.TEMAT + '/#';
+        zdarz(tr, 'odmowa', kl.pubOdmowa);
+      }
+    }
+    else p.puback = Math.round((performance.now() - p.m) * 10) / 10;
+    zapiszProbke(p);
+  }
+
+  /* ------------------------------------------------------------------------------------------
+     [G] OTOCZENIE: GPS, sieć, widoczność, Wake Lock
+     ------------------------------------------------------------------------------------------ */
+  function gpsStart() {
+    if (!navigator.geolocation) { S.gpsBlad = 'przeglądarka bez położenia'; return; }
+    try {
+      S.gpsWatch = navigator.geolocation.watchPosition(p => { S.gps = p; if (S.gpsBlad) { S.gpsBlad = null; zdarz('*', 'gps', 'jest położenie'); } },
+        e => { const t = e && e.code === 1 ? 'odmowa dostępu do położenia — zezwól w ustawieniach strony' : 'brak położenia (' + (e && e.message || e) + ')';
+               if (t !== S.gpsBlad) { S.gpsBlad = t; zdarz('*', 'gps', t); } },
+        { enableHighAccuracy: NASTAWY.GPS_WYSOKA_DOKLADNOSC, maximumAge: NASTAWY.GPS_MAX_WIEK_MS, timeout: NASTAWY.GPS_LIMIT_MS });
+    } catch (e) { S.gpsBlad = String(e.message || e); }
+  }
+  function gpsStop() { try { if (S.gpsWatch != null) navigator.geolocation.clearWatch(S.gpsWatch); } catch (e) {} S.gpsWatch = null; }
+  async function wakeWez() {
+    if (!navigator.wakeLock || !navigator.wakeLock.request) { S.wakeStan = 'brak w tej przeglądarce — ustaw w telefonie najdłuższy czas wygaszania'; return; }
+    try {
+      const w = await navigator.wakeLock.request('screen');
+      S.wake = w; S.wakeStan = 'aktywna'; zdarz('*', 'wakelock', 'aktywna');
+      w.addEventListener('release', () => { if (S.wake !== w) return; S.wakeStan = 'zwolniona' + (document.visibilityState === 'hidden' ? ' (strona w tle)' : ''); zdarz('*', 'wakelock', S.wakeStan); rysuj(); });
+    } catch (e) { S.wakeStan = 'odmowa: ' + (e.message || e); zdarz('*', 'wakelock', S.wakeStan); }
+  }
+  function wakeOddaj() { const w = S.wake; S.wake = null; S.wakeStan = 'oddana (STOP)'; try { if (w) w.release(); } catch (e) {} }
+  document.addEventListener('visibilitychange', () => {
+    if (!S.rytm.dziala) return;
+    zdarz('*', 'widok', document.visibilityState);
+    if (document.visibilityState === 'visible' && (!S.wake || S.wake.released)) wakeWez().then(rysuj);
+    rysuj();
+  });
+  try { if (navigator.connection && navigator.connection.addEventListener) navigator.connection.addEventListener('change', () => {
+    if (!S.rytm.dziala) return; const c = navigator.connection;
+    zdarz('*', 'siec', (c.type || '?') + '/' + (c.effectiveType || '?') + ' rtt ' + c.rtt + ' ms, ' + c.downlink + ' Mb/s');
+  }); } catch (e) {}
+  window.addEventListener('online', () => { if (S.rytm.dziala) zdarz('*', 'przegladarka', 'online'); });
+  window.addEventListener('offline', () => { if (S.rytm.dziala) zdarz('*', 'przegladarka', 'offline'); });
+  window.addEventListener('beforeunload', e => { if (S.rytm.dziala) { e.preventDefault(); e.returnValue = ''; } });
+
+  /* ------------------------------------------------------------------------------------------
+     [H] START / STOP / WZNOWIENIE
+     WEJŚCIA:  pola ekranu, przejazd niedokończony z bazy.
+     CO Z CZEGO WYNIKA:
+       START bez hasła = odmowa ze zdaniem; hasło i użytkownik zapamiętane w telefonie (localStorage).
+       Nowy przejazd zapisuje KOPIĘ kryteriów i nastaw — widać, z jakimi liczbami był mierzony.
+       Wznowienie (po przeładowaniu) dopisuje 'start' do TEGO SAMEGO przejazdu: przerwa otwarta przy
+       przeładowaniu liczy się jako urwana (nie idzie do czasu powrotu), seq leci dalej.
+       STOP: echa w drodze = 'przerwany' (nie liczą się ani jako dostarczone, ani jako zgubione).
+     WYJŚCIA:  S.sesja, połączenia, rytm ticków.
+     ------------------------------------------------------------------------------------------ */
+  function konto() {
+    const user = $('user').value.trim(), haslo = $('haslo').value;
+    return { user: user, haslo: haslo };
+  }
+  function uruchomPomiar(k, opisStartu) {
+    zdarz('*', 'start', opisStartu);
+    const r = S.rytm; r.dziala = true; r.startM = performance.now(); r.ostK = -1;
+    gpsStart();
+    const w = wakeWez();
+    L.TRANSPORTY.forEach(tr => polacz(tr, k));
+    $('b_start').disabled = true; $('b_stop').disabled = false; $('wznow').hidden = true;
+    $('kryteria').open = false;   /* w aucie liczy się tabela; kryteria zostają pod jednym dotknięciem */
+    tick();
+    return w;
+  }
+  async function start() {
+    if (S.rytm.dziala) return;
+    const k = konto();
+    if (!L || !window.mqtt) { rysuj(); return; }
+    if (!k.user || !k.haslo) { $('stan_ogolny').textContent = 'START odmówiony: wpisz użytkownika i hasło konta brokera v5.'; $('stan_ogolny').className = 'mala zle'; return; }
+    lsZapisz('user', k.user); lsZapisz('haslo', k.haslo);
+    const teraz = new Date();
+    const id = 'p' + teraz.getFullYear() + dwa(teraz.getMonth() + 1) + dwa(teraz.getDate()) + '-' + dwa(teraz.getHours()) + dwa(teraz.getMinutes()) + dwa(teraz.getSeconds()) + '-' + los(STALE.ZNAKI_PRZEJAZDU);
+    const nast = Object.assign({}, NASTAWY);
+    S.sesja = { id: id, start_t: Date.now(), koniec_t: null, opis: $('opis').value.trim(), wlicz: true, uzytkownik: k.user,
+                meta: { strona: POMIAR_WERSJA, logika: L.WERSJA, webtransport: !!window.WebTransport,
+                        klasa_wt: !!(window.Paho && window.Paho._WTjakoWS), przegladarka: navigator.userAgent, nastawy: nast,
+                        zgodnosc: Object.fromEntries(zgodnosc()),
+                        pomiar: Object.assign({}, L.POMIAR) },
+                kryteria: Object.assign({}, L.KRYTERIA) };
+    S.probki = []; S.zdarzenia = []; ['tls', 'quic'].forEach(tr => { S.idx[tr] = new Map(); S.oczek[tr] = new Map(); });
+    if (!S.db) S.pamiec.set(id, { s: S.sesja, probki: S.probki, zdarzenia: S.zdarzenia });
+    S.rytm.seq = 1;
+    zapiszSesje();
+    $('stan_ogolny').textContent = 'Przejazd ' + id + ' — pomiar trwa.'; $('stan_ogolny').className = 'mala ok';
+    await uruchomPomiar(k, 'nowy przejazd' + (S.sesja.opis ? ': ' + S.sesja.opis : ''));
+    rysuj(); odswiezListe();
+  }
+  async function wznow(sesja) {
+    if (S.rytm.dziala) return;
+    const k = konto();
+    if (!k.user || !k.haslo) { $('stan_ogolny').textContent = 'Wznowienie odmówione: wpisz użytkownika i hasło.'; $('stan_ogolny').className = 'mala zle'; return; }
+    S.sesja = sesja;
+    S.probki = await dbWszystkie('probki', sesja.id); S.zdarzenia = await dbWszystkie('zdarzenia', sesja.id);
+    ['tls', 'quic'].forEach(tr => { S.idx[tr] = new Map(); S.oczek[tr] = new Map(); });
+    S.probki.forEach(p => S.idx[p.tr].set(p.seq, p));
+    S.rytm.seq = S.probki.reduce((m, p) => Math.max(m, p.seq), 0) + 1;
+    $('stan_ogolny').textContent = 'Przejazd ' + sesja.id + ' wznowiony.'; $('stan_ogolny').className = 'mala ok';
+    await uruchomPomiar(k, 'wznowienie po przeładowaniu strony');
+    rysuj(); odswiezListe();
+  }
+  function stop() {
+    const r = S.rytm; if (!r.dziala) return;
+    r.dziala = false; clearTimeout(r.zegar); r.zegar = null;
+    L.TRANSPORTY.forEach(tr => { S.oczek[tr].forEach(p => { p.stan = 'przerwany'; zapiszProbke(p); }); S.oczek[tr].clear(); rozlacz(tr); });
+    zdarz('*', 'stop', 'STOP');
+    S.sesja.koniec_t = Date.now(); zapiszSesje();
+    gpsStop(); wakeOddaj();
+    $('b_start').disabled = false; $('b_stop').disabled = true;
+    $('stan_ogolny').textContent = 'Przejazd ' + S.sesja.id + ' zakończony. Wyniki na liście niżej.'; $('stan_ogolny').className = 'mala';
+    rysuj(); odswiezListe();
+  }
+  /* przejazd przerwany przeładowaniem: echa w drodze = przerwane; „zakończ” wstawia STOP w chwili ostatniego zapisu.
+     ⚠ OSTATNI ZAPIS Z ZEGARA MONOTONICZNEGO [30.09, przegląd sceptyka]: dawniej „ostatni” = największe `t` (Date.now),
+     więc po cofnięciu zegara telefonu STOP mógł wypaść PRZED późniejszymi zapisami, i to bez `m` (czas przerwy liczony
+     wtedy z `t`). Teraz: wczytanie strony = to z ostatniego zdarzenia w kolejności PomiarLogika.kolejnoscZdarzen
+     (numer kolejny z bazy), a w nim zapis (próbka albo zdarzenie) z największym `m`; STOP dostaje jego t, m i inst,
+     więc w kolejności zdarzeń staje na końcu tego wczytania. Przejazd bez żadnego zapisu z `m` — STOP w chwili START. */
+  async function zakonczPorzucony(s) {
+    const pr = await dbWszystkie('probki', s.id), zd = L.kolejnoscZdarzen(await dbWszystkie('zdarzenia', s.id));
+    const inst = zd.length ? zd[zd.length - 1].inst : null;
+    let ost = null;
+    pr.concat(zd).forEach(x => { if (x.inst === inst && typeof x.m === 'number' && isFinite(x.m) && (!ost || x.m > ost.m)) ost = x; });
+    const stopZd = { sesja: s.id, tr: '*', typ: 'stop', opis: 'zakończony po przeładowaniu (czas ostatniego zapisu)',
+                     t: ost ? ost.t : s.start_t, inst: inst };
+    if (ost) stopZd.m = ost.m;
+    dbPut('zdarzenia', stopZd);
+    s.koniec_t = stopZd.t; dbPut('sesje', s);
+    odswiezListe();
+  }
+
+  /* ------------------------------------------------------------------------------------------
+     [I] EKRAN
+     ------------------------------------------------------------------------------------------ */
+  const KLASA = { gotowy: 'ok', laczy: 'uw', przerwa: 'uw', stop: '', odmowa: 'zle', brak: 'zle' };
+  const NAZWA_STANU = { gotowy: 'GOTOWY', laczy: 'łączy', przerwa: 'PRZERWA', stop: 'zatrzymany', odmowa: 'ODMOWA', brak: 'NIE RUSZA' };
+  /* TABELA NA ŻYWO: jeden wiersz = jedna liczba na transport (telefon 360 px — trzy liczby w komórce nie mieszczą się) */
+  function wiersz(nazwa, a, b) { return '<tr><th>' + nazwa + '</th><td>' + a + '</td><td>' + b + '</td></tr>'; }
+  function rysujTabele(pods) {
+    const st = tr => { const k = S.kl[tr]; if (!k) return '—'; return '<span class="' + (KLASA[k.stan] || '') + '">' + (NAZWA_STANU[k.stan] || k.stan) + '</span>'; };
+    const T = pods.tls, Q = pods.quic;
+    const pr = x => x == null ? '—' : f(x, 1) + ' %';
+    const obie = (nazwa, fn) => wiersz(nazwa, fn(T), fn(Q));
+    $('tab').innerHTML = '<thead><tr><th></th><th>TLS (wss)</th><th>QUIC (WT)</th></tr></thead><tbody>' +
+      wiersz('Stan', st('tls'), st('quic')) +
+      obie('Dostarczone', x => '<b>' + pr(x.dostarczone_proc) + '</b>') +
+      obie('— z wysłanych', x => pr(x.dostarczone_z_wyslanych_proc)) +
+      obie('Echo p50', x => ms(x.rtt.p50)) + obie('Echo p95', x => '<b>' + ms(x.rtt.p95) + '</b>') + obie('Echo p99', x => ms(x.rtt.p99)) +
+      obie('Echo max · n', x => ms(x.rtt.max) + ' · ' + x.rtt.n) +
+      obie('PUBACK p50', x => ms(x.puback.p50)) + obie('PUBACK p95', x => ms(x.puback.p95)) + obie('PUBACK p99', x => ms(x.puback.p99)) +
+      obie('Odebr. / zgub. / bez poł.', x => x.odebrane + ' / ' + x.zgubione + ' / ' + x.bez_polaczenia) +
+      obie('Zerwania', x => x.zerwania) + obie('Suma przerw', x => ms(x.suma_przerw_ms)) +
+      obie('Powrót p50', x => ms(x.powrot.p50)) + obie('Powrót p95 · n', x => ms(x.powrot.p95) + ' · ' + x.powrot.n) +
+      obie('Zimny start', x => (x.zimny_ms.length ? ms(x.zimny_ms[0]) : '—')) +
+      obie('Czas bez gotowości', x => '<b>' + ms(x.niegotowy_ms) + '</b>') + obie('Najdłużej bez echa', x => ms(x.najdl_seria_ms)) +
+      obie('Spóźn. / dupl. / bł. PUBACK', x => x.spoznione + ' / ' + x.duplikaty + ' / ' + x.puback_bledy) +
+      '</tbody>';
+  }
+  function rysujOcene(o) {
+    const lista = (t, a) => a.length ? '<p class="mala">' + t + ':</p><ol>' + a.map(x => '<li>' + esc(x) + '</li>').join('') + '</ol>' : '';
+    /* QUIC_NIE_DZIALA — osobna etykieta [30.09, przegląd sceptyka]: to nie „nieważny z wynikiem gdyby”, tylko
+       „nie ma czego porównać, napraw QUIC” — porównanie zostaje do wglądu, ale nie jako wynik */
+    const czeka = o.wynik === 'QUIC_NIE_DZIALA' && quicJeszczeCzeka();
+    const naglowek = o.wazny ? o.wynik
+      : czeka ? 'czekam na pierwsze połączenie QUIC…'
+      : o.wynik === 'QUIC_NIE_DZIALA' ? 'QUIC_NIE_DZIALA — QUIC nie połączył się ani razu (poza porównaniem)'
+      : 'NIEWAŻNY (gdyby ważny: ' + o.wynik_gdyby_wazny + ')';
+    $('ocena').innerHTML = '<div class="wynik' + (o.wynik === 'QUIC_NIE_DZIALA' && !czeka ? ' zle' : '') + '">' + esc(naglowek) + '</div>' +
+      (S.rytm.dziala ? '<p class="mala">Na żywo — ostateczny po STOP.</p>' : '') +
+      lista('Powody nieważności', o.powody) + lista('Przewagi QUIC', o.przewagi) + lista('Pogorszenia przez QUIC', o.pogorszenia);
+  }
+  function rysujOtoczenie(pods) {
+    const e = otoczenie(), g = S.gps;
+    const w = (a, b) => '<tr><th>' + a + '</th><td>' + b + '</td></tr>';
+    $('otoczenie').innerHTML = '<tbody>' +
+      w('GPS', S.gpsBlad ? '<span class="uw">' + esc(S.gpsBlad) + '</span>' : g ? e.lat.toFixed(STALE.MIEJSCA_GPS_EKRAN) + ' ' + e.lon.toFixed(STALE.MIEJSCA_GPS_EKRAN) + ' ±' + e.dokl + ' m, ' + (e.v == null ? '—' : f(e.v * 3.6, 0) + ' km/h') : (S.rytm.dziala ? 'czekam…' : '—')) +
+      w('Sieć telefonu', (e.n_typ || '?') + ' / ' + (e.n_eff || '?') + ', rtt ' + (e.n_rtt == null ? '—' : e.n_rtt + ' ms') + ', ' + (e.n_down == null ? '—' : e.n_down + ' Mb/s')) +
+      w('Ekran', (document.visibilityState === 'hidden' ? '<span class="uw">strona w tle</span>' : 'strona na wierzchu') + ', blokada wygaszania: ' + esc(S.wakeStan)) +
+      w('Ticki', pods.ticki.wykonane + ' wykonanych, <b>' + pods.ticki.pominiete + ' pominiętych</b>, w terminie ' + (pods.ticki.w_terminie_proc == null ? '—' : f(pods.ticki.w_terminie_proc, 1) + ' %') + ', ' + f(pods.ticki.czas_min, 1) + ' min') +
+      w('Zapis', S.db ? 'IndexedDB (' + BAZA + ')' : '<span class="uw">tylko pamięć</span>') +
+      w('Przeglądarka', zgodnosc().map(x => (x[1] ? '' : '<span class="zle">') + x[0] + ' ' + (x[1] ? 'tak' : 'NIE') + (x[1] ? '' : '</span>')).join(', ')) + '</tbody>';
+  }
+  /* ZGODNOŚĆ Z TELEFONEM [30.09, karta 36: „strona ma działać na Androidzie w Chrome”] — to, czego strona używa, jednym
+     rzutem oka na postoju przed jazdą (próba sucha): brak któregoś = konkretna funkcja nie zadziała, a komunikat wyżej
+     mówi, co to znaczy dla przejazdu. Chrome na Androidzie ma wszystko od wersji 97 (WebTransport). */
+  function zgodnosc() {
+    return [['https', window.isSecureContext !== false], ['WebTransport', !!window.WebTransport],
+            ['blokada ekranu', !!(navigator.wakeLock && navigator.wakeLock.request)], ['GPS', !!navigator.geolocation],
+            ['stan sieci', !!navigator.connection], ['IndexedDB', !!window.indexedDB]];
+  }
+  function rysuj() {
+    const a = komunikaty();
+    $('alarmy').innerHTML = a.map(x => '<div class="' + x[0] + '">' + esc(x[1]) + '</div>').join('');
+    if (!L) return;
+    const pods = L.podsumuj(S.probki, S.zdarzenia, S.rytm.dziala || !S.sesja ? pkt() : { t: S.sesja.koniec_t || Date.now() });
+    rysujTabele(pods);
+    if (S.sesja) rysujOcene(L.ocenPrzejazd(pods, S.sesja.meta, S.sesja.kryteria || L.KRYTERIA));
+    else $('ocena').innerHTML = '<p class="mala">Brak przejazdu — wpisz hasło i naciśnij START.</p>';
+    rysujOtoczenie(pods);
+  }
+  /* LISTA PRZEJAZDÓW: każdy z oceną wg KRYTERIÓW ZAPISANYCH W NIM (nie bieżących); werdykt serii z zaznaczonych */
+  async function ocenSesje(s) {
+    const zyw = S.sesja && S.sesja.id === s.id, pam = S.pamiec.get(s.id);
+    const pr = zyw ? S.probki : pam ? pam.probki : await dbWszystkie('probki', s.id);
+    const zd = zyw ? S.zdarzenia : pam ? pam.zdarzenia : await dbWszystkie('zdarzenia', s.id);
+    const koniec = s.koniec_t ? { t: s.koniec_t } : pkt();
+    const pods = L.podsumuj(pr, zd, koniec, { interwal: (s.meta && s.meta.pomiar && s.meta.pomiar.INTERWAL_MS) || L.POMIAR.INTERWAL_MS });
+    return { pods: pods, ocena: L.ocenPrzejazd(pods, s.meta, s.kryteria || L.KRYTERIA), probki: pr, zdarzenia: zd };
+  }
+  async function odswiezListe() {
+    if (!L) return;
+    const zBazy = await dbWszystkie('sesje');
+    const sesje = zBazy.concat(Array.from(S.pamiec.values(), x => x.s).filter(s => !zBazy.some(b => b.id === s.id)))
+                       .sort((a, b) => b.start_t - a.start_t);
+    S.lista = [];
+    for (const s of sesje) S.lista.push({ s: s, o: await ocenSesje(s) });
+    const porzucone = S.lista.filter(x => !x.s.koniec_t && !(S.rytm.dziala && S.sesja && S.sesja.id === x.s.id));
+    const wz = $('wznow');
+    if (porzucone.length && !S.rytm.dziala) {
+      const p = porzucone[0].s;
+      wz.hidden = false;
+      wz.innerHTML = '<span class="mala uw">Przejazd ' + esc(p.id) + ' przerwany przeładowaniem.</span>' +
+        '<button type="button" class="maly" id="b_wznow">Wznów go</button><button type="button" class="cichy maly" id="b_zakoncz">Zakończ go</button>';
+      $('b_wznow').onclick = () => wznow(p); $('b_zakoncz').onclick = () => zakonczPorzucony(p);
+    } else wz.hidden = true;
+    const wyniki = S.lista.filter(x => x.s.koniec_t && x.s.wlicz !== false).map(x => x.o.ocena.wynik);
+    const ser = L.werdyktSerii(wyniki);
+    $('seria').innerHTML = '<p>Seria (zakończone, zaznaczone „wlicz”): <span class="duze">' + ser.werdykt + '</span></p><p class="mala">' + esc(ser.opis) +
+      ' · QUIC lepszy ' + ser.L + ', gorszy ' + ser.G + ', mieszany ' + ser.M + ' z ' + ser.N + ' ważnych' +
+      (ser.Q ? '; <span class="zle">QUIC_NIE_DZIALA ' + ser.Q + '</span> (poza porównaniem; blokuje PREFEROWANY — odznacz „wlicz” dopiero, gdy wiadomo, że to bramka)' : '') + '.</p>';
+    $('lista').innerHTML = S.lista.map((x, i) => {
+      const s = x.s, o = x.o, T = o.pods.tls, Q = o.pods.quic;
+      return '<div class="ses"><b>' + esc(data(s.start_t)) + '</b> · ' + esc(s.opis || 'bez opisu') + ' · ' + f(o.pods.ticki.czas_min, 1) + ' min' +
+        (s.koniec_t ? '' : ' · <span class="uw">' + (S.rytm.dziala && S.sesja && S.sesja.id === s.id ? 'trwa' : 'niezakończony') + '</span>') +
+        '<br><span class="wynik' + (o.ocena.wynik === 'QUIC_NIE_DZIALA' ? ' zle' : '') + '">' + esc(o.ocena.wynik) + '</span> <span class="mala">p95 echa TLS ' + f(T.rtt.p95, 0) + ' / QUIC ' + f(Q.rtt.p95, 0) + ' ms · dostarczone ' + f(T.dostarczone_proc, 1) + ' / ' + f(Q.dostarczone_proc, 1) + ' %</span>' +
+        (o.ocena.powody.length ? '<br><span class="mala uw">' + esc(o.ocena.powody.join('; ')) + '</span>' : '') +
+        '<div class="rz"><label class="zapam"><input type="checkbox" data-wlicz="' + i + '"' + (s.wlicz !== false ? ' checked' : '') + '> wlicz do serii</label>' +
+        '<button type="button" class="cichy maly" data-csv="' + i + '">CSV próbki</button><button type="button" class="cichy maly" data-csvz="' + i + '">CSV zdarzenia</button>' +
+        '<button type="button" class="cichy maly" data-json="' + i + '">JSON</button><button type="button" class="cichy maly" data-usun="' + i + '">usuń</button></div></div>';
+    }).join('') || '<p class="mala">Brak zapisanych przejazdów.</p>';
+  }
+
+  /* ------------------------------------------------------------------------------------------
+     [J] EKSPORT, NOWA WERSJA STRONY, START STRONY
+     ------------------------------------------------------------------------------------------ */
+  function pobierz(nazwa, tekst, typ) {
+    const b = new Blob([tekst], { type: typ }), a = document.createElement('a');
+    a.href = URL.createObjectURL(b); a.download = nazwa; document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, STALE.ZWOLNIJ_POBRANIE_MS);
+  }
+  $('lista').addEventListener('click', async ev => {
+    const t = ev.target, ds = t.dataset || {};
+    const x = S.lista[+(ds.csv || ds.csvz || ds.json || ds.usun || ds.wlicz)]; if (!x) return;
+    const s = x.s, o = x.o;
+    if (ds.csv) pobierz('pomiar36_' + s.id + '_probki.csv', L.csvProbek(o.probki), 'text/csv;charset=utf-8');
+    else if (ds.csvz) pobierz('pomiar36_' + s.id + '_zdarzenia.csv', L.csvZdarzen(o.zdarzenia), 'text/csv;charset=utf-8');
+    else if (ds.json) pobierz('pomiar36_' + s.id + '.json', JSON.stringify({ strona: POMIAR_WERSJA, logika: L.WERSJA, przejazd: s,
+        podsumowanie: o.pods, ocena: o.ocena, probki: o.probki, zdarzenia: o.zdarzenia }, null, 1), 'application/json');
+    else if (ds.usun) {
+      if (S.rytm.dziala && S.sesja && S.sesja.id === s.id) { alert('Najpierw STOP — nie usuwam trwającego przejazdu.'); return; }
+      if (!confirm('Usunąć przejazd ' + s.id + ' z telefonu? Tego nie da się cofnąć.')) return;
+      await dbUsunSesje(s.id); S.pamiec.delete(s.id);
+      if (S.sesja && S.sesja.id === s.id) { S.sesja = null; S.probki = []; S.zdarzenia = []; rysuj(); }   /* „Ocena” nie pokazuje usuniętego */
+      odswiezListe();
+    }
+  });
+  $('lista').addEventListener('change', ev => {
+    const ds = ev.target.dataset || {}; const x = S.lista[+ds.wlicz]; if (!x) return;
+    x.s.wlicz = !!ev.target.checked; dbPut('sesje', x.s); if (S.sesja && S.sesja.id === x.s.id) S.sesja.wlicz = x.s.wlicz;
+    odswiezListe();
+  });
+  /* NOWA WERSJA STRONY: service worker apki T3 trzyma kopię tej strony pod wersją T3 i nie wie o jej zmianach.
+     Kasujemy kopię z każdej pamięci tego origin, pobieramy z pominięciem pamięci HTTP i przeładowujemy. */
+  async function nowaWersja() {
+    if (S.rytm.dziala) { alert('Najpierw STOP — przeładowanie przerwałoby przejazd.'); return; }
+    const pliki = ['pomiar.html', 'pomiar_logika.js'];
+    try { if (window.caches) { for (const k of await caches.keys()) { const c = await caches.open(k); for (const p of pliki) await c.delete(p, { ignoreSearch: true }); } } } catch (e) {}
+    try { for (const p of pliki) await fetch(p, { cache: 'reload' }); } catch (e) {}
+    location.reload();
+  }
+  async function init() {
+    $('w_strony').textContent = POMIAR_WERSJA; $('w_logiki').textContent = L ? L.WERSJA : 'BRAK';
+    $('user').value = lsCzytaj('user') || NASTAWY.USER_DOMYSLNY;
+    $('haslo').value = lsCzytaj('haslo') || '';
+    $('nastawy_opis').textContent = 'Nastawy obu połączeń: MQTT 5, keepalive ' + NASTAWY.KEEPALIVE_S + ' s, limit połączenia ' + NASTAWY.CONNECT_TIMEOUT_MS / 1000 +
+      ' s, ponawianie co ' + NASTAWY.RECONNECT_MS / 1000 + ' s, QoS ' + NASTAWY.QOS + ', czysta sesja; echo co ' + (L ? L.POMIAR.INTERWAL_MS / 1000 : '?') +
+      ' s, zgubione po ' + (L ? L.POMIAR.LIMIT_ZGUBIENIA_MS / 1000 : '?') + ' s. TLS: ' + NASTAWY.URL_TLS + ' · QUIC: ' + NASTAWY.URL_QUIC.replace(/^wss:/, 'https:') + ' (WebTransport).';
+    /* kryteria na ekranie muszą być tymi z logiki — inaczej ekran obiecuje co innego, niż liczy (zasada 10) */
+    if (L) {
+      const naEkranie = Array.from(document.querySelectorAll('#kryt_lista li')).map(li => li.textContent.trim());
+      if (naEkranie.join('\n') !== L.opisKryteriow().join('\n')) S.alarmyStale.push('Kryteria na stronie różnią się od kryteriów w logice — liczy logika; pobierz nową wersję strony.');
+    }
+    $('b_start').onclick = start; $('b_stop').onclick = stop; $('b_odswiez').onclick = nowaWersja;
+    $('b_zapomnij').onclick = () => { lsZapisz('haslo', null); $('haslo').value = ''; $('stan_ogolny').textContent = 'Hasło usunięte z telefonu.'; };
+    /* ekran OD RAZU, START dopiero po rozstrzygnięciu bazy (inaczej pierwsze próbki poszłyby obok zapisu) */
+    $('b_start').disabled = true; $('stan_ogolny').textContent = 'otwieram zapis w telefonie…';
+    rysuj();
+    try {
+      S.db = await dbOtworz();
+      await porzuconePrzerwij();
+    } catch (e) { S.alarmyStale.push('Błąd przy starcie strony: ' + (e && e.message || e) + ' — pomiar ruszy, ale zgłoś to.'); }
+    $('b_start').disabled = false; $('stan_ogolny').textContent = '';
+    rysuj();
+    try { await odswiezListe(); } catch (e) { S.alarmyStale.push('Lista przejazdów nie wczytała się: ' + (e && e.message || e)); rysuj(); }
+  }
+  window.POMIAR36 = { S: S, NASTAWY: NASTAWY, start: start, stop: stop, tick: tick, wznow: wznow, rysuj: rysuj, init: init, gotowe: null };
+  window.POMIAR36.gotowe = (document.readyState === 'loading')
+    ? new Promise(r => document.addEventListener('DOMContentLoaded', () => init().then(r)))
+    : init();
+})();
+</script>
+</body></html>

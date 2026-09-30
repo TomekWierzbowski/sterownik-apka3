@@ -290,6 +290,6 @@
   Client.prototype.publish = Client.prototype.send;
 
   window.Paho = { Client: Client, Message: Message, MQTT: { Client: Client, Message: Message } };
-  window.Paho._WTjakoWS = WTjakoWS;   /* [Astra 11] tylko dla testu offline (_test_polaczenie11.html) */
+  window.Paho._WTjakoWS = WTjakoWS;   /* [Astra 11] test offline (_test_polaczenie11.html) ORAZ strona pomiaru apka3/pomiar.html (karta 36: QUIC przez WebTransport) — NIE USUWAĆ; pilnują K2 w proba_pomiar36.cjs i zbuduj_pwa.py --apka3 */
   window.Paho.MQTT_WERSJA = 5;   /* apka3 może pokazać, którą drogą idzie */
 })();
