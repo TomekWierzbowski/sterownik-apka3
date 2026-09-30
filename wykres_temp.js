@@ -13,9 +13,14 @@
  *            [28.09, Tomasz: „wykresy umieść między harmonogram a alarmy i zdarzenia”] karta żyje w bloczku
  *                „wykresy” hali (window.WYKRES.osadz, ekranWykresy), ikona prowadzi tam (wykresyOtworz);
  *                okno na wierzchu (otworz) zostaje tylko dla strony bez hali.
- *  WYJŚCIA:  tylko ekran. Nic nie wysyła do sterownika.
- *  ⚠ HISTORIA Z TELEFONU: apka zbiera dane, gdy jest otwarta - przerwy zostają przerwami (bez linii przez brak danych).
- *    Pełna historia przyjdzie ze sterownika (pierścień 7 dni po MQTT 5) - wtedy `dolozHistorie()` wleje ją tutaj.
+ *            [D-511, 30.09: „pobrała i trzymała dane ze sterownika KOMPLETNE”] (4) HISTORIA ZE STEROWNIKA: najpierw
+ *                baza w telefonie (IndexedDB, MOST_JS.historia.czytaj - rysuje od razu), potem dociąganie od ostatniej
+ *                próbki (MOST_JS.historia.dociagnij, strumień `historia:` po MQTT); pierwsze pobranie z paskiem postępu
+ *                w karcie; każdy kawałek wlewa `dolozHistorie()`. Dociąga przy starcie, przy otwarciu wykresu i po
+ *                powrocie z tła (>5 min). Starsza apka / sterownik bez historii = wykres jak dotąd z telefonu.
+ *  WYJŚCIA:  ekran; jedyna wysyłka to prośba `historia:` (przez most_js.js - poziom klienta, bez PIN-u, D-511).
+ *  ⚠ HISTORIA Z TELEFONU zostaje (zbiera co minutę z `swiat`) - przy sterowniku z historią jest tylko uzupełnieniem;
+ *    dane sterownika wygrywają przy tej samej minucie (0,01 °C zamiast 0,1 °C z bloku).
  *  ⚠ Moduł jest dołączany tylko do apki (zbuduj_pwa.py --apka3); makieta hali i generator LVGL go nie widzą.
  * ============================================================================================================ */
 (function () {
@@ -23,7 +28,7 @@
   if (window.__wykresTemp) return; window.__wykresTemp = true;
   const MIN = 60000, GODZ = 60 * MIN, DOBA = 24 * GODZ, TRZYMAJ = 7 * DOBA;
   const PREF = (window.APKA_KLUCZ || 'apka') + '_wykresT_';
-  let obiekt = 'obiekt', ostatnie = null;
+  let obiekt = 'obiekt', obiektSurowy = null, ostatnie = null;   /* obiektSurowy = prefiks tematu (klucz bazy historii) */
 
   /* ---------------- [1] ZBIERANIE PRÓBEK ---------------- */
   /* ZAPIS ZWARTY [28.09, zmierzone sondą]: 7 dni po minucie w JSON to ~220 kB na obieg - konto serwisowe z kilkoma
@@ -121,13 +126,18 @@
   const M = window.MOST_JS;
   if (M && typeof M.startMqtt === 'function' && !M.__wykresTemp) {
     const pierwotny = M.startMqtt; M.__wykresTemp = true;
-    M.startMqtt = function (podaj, o) { return pierwotny.call(this, (d) => { if (d && typeof d.obiekt === 'string' && d.obiekt) obiekt = nazwa(d.obiekt); return podaj(d); }, o); };
+    M.startMqtt = function (podaj, o) {
+      const w = pierwotny.call(this, (d) => { if (d && typeof d.obiekt === 'string' && d.obiekt) { obiekt = nazwa(d.obiekt); obiektSurowy = d.obiekt; } return podaj(d); }, o);
+      histPodepnij();                                        /* [D-511] M.historia powstaje w startMqtt */
+      return w;
+    };
   }
   window.addEventListener('message', (ev) => {
     const d = ev.data; if (!d || typeof d !== 'object' || d.typ !== 'swiat') return;
     const ob = typeof d.obieg_nr === 'number' ? d.obieg_nr : 0;
     const pompa = !!(d.poziomStan && d.poziomStan.pompa), grz = !!d.grzeje, flagi = (grz ? 1 : 0) | (pompa ? 2 : 0);
     const m = Math.floor(Date.now() / MIN), obej = d.obejscia || {};
+    histPrzyPakiecie();                                      /* [D-511] pierwszy pakiet obiektu = baza + dociąganie */
     /* W TLE [B.0z-72]: bez odczytu przy awarii czujnika i przy obejściu (liczba wtedy nic nie znaczy).
        ⚠ „Czujnik niepodłączony” pakiet nie niesie (sterownik: `cisn_brak`, bez alarmu) - takie zera też się zapiszą;
        następna wersja pokaże ptaszek tylko dla czujników, które są, więc potrzebny będzie znacznik obecności w bloku. */
@@ -142,11 +152,123 @@
     }
     if (otwarte && otwarte.ob === ob) { widok = zbuduj(zakres); rysuj(false); }
   });
-  /* Wejście na przyszłość: historia ze sterownika (tablice jak wyżej, `sr` = temp | cis | poz) - scala bez dubli. */
+  /* HISTORIA ZE STEROWNIKA (tablice jak wyżej, `sr` = temp | cis | poz) - scala bez dubli [D-511]:
+     - próbka sterownika WYGRYWA z zebraną w telefonie przy tej samej minucie (to ten sam pomiar, dokładniejszy);
+     - okno TRZYMAJ jak przy zbieraniu (starsze leży w bazie IndexedDB, nie w localStorage) - bez tego zapis
+       przekraczał MAX_PROBEK i przy następnym wczytaniu był „za długi” (uszkodzony koniec). */
   window.dolozHistorie = function (ob, wpisy, sr = 'temp') {
-    const p = seria(ob, sr), jest = new Set(p.map(x => x[0]));
-    wpisy.forEach(w => { if (!jest.has(w[0])) p.push(w); }); p.sort((a, b) => a[0] - b[0]); zapisz(ob, p, sr);
+    if (!wpisy || !wpisy.length) return 0;
+    const granica = Math.floor(Date.now() / MIN) - TRZYMAJ / MIN;
+    const p = seria(ob, sr), poz = new Map(p.map((x, i) => [x[0], i]));
+    let nowych = 0;
+    wpisy.forEach(w => { if (w[0] < granica) return; const i = poz.get(w[0]);
+      if (i === undefined) { poz.set(w[0], p.length); p.push(w); nowych++; } else p[i] = w; });
+    p.sort((a, b) => a[0] - b[0]);
+    while (p.length && p[0][0] < granica) p.shift();
+    zapisz(ob, p, sr);
+    return nowych;
   };
+
+  /* ---------------- [1b] HISTORIA ZE STEROWNIKA: baza w telefonie + dociąganie [D-511] ---------------- */
+  const HIST_ODSTEP_MS = 60000;     /* dociąganie najczęściej co minutę (wykres i tak zbiera co minutę z `swiat`) */
+  const HIST_TLO_MS = 5 * MIN;      /* powrót z tła po dłuższej przerwie = dociągnij (telefon w tle nie zbiera) */
+  const HIST_WLEJ_MS = 400;         /* kawałki strumienia wlewamy paczką - bez przerysowania na każdy kawałek */
+  const hist = { pref: null, tekst: '', postep: null, blad: '', ost: 0, zaladowane: {}, podpiete: false, ma: false, kolejka: [], zegar: null, ukryta: 0 };
+  const MJ = () => window.MOST_JS;
+  const histJest = () => !!(MJ() && MJ().historia && MJ().HI);
+  function histWlej(wszystkie) {
+    const HI = MJ().HI;
+    /* starsze niż okno wykresu leżą tylko w bazie - bez odczytu i zapisu localStorage na każdy kawałek fazy 2 */
+    const granica = Math.floor((Date.now() - TRZYMAJ) / 1000), probki = wszystkie.filter(p => p.czas >= granica);
+    if (probki.length) hist.ma = true;                       /* dziura w oknie = „sterownik nie zapisał”, nie „apka zamknięta” */
+    HI.obiegiW(probki).forEach(ob => {
+      const s = HI.naSerie(probki, ob, SERIE);
+      ['temp', 'cis', 'poz'].forEach(sr => { if (s[sr].length) window.dolozHistorie(ob, s[sr], sr); });
+    });
+  }
+  function histPrzerysuj() { if (otwarte && widok) { widok = zbuduj(zakres); rysuj(false); } }
+  function histWlejPozniej(probki) {
+    for (const p of probki) hist.kolejka.push(p);
+    if (hist.zegar) return;
+    hist.zegar = setTimeout(() => { const p = hist.kolejka; hist.kolejka = []; hist.zegar = null; histWlej(p); histPrzerysuj(); }, HIST_WLEJ_MS);
+  }
+  /* NAJPIERW BAZA: 7 dni z IndexedDB - wykres rysuje się od razu, zanim sterownik cokolwiek odeśle */
+  function histZBazy(pref) {
+    if (!histJest() || !pref || hist.zaladowane[pref]) return Promise.resolve();
+    hist.zaladowane[pref] = true;
+    return MJ().historia.czytaj(pref, Math.floor((Date.now() - TRZYMAJ) / 1000), 0)
+      .then(p => { if (pref === obiektSurowy && p.length) { histWlej(p); histPrzerysuj(); } }, () => {});
+  }
+  function histOpisBazy(pref) {
+    if (!histJest()) return;
+    Promise.all([MJ().historia.meta(pref), MJ().historia.miejsce()]).then(([m, mj]) => {
+      if (pref !== obiektSurowy || !m || !m.pierwsza) return;
+      const d = new Date(m.pierwsza * 1000), komplet = m.od_pelne != null && m.od_pelne <= (m.od_dost || 0);
+      hist.tekst = 'Historia ze sterownika w telefonie od ' + d.getDate() + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear()
+        + (komplet ? ' - komplet' : ' - starsza dociąga się w tle')
+        + (mj && mj.zajete ? ' · pamięć apki ' + (mj.zajete / 1048576).toFixed(1) + ' MB' + (mj.trwaly === false ? ' (przeglądarka może ją wyczyścić - zainstaluj apkę)' : '') : '') + '.';
+      histPokaz();
+    }, () => {});
+  }
+  function histDociagnij(powod) {
+    if (!histJest() || !obiektSurowy) return;
+    const t = Date.now();
+    if (MJ().historia.trwa() || t - hist.ost < HIST_ODSTEP_MS) return;
+    hist.ost = t;
+    const pref = obiektSurowy;
+    histZBazy(pref).then(() => MJ().historia.dociagnij(powod)).then(w => {
+      if (pref !== obiektSurowy) return;
+      hist.postep = null;
+      /* `uwaga` = sterownik NIE zapisuje (zegar, odcięcie, brak nośnika - 3332 z nagłówka) - na czerwono jak błąd [zasada 10] */
+      hist.blad = (w && (w.blad || w.uwaga)) || '';
+      histPokaz(); histOpisBazy(pref);
+    });
+  }
+  /* zdarzenia pobierania -> pasek w karcie i wlewanie kawałków */
+  function histPodepnij() {
+    if (hist.podpiete || !histJest()) return;
+    hist.podpiete = true;
+    MJ().historia.sluchaj(e => {
+      if (!e || e.pref !== obiektSurowy) return;
+      if (e.typ === 'dane' && e.probki) histWlejPozniej(e.probki);
+      if (e.typ === 'blad') { hist.blad = e.tekst || ''; hist.postep = null; }
+      else if (e.typ === 'koniec') hist.postep = null;
+      else { hist.postep = typeof e.postep === 'number' ? e.postep : hist.postep; hist.blad = ''; if (e.tekst) hist.tekst = e.tekst; }
+      histPokaz();
+    });
+  }
+  function histPrzyPakiecie() {
+    if (!obiektSurowy) return;
+    if (hist.pref !== obiektSurowy) {                        /* konto serwisowe przełączyło obiekt - stan paska od nowa */
+      hist.pref = obiektSurowy; hist.ost = 0; hist.tekst = ''; hist.blad = ''; hist.postep = null; hist.ma = false;
+    }
+    histPodepnij();
+    if (!hist.zaladowane[obiektSurowy]) { histZBazy(obiektSurowy); histDociagnij('start apki'); }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { hist.ukryta = Date.now(); return; }
+    if (hist.ukryta && Date.now() - hist.ukryta > HIST_TLO_MS) { hist.ost = 0; histDociagnij('powrót z tła'); }
+    hist.ukryta = 0;
+  });
+  /* pasek historii w otwartej karcie (tekst + postęp); pusty = ukryty */
+  function histPokaz() {
+    if (!otwarte) return;
+    const el = otwarte.el.querySelector('.wt-hist'); if (!el) return;
+    const pobiera = hist.postep !== null;
+    const txt = hist.blad ? hist.blad : pobiera ? (hist.tekst || 'pobieram historię ze sterownika…') + ' ' + hist.postep + ' %' : hist.tekst;
+    el.hidden = !txt;
+    el.classList.toggle('blad', !!hist.blad);
+    el.querySelector('.wt-hist-txt').textContent = txt ? txt.charAt(0).toUpperCase() + txt.slice(1) : '';
+    const pas = el.querySelector('.wt-hist-pas'); pas.hidden = !pobiera;
+    pas.firstChild.style.width = (pobiera ? Math.max(2, hist.postep) : 0) + '%';
+    const pusto = otwarte.el.querySelector('.wt-pusto');
+    if (pusto && !pusto.hidden) pusto.textContent = pustoTekst();
+  }
+  function pustoTekst() {
+    if (hist.postep !== null) return 'Pobieram historię ze sterownika… ' + hist.postep + ' %';
+    return histJest() && !hist.blad ? 'Zbieram dane: historia ze sterownika pojawi się po pierwszym pobraniu, a wykres rośnie co minutę.'
+                                    : 'Zbieram dane: wykres wypełnia się, gdy apka jest otwarta.';
+  }
 
   /* ---------------- [2] WYGLĄD (paleta apki T3) ---------------- */
   const styl = document.createElement('style');
@@ -192,6 +314,10 @@
   .wt-leg{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:#5d6470}
   .wt-leg i{display:inline-block;width:16px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
   .wt-stopka{font-size:11px;color:#8a929d}
+  .wt-hist{display:grid;gap:5px;font-size:12px;color:#5d6470}
+  .wt-hist.blad{color:#bb0000}
+  .wt-hist-pas{height:6px;border-radius:3px;background:#edf0f3;overflow:hidden}
+  .wt-hist-pas i{display:block;height:100%;width:0;border-radius:3px;background:linear-gradient(90deg,rgba(18,162,181,.9),rgba(30,111,217,1));transition:width .4s ease}
   @media (max-width:480px){.wt-stat{grid-template-columns:repeat(2,minmax(0,1fr))}}
   @media (prefers-reduced-motion:reduce){.wt-tlo,.wt-karta,.wt-suwak,.wt-trend svg{transition:none}}`;
   document.head.appendChild(styl);
@@ -346,7 +472,7 @@
   function rysuj(przenikanie) {
     if (!otwarte) return; const pusto = otwarte.el.querySelector('.wt-pusto');
     pusto.hidden = widok.surowe.length > 1;
-    pusto.textContent = 'Zbieram dane: wykres wypełnia się, gdy apka jest otwarta. Pełna historia ze sterownika przyjdzie z jego aktualizacją.';
+    pusto.textContent = pustoTekst();                          /* [D-511] pobieranie historii / zbieranie - co naprawdę się dzieje */
     if (!przenikanie || matchMedia('(prefers-reduced-motion: reduce)').matches) { if (anim) cancelAnimationFrame(anim); anim = null; klatka(cx, widok); podsumuj(); return; }
     const A = document.createElement('canvas'); A.width = cv.width; A.height = cv.height; A.getContext('2d').drawImage(cv, 0, 0);
     const B = document.createElement('canvas'); B.width = cv.width; B.height = cv.height; klatka(B.getContext('2d'), widok);
@@ -376,7 +502,8 @@
     const d = new Date(blisko ? p.t : t), dt = dzien(d.getTime()) + ' ' + d.getDate() + '.' + String(d.getMonth() + 1).padStart(2, '0') + ', ' + hhmm(d.getTime());
     if (blisko) { ox.beginPath(); ox.arc(kx, Y(widok, p.v), 4.5, 0, 7); ox.fillStyle = 'rgb(' + K.woda + ')'; ox.fill(); ox.lineWidth = 2; ox.strokeStyle = '#fff'; ox.stroke();
       dym.innerHTML = '<div>' + dt + '</div><div class="v">' + fmt(p.v, 2) + ' °C</div>' + (p.grz ? '<span class="wt-znacz c">grzanie</span>' : '<span class="wt-znacz">bez grzania</span>') + '<span class="wt-znacz">' + (p.pompa ? 'pompa pracuje' : 'pompa stoi') + '</span>'; }
-    else dym.innerHTML = '<div>' + dt + '</div><div class="v">brak danych</div><span class="wt-znacz">apka była zamknięta</span>';
+    else dym.innerHTML = '<div>' + dt + '</div><div class="v">brak danych</div><span class="wt-znacz">'
+                         + (hist.ma ? 'sterownik nie zapisał pomiaru' : 'apka była zamknięta') + '</span>';   /* [D-511] */
     const sz = dym.offsetWidth || 150; dym.style.left = Math.min(Math.max(8, kx + (kx > W / 2 ? -sz - 14 : 14)), W - sz - 8) + 'px'; dym.classList.add('widac');
   }
 
@@ -392,7 +519,7 @@
     q('.wt-s-min').textContent = st ? fmt(st.min) + '°' : '–'; q('.wt-s-max').textContent = st ? fmt(st.max) + '°' : '–'; q('.wt-s-sr').textContent = st ? fmt(st.sr) + '°' : '–';
     q('.wt-s-grz').textContent = st ? Math.floor(st.grzMin / 60) + ':' + String(st.grzMin % 60).padStart(2, '0') + ' h' : '–';
     const p = seria(otwarte.ob), u = uszkodzone[klucz(otwarte.ob)];   /* [Astra 14] uszkodzony zapis - jawnie, nie jako zera */
-    q('.wt-stopka').textContent = (p.length ? 'Historia z tego telefonu od ' + dzien(p[0][0] * MIN) + ' ' + hhmm(p[0][0] * MIN) + ' (' + p.length + ' próbek co minutę, 7 dni).' : '')
+    q('.wt-stopka').textContent = (p.length ? (hist.ma ? 'Na wykresie od ' : 'Historia z tego telefonu od ') + dzien(p[0][0] * MIN) + ' ' + hhmm(p[0][0] * MIN) + ' (' + p.length + ' próbek co minutę, 7 dni).' : '')
       + (u ? ' Część zapisu w telefonie była uszkodzona (' + u.opis + ')' + (u.od !== null ? ' - pokazuję dane do ' + dzien(u.od * MIN) + ' ' + hhmm(u.od * MIN) : ' - pominięta') + '.' : '');
   }
 
@@ -421,6 +548,7 @@
       '<div class="wt-leg"><span><i style="background:linear-gradient(180deg,rgba(30,111,217,.9),rgba(18,162,181,.25))"></i>temperatura</span><span><i style="height:0;border-top:2px dashed #5d6470;border-radius:0"></i>zadana</span>' +
       '<span><i style="background:rgba(224,112,31,.22);border-bottom:3px solid #e0701f"></i>grzanie</span><span><i style="background:repeating-linear-gradient(135deg,#8a929d 0 1.5px,transparent 1.5px 5px);opacity:.6"></i>pompa stoi</span></div>' +
       '<div class="wt-stat"><div><span>minimum</span><b class="wt-s-min">–</b></div><div><span>maksimum</span><b class="wt-s-max">–</b></div><div><span>średnia</span><b class="wt-s-sr">–</b></div><div><span>grzanie łącznie</span><b class="wt-s-grz" style="color:#e0701f">–</b></div></div>' +
+      '<div class="wt-hist" hidden><div class="wt-hist-txt"></div><div class="wt-hist-pas" hidden><i></i></div></div>' +   /* [D-511] */
       '<div class="wt-stopka"></div>';
     return k;
   }
@@ -441,6 +569,8 @@
     new ResizeObserver(() => { if (!otwarte || otwarte.karta !== k || !pw.clientWidth) return; wymiary(); widok = zbuduj(zakres); rysuj(false); ustaw(); }).observe(pw);
     requestAnimationFrame(() => { if (!osadzona) root.classList.add('widac'); if (!pw.clientWidth) return;
       wymiary(); ustaw(); widok = zbuduj(zakres); rysuj(false); requestAnimationFrame(nakladka); });
+    /* [D-511] pasek historii od razu (stan z ostatniego pobierania) i dociągnięcie przy otwarciu (najczęściej co minutę) */
+    histPokaz(); if (obiektSurowy) { if (!hist.tekst && !hist.blad) histOpisBazy(obiektSurowy); histDociagnij('otwarcie wykresu'); }
   }
   let zamknijOkno = () => {};
   function otworz() {
