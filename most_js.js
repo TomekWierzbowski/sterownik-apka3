@@ -1776,7 +1776,12 @@
     /*  ⚠ „REZERWY NIE MA" MÓWIMY WPROST (zasada 10) — to jest właśnie ta luka, przez którą D-373
         kazało zgadywać adres. Widoczny stan zamiast ciszy albo zgadywanki. */
     M.rezerwaBrak = (POL.length < 2);
-    POL.forEach((c, i) => { c.kl = new Klient(c.host, c.port, '/mqtt', cid + (i ? '-' + (i + 1) : ''));
+    /*  [próba w słabym zasięgu 02.10, Tomasz na LTE] IDENTYFIKATOR WEDŁUG NUMERU SERWERA, NIE POZYCJI NA LIŚCIE.
+        Dawniej `cid-(pozycja+1)`: przy serwerach 1 i 3 serwer 3 dostawał `cid-2`, a serwer 2 dopisany później ze spisu
+        sterownika (`dodajSerwer`, niżej) - też `cid-2`. Na TYM SAMYM brokerze dwie sesje z jednym identyfikatorem
+        wyrzucały się nawzajem co ~1 s (dziennik: „serwer 2: zerwane … połączony ponownie (przerwa 1 s)”, meldunek
+        `3:zerwane/laczy/ok` na przemian). Teraz wszędzie `cid` / `cid-2` / `cid-3` jak w `dodajSerwer`. */
+    POL.forEach(c => { c.kl = new Klient(c.host, c.port, '/mqtt', cid + (c.nr > 1 ? '-' + c.nr : ''));
                             c.stan = { stan: 'laczy', opis: 'łączę z brokerem…' }; });
     /*  ILE BROKEROW NAPRAWDE MAMY - WPROST W DZIENNIKU [D-353, 2026-09-13]
         Wpis „start klienta ... -> host" jest JEDEN, niezaleznie od liczby brokerow (wyzej, przy `o.host`).
