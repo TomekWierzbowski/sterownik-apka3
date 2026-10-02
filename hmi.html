@@ -1162,7 +1162,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = 'd770f9f198';
+window.APKA_WERSJA = 'adb30965f6';
 window.APKA_KLUCZ = 'test3:';
 if ('serviceWorker' in navigator) { var _odsw = false;
   document.addEventListener('visibilitychange', function () { if (document.visibilityState !== 'visible') return;
@@ -1660,7 +1660,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-01 00:19';
+window.HMI_ZBUDOWANO = '2026-10-01 13:06';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -7029,6 +7029,14 @@ const N = {
      cichy_czas   = 5120+o*10+2 [min] 0-720, 0 = nie odlicza (ręczne włączenie gaśnie po 8 h). */
   cichy_jest:false, cichy_sposob:1, cichy_czas:0,
   cichy_zwarty:false,                   /* bit 4 rejestru 3328+o - bramka ostrzeżenia (odczyt, nie nastawa) */
+  /* RAPORT GOTOWOŚCI ZNANY [D-518, 01.10.2026] - BRAMKA dla inwentarza, jak dwa_obiegi: w przeglądarce raport jest znany,
+     gdy przyszedł SRV_S.brakuje (rejestr 3051/3052); panel liczy to z żywej magistrali (generator: gdy_got_znana_false ->
+     !srv_got_znana()). Nie nastawa - nic się nie zapisuje. */
+  got_znana:false,
+  /* RAPORT MA CO ZGŁOSIĆ [D-519 pkt 1, 01.10.2026] - BRAMKA dla inwentarza, jak got_znana: wiersz hubu „Czego brakuje
+     do pełnej pracy” tylko przy lukach. W przeglądarce decyduje SRV_S.brakuje (gotJestCoZglosic); panel liczy to z maski
+     p[15] bloku (generator: gdy_got_luki_true -> srv_got_luki()). Nie nastawa - nic się nie zapisuje. */
+  got_luki:false,
   dol_awaria:100,                       /* % limitu w oknie 3 h -> AWARIA [D-100] */
   nadmiar_prog:600, nadmiar_hist:300,  /* żywe tylko przy przelewie */
   /* PRZELICZNIK w l/cm [Tomasz 2026-08-21] — jedna jednostka na całej
@@ -7850,7 +7858,21 @@ function ekrSerwis(){
       <span class="w">${siecSkrot()}</span><span class="ch">›</span></div>
     <div class="grupka" data-lv="g">INFORMACJE</div>
     ${/* RAPORT GOTOWOSCI: nie usterki, tylko funkcje spiace po cichu.
-          Licznik przy wierszu, zeby bylo widac BEZ wchodzenia. */''}
+          Licznik przy wierszu, zeby bylo widac BEZ wchodzenia.
+          ⚠ WIERSZ WRÓCIŁ [D-518, 01.10.2026]: zdjęty 28.08 (D-144 - na panelu prowadził do pustej tabeli, wiersze listy
+          nie były napisane). Tomasz 30.09: odcięcie historii pomiarów ma być WPISEM W TYM RAPORCIE („czego brakuje do pełnej
+          pracy” -> „historia pomiarów wyłączona po awarii”), bez bitu alarmu - więc raport musi być osiągalny. Panel ma
+          teraz wiersze luk (srv_tabele.c EL_GOTOWOSC_EXTRA, jeden na bit 01f). Licznik po prawej tylko w przeglądarce -
+          generator nie przenosi dynamicznej plakietki wiersza nawigacji.
+          ⚠ TYLKO GDY JEST CO ZGŁOSIĆ [D-519 pkt 1, Tomasz 01.10.2026 - „nie pokazuj, czego nie ma”]: wiersz widać wyłącznie,
+          gdy raport gotowości jest znany i ma choć jedną lukę (rejestr 3051/3052 ≠ 0, w bloku panelu p[15] ≠ 0). Przy pełnej
+          gotowości i przy nieznanym raporcie (sterownik jeszcze nic nie powiedział) wiersza NIE MA - plakietki „komplet”
+          i „—” zniknęły razem z nim. Bramka inwentarza got_luki (spoza katalogu, jak got_znana): generator robi z niej
+          gdy_got_luki_true -> srv_got_luki() na panelu (srv_tabele.c, ta sama maska co wiersze luk). */''}
+    ${gotJestCoZglosic() ? `<div class="mrow" data-lv="idz.gotowosc" onclick="idz('gotowosc')"><span class="t">Czego brakuje do pełnej pracy<i>funkcje, które śpią: nieustawiona nastawa albo odcięcie po awarii</i></span>${
+      (() => { const n = gotLuki().length;
+               return n === 0 ? '' : `<span class="w zle">${n}</span>`; })()
+    }<span class="ch">›</span></div>` : ''}
     <div class="mrow" data-lv="idz.historia" onclick="idz('historia')"><span class="t">Historia alarmów<i>alarmy z czasem wystąpienia</i></span><span class="ch">›</span></div>
     <div class="mrow" data-lv="idz.zdarzenia" onclick="idz('zdarzenia')"><span class="t">Dziennik zdarzeń<i>${
       SRV_S.zdarzenia ? (SRV_S.zdarzenia.ile + ' wpisów: użytkownik, automat, konfiguracja') : 'kto co przełączył, co zrobił automat, co zmieniono'}</i></span><span class="ch">›</span></div>
@@ -8880,12 +8902,22 @@ async function pilotOdswiez(){
   /* [D-307] także z menu serwisu, dopóki nie wiadomo, czy płyta ma złącze - wiersz „Pilot" zależy od 3096 b10 */
   if (SRV_S.ekran !== 'pilot' && !(SRV_S.ekran === 'serwis' && !SRV_S.pilot && SRV_S.akc_ist)) return;
   try {
-    const a = await pilotRej(3092, 5), b = await pilotRej(4700, 26);
-    if (a.length < 5 || b.length < 26 || b[0] === null) return;
-    const wpisy = [];
-    for (let i = 0; i < 8; i++) wpisy.push({kod: (b[3*i] | 0) + ((b[3*i+1] | 0) << 16), kanal: b[3*i+2], nr: i + 1});
+    const a = await pilotRej(3092, 5);
+    if (a.length < 5) return;
+    const zlacze = !!(a[4] & 0x400);   /* 3096 b10: płyta ma gniazdo radia (tylko A6 v3) [D-293] */
+    let wpisy = [], ucz_kanal = 255;
+    /* [poprawka 2026-10-01, D-527] 4700+ CZYTAĆ TYLKO Z RADIEM: bez niego te same adresy 4700-4723
+       są nastawami grzania obiegu 2 (15_modbus_slave.h) i most po FC04 odrzuca CAŁY blok wyjątkiem
+       0x02, skoro choć jeden adres w zakresie (4704-4723 bez radia) jest nieznany - wiersz wtedy
+       wisiał na „sprawdzam, czy płyta ma złącze radia…" (SRV_S.pilot nigdy się nie ustawiał). */
+    if (zlacze) {
+      const b = await pilotRej(4700, 26);
+      if (b.length < 26 || b[0] === null) return;
+      for (let i = 0; i < 8; i++) wpisy.push({kod: (b[3*i] | 0) + ((b[3*i+1] | 0) << 16), kanal: b[3*i+2], nr: i + 1});
+      ucz_kanal = b[24];
+    }
     const nowy = { kod: (a[0] | 0) + ((a[1] | 0) << 16), bity: a[2] & 0xFF, prot: a[2] >> 8, licznik: a[3],
-                   wpis: a[4] & 0xFF, chip: !!(a[4] & 0x100), ucz: !!(a[4] & 0x200), zlacze: !!(a[4] & 0x400), ucz_kanal: b[24], wpisy };   /* zlacze: płyta ma gniazdo radia (tylko A6 v3) [D-293] */
+                   wpis: a[4] & 0xFF, chip: !!(a[4] & 0x100), ucz: !!(a[4] & 0x200), zlacze, ucz_kanal, wpisy };
     const zm = JSON.stringify(nowy) !== JSON.stringify(SRV_S.pilot);
     SRV_S.pilot = nowy;
     if (zm) srvRender(false);           /* przebudowa tylko przy zmianie - nie zjada klikniec */
@@ -8964,8 +8996,10 @@ const SIEC_ODMOWA = {
   6:'MQTT jest włączone, ale nie ma adresu brokera',
   7:'port MQTT nie może być zerem',
   8:'kanał punktu dostępu poza zakresem 1–13',
+  9:'PIN strony ma mieć od 4 do 8 znaków albo być pusty (strona bez zamka)',
   10:'drugi serwer MQTT jest włączony, ale nie ma adresu',
-  11:'port drugiego serwera MQTT nie może być zerem'
+  11:'port drugiego serwera MQTT nie może być zerem',
+  12:'MQTT jest włączone, ale prefiks tematu (nazwa obiektu) jest pusty'
 };
 /* powód ostatniego rozłączenia stacji - kody sterownika WiFi (esp_wifi_types) */
 const SIEC_POWOD = {
@@ -9965,12 +9999,21 @@ const GOTOWOSC = [
             'ZADZIAŁANIE ZABEZPIECZENIA SILNIKA NIKOGO NIE ZATRZYMA'],
   [1 << 12, 'Brak wejścia kontroli faz',
             'praca na dwóch fazach i zła kolejność obrotów nie będą wykryte'],
+  /* [D-518, Tomasz 2026-09-30] STAN, NIE NASTAWA: historia pomiarów odcięta po powtarzających się awariach w jej kroku
+     (01f GOT_HISTORIA, 3332 b6). Bez bitu alarmu - funkcja pomocnicza; tu mówimy, że śpi i jak ją obudzić. */
+  [1 << 13, 'Historia pomiarów wyłączona po awarii',
+            'sterownik steruje dalej, ale nie zapisuje pomiarów — wykresy w apce nie dociągną się ze sterownika; serwis: konsola ODCIECIE,0 i restart'],
 ];
-const gotLuki = () => SRV_S.brakuje === null ? []
+/* ZNANY = sterownik powiedział (SRV_S.brakuje z rejestru 3051/3052) albo bramka inwentarza N.got_znana [D-518] */
+const gotZnana = () => SRV_S.brakuje !== null || !!N.got_znana;
+const gotLuki = () => !gotZnana() || SRV_S.brakuje === null ? []
                     : GOTOWOSC.filter(g => (SRV_S.brakuje & g[0]) !== 0);
+/* WIERSZ HUBU WIDOCZNY [D-519 pkt 1]: raport ma co zgłosić (choć jedna luka) albo bramka inwentarza N.got_luki
+   (wariant „są luki” dla generatora - w przeglądarce zawsze false, nic jej nie zapisuje) */
+const gotJestCoZglosic = () => gotLuki().length > 0 || !!N.got_luki;
 
 function ekrGotowosc(){
-  if (SRV_S.brakuje === null) return `<div class="tresc">
+  if (!gotZnana()) return `<div class="tresc">
     <div class="ostrzega" data-lv="ostrzega">Sterownik jeszcze nic nie powiedział — poczekaj chwilę
       albo sprawdź połączenie z modułem.</div>
   </div>` + pasek('SERWIS · czego brakuje', 'serwis');
@@ -11545,7 +11588,13 @@ if (location.search.indexOf('inwentarz') >= 0) {
     /* TRYB CICHY [D-495]: sekcja na ekranie poziomu tylko, gdy funkcja jest (bit 0 rejestru 3328+o),
        ostrzeżenie tylko przy zwartym przycisku (bit 4). Obie bramki SPOZA katalogu, jak dwa_obiegi -
        generator mapuje je na stan trybu cichego w panelu. */
-    ['cichy_jest',[true,false]], ['cichy_zwarty',[true,false]]
+    ['cichy_jest',[true,false]], ['cichy_zwarty',[true,false]],
+    /* RAPORT GOTOWOŚCI [D-518]: baner „sterownik jeszcze nic nie powiedział” tylko, gdy raportu nie ma - bramka spoza
+       katalogu (generator: srv_got_znana() = żywa magistrala). Wiersze luk są z listy JS - panel pisze je ręcznie. */
+    ['got_znana',[false,true]],
+    /* [D-519 pkt 1] wiersz hubu „Czego brakuje do pełnej pracy” tylko, gdy raport ma co zgłosić - baza true (widać),
+       wariant false (znika) -> gdy=got_luki=true; generator: srv_got_luki() */
+    ['got_luki',[true,false]]
   ];
   const linie = [];
   const tekstWlasny = n => Array.from(n.childNodes)

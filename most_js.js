@@ -667,6 +667,9 @@
     /*  3332 b8 (21b HI_R_KARTA_WSTRZYMANA) [przegląd historii 1, S4]: karta zamontowana, ale chwilowo wstrzymana (aktualizacja
         panelu) - `od_dost` w nagłówku `start` nie jest wtedy prawdziwym początkiem danych sterownika. */
     const R_KARTA_WSTRZYMANA = 0x100;
+    /*  3332 b6 / b9 [przegląd historii 2, S3] - dwie RÓŻNE rzeczy: b6 = historia ODCIĘTA po powtarzających się awariach
+        (serwis: konsola ODCIECIE), b9 = WYŁĄCZONA W OBRAZIE sterownika (ENABLE_HISTORIA=0 - świadomie, nie awaria). */
+    const R_ODCIETA = 0x40, R_WYL_W_OBRAZIE = 0x200;
     /* serie wykresu (wykres_temp.js SERIE): zapis = round(wartość × skala) + przesunięcie, w 0..46655 */
     const SERIE_DOM = { temp: { skala: 100, przes: 0 }, cis: { skala: 100, przes: 0 }, poz: { skala: 1, przes: 5000 } };
     const ZAPIS_MAX = 46655;
@@ -756,7 +759,7 @@
           dane   - próbki z [od, do] (bloki idą w całości, filtrujemy tu);
           luka   - brakuje kawałka (także na końcu: `koniec` mówi, ile ich było) - wznowić od `od`;
           koniec - komplet; odmowa - kod + tekst sterownika (zasada 10: apka pokazuje go wprost); stop. */
-    const odbior = (id, od, dokad) => ({ id, od: od || 0, dokad: dokad || 0, nr: 0, probek: 0, ost: 0, start: null, koniec: false });
+    const odbior = (id, od, dokad) => ({ id, od: od || 0, dokad: dokad || 0, nr: 0, probek: 0, ost: 0, start: null, koniec: false, uszkodzonych: 0 });
     const wznowOd = s => (s.ost ? s.ost + 1 : s.od);
     function przyjmij(s, u8) {
       const h = naglowek(u8);
@@ -783,7 +786,12 @@
         const kawalkow = +h.pola[6];
         if (kawalkow > s.nr) return { co: 'luka', od: wznowOd(s), brak: 'koniec po ' + kawalkow + ' kawałkach, doszło ' + s.nr };
         s.koniec = true;
-        return { co: 'koniec', probek: s.probek };
+        /*  [przegląd historii 2, W1] pole 8 (pola[7]) = bajty uszkodzonego zapisu w plikach dni, dotyczącego prośby, którego
+            sterownik NIE uzupełnił z drugiego nośnika (21b [1b] HiSmiec, zgłasza _hi_dzien_koniec) - tych próbek sterownik nie ma. Starszy
+            sterownik pola nie wysyła = 0 (jak dotąd). Dziura, którą da się uzupełnić, uzupełnia SAM sterownik (dzień czytany
+            drugi raz z drugiego nośnika) - także dla apki sprzed tej poprawki. */
+        s.uszkodzonych = Math.max(0, +h.pola[7] || 0);
+        return { co: 'koniec', probek: s.probek, uszkodzonych: s.uszkodzonych };
       }
       if (!/^\d+$/.test(rodzaj || '')) return { co: 'obcy' };
       const nr = +rodzaj;
@@ -873,11 +881,19 @@
           od_dost  - początek danych na nośnikach sterownika (z nagłówka start); f2_ost - postęp fazy 2 (wznowienie).
         Faza 1 = od ostatniej próbki (albo ostatnie `naStartS` sekund) do teraz: wykres ma świeże dni od razu.
         Faza 2 = to, co starsze od granicy - w tle, wznawialna między uruchomieniami apki. */
+    /*  NAJWIĘKSZE COFNIĘCIE ZEGARA TELEFONU, KTÓRE APKA JESZCZE TRAKTUJE JAK „ZEGAR STEROWNIKA W PRZÓD” [D-519 pkt 2, N1]
+        = najdłuższa powtórka ponownego pobrania historii przy cofniętym zegarze telefonu. JEDNO miejsce: granicaOst() i planuj()
+        (test: narzedzia_hmi/test_historia_apka.js [11]). */
+    const TEL_WSTECZ_MAX_S = DOBA;
     function planuj(meta, terazUtc, naStartS) {
       if (!meta || !meta.ost) return { faza: 1, od: Math.max(1, terazUtc - naStartS), do: 0 };
       /* [przegląd historii 1, W1] `ost` nie dalej niż zegar telefonu - zapisane przez starszą apkę mogło leżeć
-         w przyszłości (zegar sterownika w przód), a prośba od przyszłości zwraca 0 próbek i kończy się „kompletem” */
-      return { faza: 1, od: Math.min(meta.ost, terazUtc) + 1, do: 0 };
+         w przyszłości (zegar sterownika w przód), a prośba od przyszłości zwraca 0 próbek i kończy się „kompletem”.
+         [D-519 pkt 2, N1] ...ale `ost` dalej niż TEL_WSTECZ_MAX_S przed zegarem telefonu = to TELEFON jest cofnięty
+         (granicaOst wpuściła je zegarem sterownika) - prosimy od `ost`, nie od zegara telefonu, inaczej każde otwarcie
+         ściągałoby od nowa cały odcinek między zegarami. */
+      const od = terazUtc > 0 && meta.ost - terazUtc > TEL_WSTECZ_MAX_S ? meta.ost : Math.min(meta.ost, terazUtc);
+      return { faza: 1, od: od + 1, do: 0 };
     }
     /*  GRANICA ZAUFANIA DLA `ost` [przegląd historii 1, W1 - zegar sterownika w przyszłości]
         WEJŚCIA:  zegar telefonu (terazUtc = Date.now; telefony biorą czas z sieci), nagłówek `start` (teraz UTC sterownika).
@@ -888,9 +904,18 @@
                   mówiłby „komplet”. Sam `start.teraz` nie wystarcza: w chwili pobierania sterownik wierzy w swój zły zegar -
                   dlatego rozstrzyga niezależny zegar telefonu.
         WYJŚCIA:  najpóźniejszy czas, który wolno zapisać jako `ost` (Infinity = brak obu zegarów). Koszt: gdy zegar sterownika
-                  spieszy się o kilka sekund, następne dociągnięcie przyniesie te próbki drugi raz - baza scala po czasie. */
+                  spieszy się o kilka sekund, następne dociągnięcie przyniesie te próbki drugi raz - baza scala po czasie.
+        ⚠ [D-519 pkt 2, Tomasz 01.10.2026 - przegląd historii 2, N1] zegar TELEFONU wstecz (tablet ścienny bez NTP, cofnięty
+                  o 3 doby): dawniej `ost` przycięte do zegara telefonu, więc KAŻDE dociągnięcie prosiło od nowa o cały odcinek
+                  między zegarami (przez chmurę ~100 kB/obieg za każdym razem). Decyzja: ponowne pobranie NAJWYŻEJ OSTATNIA DOBA.
+                  Telefon za sterownikiem o więcej niż TEL_WSTECZ_MAX_S = rozstrzyga zegar sterownika (granica = `start.teraz`),
+                  a planuj() prosi wtedy od `ost`, nie od telefonu - powtórka 0. Telefon za sterownikiem o mniej = jak dotąd
+                  min(tel, ster): powtórka = różnica zegarów, czyli najwyżej doba. Cena (świadoma): sterownik w PRZÓD o więcej
+                  niż dobę względem telefonu wygląda tak samo jak telefon wstecz i W1 go nie złapie; o mniej (zła strefa, zła
+                  godzina, ręczne +2 h) - łapany jak przedtem. Zegar telefonu w PRZÓD - nic złego (min bierze sterownik). */
     function granicaOst(terazUtc, start) {
       const tel = terazUtc > 0 ? terazUtc : Infinity, ster = start && start.teraz > 0 ? start.teraz : Infinity;
+      if (isFinite(tel) && isFinite(ster) && ster - tel > TEL_WSTECZ_MAX_S) return ster;   /* telefon cofnięty [D-519 pkt 2] */
       return Math.min(tel, ster);
     }
     function planujStarsze(meta) {
@@ -905,12 +930,26 @@
         zdania dziury wyglądałyby na awarię apki. '' = zapisuje normalnie. */
     function uwagaRej(rej) {
       if (rej == null || !isFinite(rej)) return '';
-      if (rej & 64) return 'sterownik nie zapisuje historii - wyłączona po awariach w jej kroku (serwis: odcięcie, konsola ODCIECIE)';
+      /* [przegląd historii 2, S3] b9 przed b6: obraz bez historii to NIE awaria - nie odsyłamy serwisu do ODCIECIE */
+      if (rej & R_WYL_W_OBRAZIE) return 'sterownik nie ma historii pomiarów - wyłączona w tym oprogramowaniu sterownika (świadomie, nie awaria)';
+      if (rej & R_ODCIETA) return 'sterownik nie zapisuje historii - wyłączona po awariach w jej kroku (serwis: odcięcie, konsola ODCIECIE)';
       if (rej & 16) return 'sterownik nie zapisuje historii - zegar niepewny (ustaw czas w sterowniku)';
       if (rej & 128) return 'sterownik nie ma gdzie zapisać historii (brak pamięci i karty) - trzyma tylko ostatnie 4 h';
       if ((rej & 4) && !(rej & 2)) return 'błąd zapisu historii w pamięci sterownika - ponawia co minutę, próbki czekają 4 h';
       if (rej & R_KARTA_WSTRZYMANA) return 'karta sterownika chwilowo wstrzymana (aktualizacja panelu) - starsza historia dociągnie się po niej';
       return '';
+    }
+    /*  [przegląd historii 2, W1] USZKODZONY ZAPIS, KTÓREGO STEROWNIK NIE MIAŁ CZYM UZUPEŁNIĆ (pole 8 `koniec`, bajty) -> zdanie
+        na pasek wykresu [zasada 10]: dziura na wykresie w tym miejscu jest w STEROWNIKU (uszkodzony zapis bez drugiej kopii),
+        nie w apce i nie w łączu - ponowne pobranie jej nie zapełni. '' = nic nie przepadło. Zakres pobrania domyka się normalnie
+        (od_pelne = „wszystko, co sterownik MA”); gdyby się nie domykał, każde otwarcie ściągałoby ten sam zakres od nowa.
+        [przegląd historii 3, N2] „w pamięci (karta lub flash)”, nie „na karcie”: sterownik bez karty czyta sam flash, więc
+        uszkodzony bywa też flash - pole 8 nie mówi, który nośnik. */
+    function uwagaUszk(bajtow) {
+      const b = +bajtow || 0;
+      if (b <= 0) return '';
+      return 'sterownik pominął uszkodzony zapis historii w swojej pamięci (karta lub flash, ' + b + ' B) i nie miał drugiej kopii - '
+        + 'tych minut sterownik nie ma, reszta pobrana';
     }
     /*  ILE MIEJSCA W TELEFONIE NA FAZĘ 2 [B]: dni od PRAWDZIWEGO początku danych sterownika (od_dost z nagłówka start)
         do granicy, × BAZA_B_NA_DOBE. ⚠ `od` fazy 2 bywa 0 („wszystko”) - liczone od 1970 dawało ~1,2 GB i odmowę
@@ -952,11 +991,15 @@
           z kartą, karta wstrzymana) - faza 2 brała już tylko starsze, a 7 dni - 4 h zostawało na zawsze „pobrane”. Gdy później
           sterownik pokaże starsze dane (karta wróciła, włożona inna), metaStart obniży od_dost i faza 2 dociągnie resztę.
           Karta wstrzymana (3332 b8) = od_dost niewiarygodny, liczy się sama prośba (i tak nie sięga niżej - HI.przyjmij odkłada). */
-    function metaKoniec(meta, faza, prosbaOd, start) {
+    /*  `uszk` [przegląd historii 2, W1] = pole 8 `koniec` (bajty śmiecia bez drugiej kopii w sterowniku): zapamiętane w meta
+        (`uszk` = {b, faza, kiedy} - do dziennika i do opisu na pasku), zakres domyka się jak zawsze - tych próbek sterownik
+        nie ma, ponowne pobranie ich nie da. */
+    function metaKoniec(meta, faza, prosbaOd, start, uszk) {
       const m = Object.assign({}, meta);
       const dost = start && start.od_dost > 0 && !(start.rej & R_KARTA_WSTRZYMANA) ? start.od_dost : 0;
       if (faza === 1 && m.od_pelne == null) m.od_pelne = Math.max(m.od_start != null ? m.od_start : prosbaOd, dost);
       if (faza === 2) { m.od_pelne = Math.min(m.od_pelne == null ? Infinity : m.od_pelne, m.od_dost || 0); delete m.f2_ost; }
+      if (+uszk > 0) m.uszk = { b: +uszk, faza, kiedy: Date.now() };
       m.aktual = Date.now();
       return m;
     }
@@ -984,13 +1027,14 @@
       z.start = st => krok(() => baza.ustawMeta(pref, m => metaStart(m, faza, od0, st)));
       z.dane = (probki, poZapisie) => krok(() => baza.dopisz(pref, probki, m => metaDane(m, faza, probki, granica ? granica() : null))
                                                   .then(() => { if (poZapisie) poZapisie(); }));
-      z.koniec = st => krok(() => baza.ustawMeta(pref, m => metaKoniec(m, faza, od0, st)));
+      z.koniec = (st, uszk) => krok(() => baza.ustawMeta(pref, m => metaKoniec(m, faza, od0, st, uszk)));
       return z;
     }
-    return { WERSJA, BRAK, DOBA, ODM_ZAJETE, ODM_WERSJA, ODM_AKTUALIZACJA, R_KARTA_WSTRZYMANA, B_POMPA, B_GRZANIE, B_PLUKANIE, B_DOLEWANIE, B_OBEJ_SONDY, B_OBEJ_MANO, F_ALARM, SERIE_DOM,
+    return { WERSJA, BRAK, DOBA, ODM_ZAJETE, ODM_WERSJA, ODM_AKTUALIZACJA, R_KARTA_WSTRZYMANA, R_ODCIETA, R_WYL_W_OBRAZIE,
+             B_POMPA, B_GRZANIE, B_PLUKANIE, B_DOLEWANIE, B_OBEJ_SONDY, B_OBEJ_MANO, F_ALARM, SERIE_DOM,
              crc32, dekoduj, kodujBlok, naglowek, odbior, przyjmij, wznowOd, postep, scal, naDni, kluczDnia, naRekord, zRekordu,
-             naSerie, obiegiW, planuj, planujStarsze, miejsceNaStarsze, uwagaRej, metaStart, metaDane, metaKoniec, granicaOst,
-             zapisPobierania };
+             naSerie, obiegiW, planuj, planujStarsze, miejsceNaStarsze, uwagaRej, uwagaUszk, metaStart, metaDane, metaKoniec, granicaOst,
+             TEL_WSTECZ_MAX_S, zapisPobierania };
   })();
   M.HI = HI;
 
@@ -1425,14 +1469,17 @@
       if (w.co === 'luka') { hiWznow(b, 'luka w strumieniu (' + w.brak + ')'); return; }
       if (w.co === 'stop') { hiZakoncz(b, { blad: 'pobieranie historii zatrzymane', bezStop: true }); return; }
       if (w.co === 'koniec') {
-        b.zap.koniec(b.s.start).then(() => {
+        /* [przegląd historii 2, W1] uszkodzonych > 0 = sterownik nie miał czym uzupełnić uszkodzonego zapisu - meta to pamięta,
+           wynik niesie liczbę (hiDociagnij robi z niej zdanie na pasek: HI.uwagaUszk) */
+        const uszk = w.uszkodzonych || 0;
+        b.zap.koniec(b.s.start, uszk).then(() => {
           if (b.zap.blad) return;                             /* [W2] poBledzie już zakończył pobieranie z opisem */
           zapisz('historia faza ' + b.faza + ': ' + b.probek + ' próbek w ' + Math.round((Date.now() - b.t0) / 100) / 10 + ' s'
-                 + (b.wznowien ? ', wznowień ' + b.wznowien : ''));
+                 + (b.wznowien ? ', wznowień ' + b.wznowien : '') + (uszk ? ', sterownik pominął uszkodzony zapis ' + uszk + ' B' : ''));
           if (hist.b !== b) return;
           hist.b = null; clearInterval(b.straz);
-          hiEmit({ typ: 'koniec', pref, faza: b.faza, postep: 100, probek: b.probek, tekst: '' });
-          b.res({ ok: true, probek: b.probek, faza: b.faza });
+          hiEmit({ typ: 'koniec', pref, faza: b.faza, postep: 100, probek: b.probek, tekst: HI.uwagaUszk(uszk) });
+          b.res({ ok: true, probek: b.probek, faza: b.faza, uszkodzonych: uszk });
         });
         return;
       }
@@ -1505,14 +1552,17 @@
           const w1raw = await hiPobierz(pref, 1, p1.od, p1.do);
           if (w1raw.blad || pref !== wybrany) return w1raw;
           const m2 = await HiBaza.meta(pref), p2 = HI.planujStarsze(m2);
-          /* sterownik mówi w nagłówku, czy w ogóle zapisuje - `uwaga` idzie z każdym dalszym wynikiem (wykres ją pokazuje) */
-          const uwaga = HI.uwagaRej(m2 && m2.rej), w1 = uwaga ? Object.assign({}, w1raw, { uwaga }) : w1raw;
+          /* sterownik mówi w nagłówku, czy w ogóle zapisuje - `uwaga` idzie z każdym dalszym wynikiem (wykres ją pokazuje);
+             [przegląd historii 2, W1] do tego uszkodzony zapis bez drugiej kopii (pole 8 `koniec`) - dziura jest w sterowniku */
+          const uwagaZ = (...u) => u.filter(Boolean).join('; ');
+          const uwaga = uwagaZ(HI.uwagaRej(m2 && m2.rej), HI.uwagaUszk(w1raw.uszkodzonych)), w1 = uwaga ? Object.assign({}, w1raw, { uwaga }) : w1raw;
           if (!p2) return w1;
           /* ile miejsca: rok jednego obiegu ~ 8 MB; przy braku miejsca nie zaczynamy (lepiej 7 dni niż zerwana baza) */
           const mj = await HiBaza.miejsce(), potrzeba = HI.miejsceNaStarsze(m2, p2);
           if (mj && mj.limit && mj.limit - mj.zajete < potrzeba) return Object.assign({}, w1, { blad: 'za mało miejsca w telefonie na starszą historię (potrzeba ok. ' + Math.round(potrzeba / 1e6) + ' MB)' });
           const w2 = await hiPobierz(pref, 2, p2.od, p2.do);
-          return w2.blad ? Object.assign({}, w1, { blad: w2.blad }) : Object.assign({ ok: true, probek: w1.probek + w2.probek }, uwaga ? { uwaga } : {});
+          const uwaga2 = uwagaZ(HI.uwagaRej(m2 && m2.rej), HI.uwagaUszk((w1raw.uszkodzonych || 0) + (w2.uszkodzonych || 0)));
+          return w2.blad ? Object.assign({}, w1, { blad: w2.blad }) : Object.assign({ ok: true, probek: w1.probek + w2.probek }, uwaga2 ? { uwaga: uwaga2 } : {});
         } catch (e) {
           const t = 'baza historii w telefonie niedostępna (' + (e && e.message || e) + ') - wykres z danych zebranych w telefonie';
           hiEmit({ typ: 'blad', pref, tekst: t }); return { blad: t };
