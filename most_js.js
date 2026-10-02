@@ -2471,8 +2471,10 @@
       /*  PO KAŻDYM POŁĄCZENIU: `onSuccess` (subskrypcje - cleanSession je kasuje przy zerwaniu) leci przy KAŻDYM
           CONNACK, a `onConnected` podpisuje pasek. Czy to POWRÓT po zerwaniu, wiemy z własnej flagi `byloZerwane`
           - Paho przy `reconnect:false` zawsze podaje „pierwsze połączenie" [D-310]. */
-      c.kl.onConnected = () => {
+      c.kl.onConnected = (r, uri) => {
         if (!moj()) { zapisz(etyk(c) + 'połączył się WYCOFANY klient - rozłączam go, nowy ma pierwszeństwo'); try { kl.disconnect(); } catch (e) {} return; }   /* [D-483] */
+        /* [audyt WT/QUIC 02.10] KTÓRĄ DROGĄ: adapter v5 podaje `webtransport:` albo `wss:` (Paho 3.1.1 - zawsze wss) */
+        const drTxt = /^webtransport:/.test(String(c.kl.droga || uri || '')) ? ' [QUIC/WebTransport]' : ' [TLS/wss]';
         const ponownie = c.byloZerwane;
         const przerwa = (ponownie && c.zerwaneOd) ? ' (przerwa ' + Math.round((Date.now() - c.zerwaneOd) / 1000) + ' s' + (c.byloWTle ? ', telefon był w tle' : '') + ')' : '';
         c.zerwaneOd = 0; c.byloWTle = false; c.byloZerwane = false; c.odstepNr = 0; c.nieudane = 0;
@@ -2494,7 +2496,7 @@
         c.ostOdbior = Date.now();        /* [D-355] swiezo polaczony - strażnik ciszy liczy od teraz */
         if (c.ponowZegar) { clearTimeout(c.ponowZegar); c.ponowZegar = null; }
         c.stan = { stan: 'ok', opis: ponownie ? 'połączony ponownie' + przerwa : 'połączony' };
-        zapisz(etyk(c) + (ponownie ? 'połączony ponownie' + przerwa : 'połączony'));
+        zapisz(etyk(c) + (ponownie ? 'połączony ponownie' + przerwa : 'połączony') + drTxt + (M.diagWT ? M.diagWT() : ''));
         if (ponownie && wybrany && klDla(wybrany) === c) { _pelnyOst = 0; prosPelny('powrót łącza'); }   /* w czasie przerwy paczki zmian przepadły, retained blok bywa 60 s stary [D-278] */
         oddaj();
       };
@@ -2571,7 +2573,12 @@
       if (c.ponowZegar) { clearTimeout(c.ponowZegar); c.ponowZegar = null; }
       c.kl = nowyKl; c.gniazdo = null; c.nieudane = 0;
       try { if (gniazdo && gniazdo.close) gniazdo.close(); } catch (e) {}
-      try { if (stary && stary.isConnected()) stary.disconnect(); } catch (e) {}
+      /*  [audyt WT/QUIC 02.10] TAKŻE PRÓBA W TOKU: stary klient adaptera v5 (apka3) mógł być w środku próby
+          (WebTransport albo wss) - dotąd zostawała żywa: dochodziła do końca własnym zapasem wss, otwierała
+          połączenie pod starym identyfikatorem (potem „WYCOFANY klient - rozłączam”), a jej WebTransport zostawał
+          w kolejce przeglądarki. `disconnect()` adaptera w trakcie próby ją wycofuje (bez wywołań zwrotnych);
+          Paho 3.1.1 (apka/apka2) nie ma `_proba` - zachowanie bez zmian. */
+      try { if (stary && (stary.isConnected() || stary._proba)) stary.disconnect(); } catch (e) {}
       zrobDriver(c);
       podepnijOdbior(c);        /* [D-359] bez tego nowy klient jest „polaczony", ale gluchy */
       c.odstepNr = 0;
@@ -2600,12 +2607,26 @@
           temat diagnostyczny w drugi strumień stanu, którego nikt nie czyta.
         ⚠ Wysyłamy na temat WYBRANEGO obiegu: konto klienta ma prawo pisać tylko u siebie, więc
           diagnostyka jednego klienta nie trafi nigdy w cudze poddrzewo. */
+    /*  [audyt WT/QUIC 02.10, docs/36 §11] LICZNIKI PRÓB WebTransport w dzienniku łącza i w meldunku do serwisu — z telefonu
+        w słabym zasięgu widać wprost: ile prób WT powstało, ile padło od ręki, ile porzucono, ile razy zastój PUBACK,
+        ile startów wss. Kanał T3 (adapter v5) ma dziennik zdarzeń prób włączony domyślnie (pierścień 400 wpisów w RAM,
+        bez treści i PIN-ów); apka/apka2 (Paho 3.1.1) nie mają adaptera - pusty napis. */
+    if (window.Paho && window.Paho.MQTT_WERSJA === 5 && window.APKA_DIAG_WT === undefined) window.APKA_DIAG_WT = true;
+    M.diagWT = () => {
+      try {
+        if (!window.Paho || !window.Paho._diagWT) return '';
+        const L = window.Paho._diagWT().liczniki;
+        return ' | WT: utw ' + L.wt_utworzone + ', ready ' + L.wt_ready + ', odrz ' + L.wt_odrzucone + ', porz ' + L.wt_porzucone
+             + ', zastoj ' + L.puback_zastoj + ' | wss ' + L.wss_starty + ' | wybacz ' + L.wybaczenia + '/' + L.wybaczenia_wstrzymane;
+      } catch (e) { return ''; }
+    };
     M.wyslijDziennik = pelny => {
       const c = klDla(wybrany);
       if (!wybrany || !c || !c.kl || !c.kl.isConnected()) return false;
       const gl = 'apka ' + (window.APKA_WERSJA || '?')
                + ' | serwery: ' + POL.map(x => (x.nr || 1) + ':' + ((x.stan && x.stan.stan) || '?')).join(' ')
-               + ' | obiekt ' + wybrany;
+               + ' | obiekt ' + wybrany
+               + ' | droga ' + (/^webtransport:/.test(String(c.kl.droga || '')) ? 'QUIC' : 'TLS') + M.diagWT();
       /*  ⚠ Znak nowej linii składamy z kodu, nie z literału [D-408a]: zapis `'\n'` w napisie
           padł ofiarą narzędzia, którym wstawiałem tę łatkę — ukośnik zniknął, w pliku został
           PRAWDZIWY przełam wiersza w środku napisu i CAŁY skrypt przestał się wykonywać.
@@ -2614,11 +2635,21 @@
           odporny na taką pomyłkę i tak samo robi to reszta tego pliku. */
       const NL = String.fromCharCode(10);
       const dwa = n2 => (n2 < 10 ? '0' : '') + n2;
+      /* [audyt WT 02.10] przy PEŁNYM: ostatnie zdarzenia prób adaptera (czas ścienny do zestawienia z dziennikiem bramki) */
+      let zdWT = '';
+      try {
+        if (pelny && window.Paho && window.Paho._diagWT) {
+          zdWT = window.Paho._diagWT().zdarzenia.slice(-60).map(z => {
+            const d = new Date(z.t);
+            return dwa(d.getHours()) + ':' + dwa(d.getMinutes()) + ':' + dwa(d.getSeconds()) + ' WT#' + z.gen + ' ' + z.etap + (z.szcz ? ' ' + String(z.szcz).slice(0, 80) : '');
+          }).join(NL);
+        }
+      } catch (e) {}
       const tresc = pelny
         ? gl + NL + M.dziennik.map(w => {
             const d = new Date(w.t);
             return dwa(d.getHours()) + ':' + dwa(d.getMinutes()) + ':' + dwa(d.getSeconds()) + ' ' + w.txt;
-          }).join(NL)
+          }).join(NL) + (zdWT ? NL + '--- proby adaptera ---' + NL + zdWT : '')
         : gl;
       try {
         const m = new Paho.Message(tresc); m.destinationName = wybrany + '/apka'; m.qos = 0;
