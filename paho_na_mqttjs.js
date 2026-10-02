@@ -131,7 +131,16 @@
     } catch (e) {}
   };
   window.addEventListener('online', function () { quicZapomnij('online'); });
-  try { if (navigator.connection && navigator.connection.addEventListener) navigator.connection.addEventListener('change', function () { quicZapomnij('typ lacza'); }); } catch (e) {}
+  /* ⛔ [próba w słabym zasięgu 02.10] `change` Chrome zgłasza także przy zmianie SZACUNKU łącza (rtt, downlink,
+     effectiveType) — w słabym zasięgu dziesiątki razy na minutę (zmierzone: 72 w ~8 min). Zmiana SIECI to zmiana
+     rodzaju łącza (`type`: wifi <-> cellular); bez `type` (komputer) liczy się tylko `online`. */
+  var rodzajLacza = function () { try { return (navigator.connection && navigator.connection.type) || ''; } catch (e) { return ''; } };
+  var ostRodzaj = rodzajLacza();
+  try { if (navigator.connection && navigator.connection.addEventListener) navigator.connection.addEventListener('change', function () {
+    var r = rodzajLacza();
+    if (!r || r === ostRodzaj) return;
+    ostRodzaj = r; quicZapomnij('rodzaj lacza ' + r);
+  }); } catch (e) {}
 
   /* WebTransport UDAJĄCY WebSocket — MQTT.js w przeglądarce przyjmuje własny obiekt przez opcję `createWebsocket`
      i używa z niego tylko: readyState/OPEN, zdarzeń open/message/close/error, send(), close(), bufferedAmount.
