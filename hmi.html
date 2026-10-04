@@ -1162,8 +1162,9 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '142fcca44e';
+window.APKA_WERSJA = '21bdc68ffa';
 window.APKA_KLUCZ = 'test3:';
+window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
   document.addEventListener('visibilitychange', function () { if (document.visibilityState !== 'visible') return;
     navigator.serviceWorker.getRegistration().then(function (r) { if (r) { try { r.update(); } catch (e) {} } }).catch(function () {}); });
@@ -1660,7 +1661,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-01 13:06';
+window.HMI_ZBUDOWANO = '2026-10-04 11:28';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -2521,6 +2522,12 @@ window.HMI_ZBUDOWANO = '2026-10-01 13:06';
               tre:'Sterownik nie mógł przyjąć zapisanych nastaw (zapis z innej wersji oprogramowania albo błąd pamięci) i pracuje na nastawach fabrycznych — mogą być wyłączone ochrony ciśnieniowe. Przywróć nastawy z kopii albo ustaw je w serwisie; alarm zgaśnie po zapisie nastaw',
               src:srcObiekt(), cz:kiedy('c_nastawy_fabr')});
     else delete ALARM_KIEDY['c_nastawy_fabr'];
+    /* PĘTLA BEZ PSA ZADAŃ (bit 42) [D-538] - tekst jak hmi_teksty.h G14 */
+    if (S.awPiesPetli)
+      w.push({tyt:'Pętla bez ochrony psa zadań',
+              tre:'Program sterownika nie oddał pętli głównej pod psa zadań — gdyby się zawiesił, sterownik nie zrestartuje się sam. Sterowanie pracuje dalej. Wgraj oprogramowanie ponownie; jeśli alarm wraca po restarcie — wezwij serwis',
+              src:srcObiekt(), cz:kiedy('c_pies_petli')});
+    else delete ALARM_KIEDY['c_pies_petli'];
     if (S.awTempBrak)
       w.push({tyt:'Czujnik temperatury niewykryty',
               tre:'Na magistrali 1-Wire nigdy go nie było — podłącz czujnik '+
@@ -6099,6 +6106,7 @@ window.HMI_ZBUDOWANO = '2026-10-01 13:06';
       S.awRtcOdczyt = !!d.awRtcOdczyt;   /* [D-505] zegar DS3231 nie odpowiada (bit 39) */
       S.awWejscia = !!d.awWejscia;       /* [D-506] wejścia sterownika nieczytelne (bit 40) */
       S.awNastawyFabr = !!d.awNastawyFabr;   /* [D-507] nastawy fabryczne (bit 41) */
+      S.awPiesPetli = !!d.awPiesPetli;       /* [D-538] pętla bez psa zadań (bit 42) */
       /* ⚠ ZATRZASK AWARII WODNEJ NA EKRAN [2026-09-01]. Panel pokazywał
          go od dawna (AWARIA WODNA + zawór zablokowany), makieta nie znała
          tego stanu w ogóle - a to zatrzask, który ZATRZYMUJE pompę
@@ -6326,7 +6334,9 @@ window.HMI_ZBUDOWANO = '2026-10-01 13:06';
           p.innerHTML = '<span id="chmura-st"></span>'
             + '<span id="chmura-br"></span>'
             + '<span id="chmura-ob"><b id="chmura-naz" style="font-weight:600"></b><i class="chm-t" style="font-style:normal">obiekt: </i><select id="chmura-sel" style="font:inherit" onchange="window.MOST_JS.wybierzObiekt(this.value)"></select></span>'
-            + '<span id="chmura-ust" title="ustawienia" style="margin-left:auto;cursor:pointer;font-size:16px;line-height:1;padding:0 2px;flex:0 0 auto">&#9881;</span>';
+            + '<span id="chmura-ust" title="ustawienia" style="margin-left:auto;cursor:pointer;font-size:16px;line-height:1;padding:0 2px;flex:0 0 auto">&#9881;</span>'
+            /* [D-535 pkt 3] „dwa sterowniki pod jedną nazwą” - własny wiersz paska (flex-basis 100 %), klient i serwis */
+            + '<span id="chmura-dwa" hidden style="flex:1 0 100%;order:9;color:#ff8a80;font-weight:600"></span>';
           document.body.appendChild(p);
           /*  OKNO USTAWIEŃ [D-311]: osobna warstwa nad wszystkim (z-index 120 > pasek 99 > plansze 97/98), a nie
               rozwinięty pasek - żeby HMI nie skakało i żeby dało się czytać dziennik na pełnym ekranie.
@@ -6557,6 +6567,15 @@ window.HMI_ZBUDOWANO = '2026-10-01 13:06';
         } else { kolS = KOL.czekam; opisS = 'stan nieznany' + (w.wiek_s != null ? ' · ostatni pakiet ' + Math.round(w.wiek_s) + ' s temu' : ''); }
         const stHtml = kropkaEt('sterownik', kolS, opisS);
         if (stn) stn.innerHTML = stHtml;
+        /*  [D-535 pkt 3, Tomasz 02.10.2026, zasada 10] DWA STEROWNIKI POD JEDNĄ NAZWĄ: rozkazy z apki trafiają do OBU, a apka
+            pokazuje jeden - widzi to KLIENT i serwis (bez `d.serwis`). Zdanie i warunek z MOST_JS.dwaZdanie() (most_js.js,
+            trwała flaga M.dwaSterowniki - gaśnie, gdy drugiego nie słychać). Pasek zmienia wysokość - ResizeObserver wyżej. */
+        { const e = document.getElementById('chmura-dwa'), MJ = window.MOST_JS;
+          const t = MJ && typeof MJ.dwaZdanie === 'function' ? MJ.dwaZdanie() : '';
+          if (e && (e.textContent !== t || e.hidden !== !t)) { e.textContent = t; e.hidden = !t; }
+          /*  [INTEGRACJA-2a, Sol Z3] przy ostrzeżeniu pasek może zawinąć się w drugi wiersz - CSS apki (zbuduj_pwa.py)
+              trzyma pasek w jednej linijce tylko BEZ klasy z-dwa; tu klasa idzie razem z `hidden` ostrzeżenia */
+          const pc = document.getElementById('chmura'); if (pc) pc.classList.toggle('z-dwa', !!t); }
         /*  [D-433] TO SAMO DLA KLIENTA, BEZ LICZB I BEZ TESTAMENTU. „offline (broker dostał
             testament)" opisuje MECHANIZM - wiadomosc pozegnalna, ktora broker rozsyla za
             milczacy sterownik. Klientowi mowi to tyle, co nic; interesuje go, czy sterownik
@@ -7354,6 +7373,14 @@ if (!PANEL_LEWY) setInterval(() => {
    deficyt > hist, OFF gdy osiągnięto nastawę, w paśmie bez zmian. Dawny
    bezstanowy próg `temp < 36,0 − hist/2` dawał inną szerokość pasma
    i inne chwile przełączeń niż moduł. */
+/* ⛔ DEMONSTRACJA MAKIETY, NIE STEROWNIK [P34 F5, D-532, K34-1 02.10.2026] — grzejeStan() i grzanieZrodla() niżej
+   to SYMULACJA świata makiety (DUO / makieta bez sterownika), nie kopia regulatora. Różni się od firmware: inna
+   kolejność powodów (tu wyłącznik serwisowy pierwszy, w sterowniku pompa jest nadrzędna - D-69), brak przepływu
+   z celi, końca okna, wybiegu, zwłoki startu i rozdziału „czujnik nigdy / pomiar nieaktualny".
+   Widok FBD (makiety/fbd_grzanie.html) z niej NIE KORZYSTA - czyta obraz bloku ze sterownika (rejestry 3340+,
+   b8m_basen/include/04d_grzanie_obraz.h). Nie poprawiać tu logiki „żeby zgadzała się z FBD": prawda o grzaniu
+   jest w lib_wspolne/proces_woda/src/grzanie.c. Napis na ekranie makiety - NIE dodany (ekran ma adresy data-lv
+   łańcucha LVGL §16; widoczny tekst = decyzja Tomasza razem z tekstami K34-2). */
 let _grzejeZatrzask = false;
 function tempZmierzona(){ return W.temp + N.kal_temp_kor; }
 function grzejeStan(){
@@ -7856,6 +7883,7 @@ function ekrSerwis(){
           nie panelu - ekran czyta rejestry 3160+/4740+ sam, jak pilot. */''}
     <div class="mrow" data-lv="idz.siec" onclick="siecWejdz()"><span class="t">Sieć<i>Ethernet, WiFi (punkt dostępu i połączenie z siecią), MQTT</i></span>
       <span class="w">${siecSkrot()}</span><span class="ch">›</span></div>
+    ${wierszDrogaApki()}
     <div class="grupka" data-lv="g">INFORMACJE</div>
     ${/* RAPORT GOTOWOSCI: nie usterki, tylko funkcje spiace po cichu.
           Licznik przy wierszu, zeby bylo widac BEZ wchodzenia.
@@ -7944,6 +7972,62 @@ function wierszWyl(klucz, et, opis){
   return `<div class="mrow ${N[klucz]?'wl':''}" data-lv="p.${klucz}" onclick="przelacznikNast('${klucz}')">
     <span class="ptaszek">${PTASZEK}</span>
     <span class="t">${et}${opis?`<i>${opis}</i>`:''}</span></div>`;
+}
+/* ŁĄCZE TEGO TELEFONU: MARIAŻ QUIC + TLS ALBO SAM TLS  [B.0z-78, D-530; Tomasz 01.10: „zawsze możemy QUIC
+   wyłączyć w serwisie?”]
+   WEJŚCIA:  window.Paho.droga z nakładki MQTT 5 (makiety/mqtt5/paho_na_mqttjs.js) - jest TYLKO w apce, która tę
+             nakładkę ma (T3); apka klienta (Paho 3.1.1), most i strona na AP jej nie mają.
+   CO Z CZEGO WYNIKA: ptaszek = dwie drogi naraz (QUIC przez bramkę + TLS), wygrywa szybsza; bez ptaszka = sam TLS.
+             Zmiana działa OD RĘKI (nakładka zamyka albo dołącza QUIC w trwającym połączeniu, bez zerwania) i jest
+             zapamiętana w telefonie. Wyłącznik dla wszystkich telefonów naraz nie siedzi tutaj - to zatrzymanie
+             dodatku aquareact_quic w HA (apka sama jedzie wtedy TLS, bez komunikatu błędu).
+   WYJŚCIA:  wiersz menu albo nic.
+   ⚠ CELOWO BEZ `data-lv` (jak „Matryca prób HIL”): to ustawienie TELEFONU, nie sterownika - generator LVGL bierze
+     tylko elementy z adresem, więc na szkle panelu wiersza nie ma. Pokazujemy go tylko, gdy przełącznik istnieje
+     („nie pokazuj, czego nie ma”).
+   ⚠ Odmowa ma zdanie (zasada 10): pamięć telefonu niedostępna = działa do zamknięcia karty i wiersz to mówi;
+     przeglądarka bez WebTransport = QUIC niemożliwy i wiersz mówi, że jedzie sam TLS; „sam TLS”, gdy TLS akurat
+     leży = QUIC zostaje do wstania TLS (jedyne łącze) i wiersz to mówi (r.uwaga z nakładki). */
+function wierszDrogaApki(){
+  const D = SRV_CHMURA && window.Paho && window.Paho.droga;
+  if (!D) return '';
+  const tryb = D.tryb(), mar = tryb === 'mariaz';
+  const opis = !D.quicMozliwy() ? 'ta przeglądarka nie ma WebTransport — QUIC niemożliwy, jedzie sam TLS'
+    : mar ? 'dwa połączenia naraz (QUIC i TLS), wygrywa szybsze — na słaby zasięg i przejścia Wi-Fi ↔ GSM'
+    : tryb === 'kolejno' ? 'tryb próbny z adresu: najpierw QUIC, potem TLS — dotknij, żeby włączyć oba naraz'
+    : 'sam TLS — QUIC wyłączony na tym telefonie';
+  return `<div class="mrow ${mar?'wl':''}" onclick="drogaApkiPrzelacz()">
+    <span class="ptaszek">${PTASZEK}</span>
+    <span class="t">Łącze aplikacji: QUIC + TLS naraz<i>${opis}${SRV_S.drogaUwaga ? ' · ' + SRV_S.drogaUwaga : ''}</i><i id="drogaZdrowie">${drogaZdrowieTxt()}</i></span></div>`;
+}
+/* ZDROWIE OBU DRÓG POD WIERSZEM  [Sol S22, 01.10.2026; tekst = szkic do korekty Tomasza]
+   WEJŚCIA:  Paho.droga.stan() z nakładki (szczegoly: połączenie, tematy gotowe / czekają / bez dostępu, wiek odbioru).
+   CO Z CZEGO WYNIKA: jedna linia na obie drogi, np. „TLS: niesie · tematy 13 · odbiór 0 s temu | QUIC: łączy się”;
+             odświeżana co DROGA_ZDROWIE_MS bez przerysowania ekranu (tylko ten element), gdy wiersz jest na ekranie.
+   WYJŚCIA:  tekst albo pusty (nakładka bez szczegółów - starsza). Bez kont, haseł i identyfikatorów. */
+const DROGA_ZDROWIE_MS = 1500;
+function drogaZdrowieTxt(){
+  const D = window.Paho && window.Paho.droga, st = D && D.stan ? D.stan() : null;
+  const d = st && st.drogi && st.drogi[0] && st.drogi[0].szczegoly;
+  if (!d) return '';
+  const POL = { ok: 'niesie', laczy: 'łączy się', stop: 'nie stoi' };
+  const jedna = (n, x) => !x ? '' : n + ': ' + (POL[x.polaczenie] || x.polaczenie)
+    + (x.polaczenie === 'ok' ? ' · tematy ' + x.filtry_gotowe
+       + (x.filtry_odmowy ? ', ' + x.filtry_odmowy + ' bez dostępu' : '') + (x.filtry_czekaja ? ', ' + x.filtry_czekaja + ' czeka' : '')
+       + (x.filtry_bez_odpowiedzi ? ', ' + x.filtry_bez_odpowiedzi + ' bez odpowiedzi' : '')
+       + (x.odbior_wiek_s != null ? ' · odbiór ' + Math.round(x.odbior_wiek_s) + ' s temu' : '') : '');
+  return [jedna('TLS', d.tls), jedna('QUIC', d.quic)].filter(Boolean).join(' | ');
+}
+setInterval(() => { const e = document.getElementById('drogaZdrowie'); if (e) e.textContent = drogaZdrowieTxt(); }, DROGA_ZDROWIE_MS);
+function drogaApkiPrzelacz(){
+  const D = window.Paho && window.Paho.droga;
+  if (!D) return;
+  const r = D.ustaw(D.tryb() === 'mariaz' ? 'tls' : 'mariaz');
+  /* [sceptyk 01.10, X3] r.uwaga: „sam TLS" przy martwym TLS nie zamyka QUIC od ręki (jedyne łącze) - wiersz to mówi */
+  SRV_S.drogaUwaga = !r.ok ? r.opis
+               : [r.zapamietane ? '' : 'nie zapamiętane — pamięć telefonu niedostępna, wraca po zamknięciu karty',
+                  r.uwaga || ''].filter(Boolean).join(' · ');
+  srvRender(false);
 }
 function przelacznikNast(klucz){
   /* ⚠ TĄ SAMĄ DROGĄ, CO EDYTOR [2026-09-01]. Ptaszek też kończył się na
@@ -11839,6 +11923,11 @@ body:not(.bez-wody) .screen,body.bez-wody .screen{border-radius:0}
 #chmura{flex-wrap:nowrap!important;padding:2px 8px!important;gap:6px!important;font-size:11px!important;line-height:1.35!important;overflow:hidden;align-items:center!important}
 #chmura>span,#chmura>b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 #chmura>b{flex:0 0 auto}
+/* [INTEGRACJA-2a, Sol Z3] OSTRZEŻENIE „DWA STEROWNIKI” (D-535 pkt 3) = własny, ZAWIJANY wiersz: przy ostrzeżeniu pasek
+   dopuszcza drugi wiersz, a zdanie nie jest obcinane - statusy i koło ustawień zostają czytelne. Bez ostrzeżenia pasek
+   dalej jedną linijką (D-304/D-311). Klasę z-dwa ustawia panel4_hala.html razem z `hidden` ostrzeżenia. */
+#chmura.z-dwa{flex-wrap:wrap!important}
+#chmura>#chmura-dwa{white-space:normal;overflow:visible;text-overflow:clip;flex:1 0 100%}
 #chmura select{font-size:11px!important;max-width:38vw}
 /*  ⚠ `hidden` MA ZNACZYĆ „NIE MA” TAKŻE PRZY STYLU INLINE [D-412, znalezione przy czytaniu kodu 17.09].
    Styl przeglądarki `[hidden]{display:none}` przegrywa z `style="display:flex"` wpisanym w element -

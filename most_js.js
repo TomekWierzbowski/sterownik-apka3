@@ -92,6 +92,17 @@
     }
     return null;
   }
+  /* [D-533] linia `KT;<nr>;<zdanie>` z /blok.txt strony - zdanie odmowy komendy o numerze `nr` (to samo, co apka
+     dostaje w `wynik`). Inny numer albo brak linii = '' (stary sterownik, albo wynik nalezy do innej komendy). */
+  function zdanieOdmowyKT(txt, nr) {
+    if (!txt) return '';
+    for (const l of txt.split(/\r?\n/)) {
+      if (!l.startsWith('KT;')) continue;
+      const r = l.slice(3), i = r.indexOf(';');
+      if (i > 0 && Number(r.slice(0, i)) === nr) return r.slice(i + 1);
+    }
+    return '';
+  }
 
   function mapaNazwa(slowo, tabela, obiegiIle) {
     if (slowo === null || slowo === undefined) return null;
@@ -283,6 +294,7 @@
       awRtcOdczyt: almBit(39),                            /* [D-505] zegar nie odpowiada */
       awWejscia: almBit(40),                              /* [D-506] wejścia nieczytelne - pompy stoją */
       awNastawyFabr: almBit(41),                          /* [D-507] nastawy fabryczne po odrzuconym zapisie */
+      awPiesPetli: almBit(42),                            /* [D-538] pętla bez psa zadań */
       awsonda: alm(2), awmano: alm(4), awtemp: alm(6), awtempBrak: alm(28),
       /* [D-241] alarmy kwitowalne bez klucza - jak most.py */
       awDolew: alm(0), awBwNiesk: alm(12), awZuzycie: alm(19), awPrefill: almBit(o === 0 ? 21 : 32), awWyciek: alm(26),
@@ -514,17 +526,19 @@
           const m = /;(\d+)/.exec(txt); nr = m ? parseInt(m[1], 10) : 0;
         } catch (e) { return { ok: false, opis: 'sterownik nie odpowiada: ' + e }; }
         /* wynik: petla logiki wykonuje kolejke w nastepnym ticku; czekamy max 2 s */
-        let wynik = null;
+        let wynik = null, zdanie = '';
         for (let i = 0; i < 20 && nr; i++) {
           await new Promise(res => setTimeout(res, 100));
           try {
             const r = await fetch('/blok.txt', { cache: 'no-store' }); const txt = await r.text();
             const k = parsujLinie(txt, 'K;');
-            if (k && k[0] >= nr) { wynik = k; break; }
+            if (k && k[0] >= nr) { wynik = k; zdanie = zdanieOdmowyKT(txt, nr); break; }
           } catch (e) { break; }
         }
+        /* [D-533] ZDANIE STEROWNIKA do odmowy (linia KT;) - to samo, co apka dostaje w `wynik`; starszy sterownik
+           linii KT; nie wysyla - wtedy jak dawniej sam kod */
         if (wynik && wynik[0] === nr && wynik[3] !== 0)
-          return { ok: false, opis: 'sterownik ODMOWIL zapisu ' + adr + '=' + val + ' (kod ' + wynik[3] + ')' };
+          return { ok: false, opis: 'sterownik ODMOWIL zapisu ' + adr + '=' + val + (zdanie ? ': ' + zdanie : '') + ' (kod ' + wynik[3] + ')' };
         /*  BRAK POTWIERDZENIA TO NIE JEST SUKCES [D-318, audyt etapu 3 pkt 6; zasada 10].
             Czekamy dwie sekundy na linię `K;` z numerem NASZEJ komendy. Gdy nie przyjdzie - albo
             przyjdzie numer dalszy, czyli nasz wynik już przepadł - sterownik mógł wykonać i mógł
@@ -1191,6 +1205,57 @@
        [30.09, luka 9.1-d] Druga połowa `M.zajety()` - otwarte edytory - siedzi w [5a]; tu tylko komendy. */
     komendyCzekaja = () => oczekuja.size > 0 || czekaWynik !== null;
     const nowyId = () => ++idLicz;
+    /*  WYNIK NIEZNANY ZAMIAST „NIE WYKONANO”  [Sol S23, 01.10.2026; D-531 pkt 2 - cztery fakty polecenia]
+        WEJŚCIA:  rozkaz bez `wynik` w 5 s; późniejszy `wynik` z tym samym id i od tego samego sterownika.
+        CO Z CZEGO WYNIKA: PUBACK znaczy tylko „broker przyjął” - sterownik mógł rozkaz WYKONAĆ (kopia drugą drogą
+                  dochodzi do 6 s później, poczekalnia sterownika bywa zajęta), więc brak wyniku w terminie to „wynik
+                  nieznany”, nie odmowa; apka nie ponawia sama. Id po terminie pamiętamy przez POZNE_MS (= pamięć id
+                  sterownika, 180 s) - spóźniony wynik daje JEDNĄ linię w dzienniku łącza z kodem (zasada 10).
+        WYJŚCIA:  {ok: false, nieznany: true, opis} dla ekranu; linia „spóźniony wynik …”. Teksty = szkic. */
+    const POZNE_MS = 180000, POZNE_MAX = 50;
+    const pozne = new Map();                 // id -> { co, t0, pref, kiedy }
+    const pozneDodaj = (id, z) => { const t = Date.now();
+      for (const [k, v] of pozne) if (t - v.kiedy > POZNE_MS || pozne.size >= POZNE_MAX) pozne.delete(k); else break;
+      pozne.set(id, Object.assign(z, { kiedy: t })); };
+    /*  JEDNA OPERACJA KOMENDY - JEDEN KONIEC  [zadanie 13 Astry, 02.10.2026]
+        WEJŚCIA:  id rozkazu, co (do dziennika), sterownik, do którego rozkaz idzie (pref - PRZECHWYCONY przy wysyłce),
+                  koniec obietnicy (res), termin [ms], wyniki zastępcze {termin, nieWyslano, bladWysylki}.
+        CO Z CZEGO WYNIKA:
+          • wpis w `oczekuja` i zegar terminu powstają RAZEM, PRZED wysyłką (dawniej zegar zakładany PO kk.send(): wyjątek
+            w send zostawiał wpis na zawsze - M.zajety() prawdziwe bez końca, przeładowanie po aktualizacji wstrzymane;
+            sprawdzPin dodatkowo wpisywał oczekiwanie przed sprawdzeniem połączenia);
+          • zakoncz(wynik) usuwa wpis i zegar, zdejmuje czekaWynik i kończy obietnicę - NAJWYŻEJ RAZ (wynik sterownika,
+            termin, błąd wysyłki: który pierwszy); wynik bez id ze starego firmware też kończy przez nie (sprząta wpis);
+          • błąd wysyłki: wyjątek „not connected” sprzed wysyłki (AMQJS0011E bez znacznika `niepewne`) = NA PEWNO nie
+            wysłano; każdy inny wyjątek albo znacznik `niepewne` nakładki (biblioteka wywołana - publikacja mogła wyjść
+            którąś drogą) = WYNIK NIEZNANY jak po terminie: id trafia do `pozne` (spóźniony wynik będzie odnotowany),
+            apka NIE ponawia sama i nie nadaje nowego id;
+          • `pozne` dostaje sterownik z chwili WYSYŁKI - zmiana obiektu w czasie czekania nie przenosi korelacji na inny.
+        WYJŚCIA:  { wyslij(kk, msg) } - wysyłka w try/catch; wynik przez res. */
+    const operacjaKomendy = (id, co, pref, res, terminMs, wyniki) => {
+      const t0 = Date.now();
+      let koniec = false, zegarek = null;
+      const zakoncz = w => {
+        if (koniec) return false;
+        koniec = true; clearTimeout(zegarek); oczekuja.delete(id);
+        if (czekaWynik === zakoncz) czekaWynik = null;
+        res(w); return true;
+      };
+      const nieznany = (w, linia) => { if (zakoncz(w)) { pozneDodaj(id, { co, t0, pref }); zapisz(linia); } };
+      oczekuja.set(id, { res: zakoncz, t0, co, pref }); czekaWynik = zakoncz; czekaWynikPref = pref;
+      zegarek = setTimeout(() => nieznany(wyniki.termin, 'bez wyniku ' + Math.round(terminMs / 1000) + ' s: ' + co + ' - wynik nieznany (rozkaz mógł się wykonać)'), terminMs);
+      return {
+        t0,
+        wyslij: (kk, msg) => {
+          try { kk.send(msg); }
+          catch (e) {
+            const txt = String((e && e.message) || e);
+            if (!(e && e.niepewne) && /AMQJS0011E/.test(txt)) { if (zakoncz(wyniki.nieWyslano)) zapisz('nie wysłano ' + co + ' - brak połączenia (' + txt.slice(0, 60) + ')'); }
+            else nieznany(wyniki.bladWysylki, 'błąd wysyłki ' + co + ' (' + txt.slice(0, 80) + ') - wynik nieznany, rozkaz mógł wyjść');
+          }
+        },
+      };
+    };
     M.pomiar = { wynik_ms: null, zmiana_ms: null, ile: 0 };
     let czekamZmiany = null;              /* {t0, co} - pierwsza paczka zm/blok po komendzie = jej skutek */
     const odnotujZmiane = () => { if (!czekamZmiany) return; const ms = Date.now() - czekamZmiany.t0;
@@ -1232,11 +1297,269 @@
       if (Object.keys(r).length) w.r = r;
       if (nazwyR[pref]) { if (!w.r) w.r = {}; Object.assign(w.r, nazwyR[pref]); }   /* nazwy kanałów spoza bloku [D-493] */
       const z = parsujLinie(txt, 'Z;');
-      if (z && z.length) { w.seq = z[0]; if (z[1]) zegar[pref] = { czas: z[1], kiedy: Date.now() };
+      if (z && z.length) { w.seq = z[0]; if (z[1]) zegarUstaw(pref, z[1]);
                            if (z.length > 2 && z[2] != null) w.u = z[2]; }   /* [D-481] numer uruchomienia sterownika */
       w.txt = txt;
+      return !!(z && z.length > 2 && z[2] != null);   /* [R1] blok niósł u - wołający odnotowuje, skąd przyszedł */
     };
     const zegar = {};                       // prefiks -> { czas: unix sterownika, kiedy: Date.now() odbioru }
+    /*  ZEGAR STEROWNIKA NIE COFA SIĘ OD SPÓŹNIONEJ PRÓBKI  [B.0z-78, D-530 - mariaż QUIC + TLS]
+        ------------------------------------------------------------
+        WEJŚCIA:  czas sterownika z trzech źródeł: `stan.czas`, `zm.t`, linia Z; pełnego bloku.
+        CO Z CZEGO WYNIKA: z zegara liczymy `t=` każdej komendy (wyslij, sprawdzPin). `zm` i `blok` mają numer
+                  (seq + u), `stan` NIE - a przy dwóch drogach `stan` z QUIC potrafi przyjść 6 s po świeższym
+                  `zm.t` z TLS (docs/36 §9). Przyjęty bez sprawdzenia cofał `t=`, a następny rozkaz na ten sam
+                  rejestr dostawał w sterowniku „nowsza wygrywa” (kod 8, luz 5 s). Próbkę przyjmujemy, gdy:
+                    • nie jest starsza od naszego szacunku o więcej niż ZEGAR_LUZ_S (sekundy całkowite + rozrzut drogi);
+                    • albo cofa o więcej niż ZEGAR_SKOK_S - to przestawiony zegar sterownika (D-505), nie kopia;
+                    • albo próbki „za stare” idą bez przerwy dłużej niż ZEGAR_UPOR_MS - zegar sterownika naprawdę
+                      cofnął się o mniej niż 2 min (korekta z NTP), a świeżej próbki, która by go potwierdziła, nie ma.
+                      Bez tej furtki szacunek zostałby na zawsze przed sterownikiem.
+        WYJŚCIA:  zegar[pref] albo nic (próbka odrzucona).
+        ⚠ Działa tak samo w apce klienta (Paho) - tam spóźniona próbka przychodzi z drugiego brokera albo jako
+          retained blok sprzed minuty; też nie powinna cofać `t=`.
+        ⚠ Firmware (po sobocie, opcja): `seq` i `u` w JSON `stan` (20a4) jak w `zm` - wtedy kolejność z numeru,
+          nie z szacunku (DOZROBIENIA B.0z-78). */
+    const ZEGAR_LUZ_S = 1, ZEGAR_SKOK_S = 120, ZEGAR_UPOR_MS = 15000;
+    /*  REWIZJA MIGAWKI `stan`  [Sol S21, 01.10.2026 - firmware sol/c-firmware: pola u, boot, stan_seq]
+        WEJŚCIA:  JSON `stan`: `boot` (losowy znacznik uruchomienia), `stan_seq` (numer migawki - ten sam na obu drogach),
+                  `u` (numer uruchomienia, jak w `zm`/`blok`). Stary sterownik ich nie ma.
+        CO Z CZEGO WYNIKA:
+          • ten sam boot: przechodzi tylko migawka o WYŻSZYM numerze - kopia z drugiej drogi albo spóźniona (niższy lub
+            równy numer) nie dochodzi do zegara NIGDY (dawniej „upór” przyjmował ją po 15 s - ryzyko R9, B.0z-78);
+          • inny boot: boot już ZASTĄPIONY (stary) albo niższe `u` = migawka poprzedniego uruchomienia - pomijamy;
+            inaczej to nowe uruchomienie - przyjmujemy, stary boot trafia na listę zastąpionych;
+          • boot porównujemy WYŁĄCZNIE równością (losowy - nie ma porządku); brak pól = jak dotąd (zegarUstaw z uporem).
+        WYJŚCIA:  true = migawkę wolno użyć. ⚠ Prawdziwa korekta zegara sterownika w świeżych migawkach dalej idzie przez
+                  upór zegarUstaw (R8 bez zmian - opisane w DOZROBIENIA B.0z-78, nie deklarujemy jego naprawy). */
+    const licznikU = x => Number.isInteger(x) && x >= 0 && x <= 65535;
+    /*  TOŻSAMOŚĆ ODPOWIEDZI KARTY (rid/part)  [Sol S20, 01.10.2026 - firmware sol/c-firmware, 20a3f_siec_rpc.h]
+        WEJŚCIA:  echo sondy `cap` w ŻYWYM (nie retained) `stan` sterownika, prośby /pliki /okres /plik ekranów.
+        CO Z CZEGO WYNIKA:
+          • sonda: do ZWYKŁEGO odnowienia podglądu (to samo tempo, nic nie włącza samo) dopisujemy `;cap=<32 hex>`
+            - stary sterownik czyta liczbę i `niesie=` jak dotąd; nowy odsyła nonce w `stan` (pole cap.n);
+          • dopiero echo TEJ sondy (ten sam prefiks, w czasie RPC_SONDA_WAZNA_MS, nie retained, z `boot`) włącza rid:
+            prośby karty dostają `;rid=<32 hex>;part=<n>`, a odpowiedź liczy się tylko z tym samym rid i częścią -
+            kopia drugą drogą albo odpowiedź na inną (starą, cudzą) prośbę nie kończy bieżącej;
+          • inny boot w `stan` (nowe uruchomienie), `stan` BEZ boot (powrót na stary firmware - sceptyk C, W1) albo nowa
+            sesja = możliwość skasowana, potwierdzamy od nowa;
+          • brak echa = tryb dawny, jawnie (bramki kategorii/nazwy/pozycji MOST jak dotąd - identyczna stara
+            odpowiedź może wtedy pasować do nowej prośby; tego tryb dawny nie rozróżni).
+        WYJŚCIA:  rpcRid(pref) -> nowy rid albo null; ridZPol(pola) -> {rid, part} albo null. */
+    const RPC_SONDA_PONOW_MS = 60000, RPC_SONDA_WAZNA_MS = 70000;
+    const rpcCap = {};                          // prefiks -> { stan: 'sonda'|'jest', nonce, od, boot }
+    const hex32 = () => { const b = new Uint8Array(16);
+      try { crypto.getRandomValues(b); } catch (e) { for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256); }
+      return Array.from(b, x => x.toString(16).padStart(2, '0')).join(''); };
+    const rpcRid = pref => (rpcCap[pref] && rpcCap[pref].stan === 'jest') ? hex32() : null;
+    const ridZPol = pola => { let rid = null, part = null;
+      for (const x of pola) { if (/^rid=[0-9a-fA-F]{32}$/.test(x)) rid = x.slice(4); else if (/^part=[0-9]+$/.test(x)) part = +x.slice(5); }
+      return (rid && part != null) ? { rid, part } : null; };
+    /* czy odpowiedź pasuje do prośby: prośba z rid - tylko ten rid i ta część; prośba dawna - odpowiedź z rid jest cudza */
+    const ridPasuje = (pros, r, part) => pros.rid ? !!(r && r.rid === pros.rid && r.part === part) : !r;
+    const rpcSondaDo = (pref, tresc, wymus) => {
+      const c = rpcCap[pref], teraz = Date.now();
+      /* [sceptyk C runda 2, R2] sonda WYMUSZONA (kandydat na nowe uruchomienie - firmware odsyła wtedy `stan` od razu):
+         potwierdzonej możliwości rid nie ruszamy, nonce jednorazowy; inaczej jak zwykła sonda, tylko bez czekania 60 s */
+      if (wymus && c && c.stan === 'jest') return tresc + ';cap=' + hex32();
+      if (!wymus && c && (c.stan === 'jest' || (c.stan === 'sonda' && teraz - c.od < RPC_SONDA_PONOW_MS))) return tresc;
+      const nonce = hex32(); rpcCap[pref] = { stan: 'sonda', nonce, od: teraz, boot: null };
+      return tresc + ';cap=' + nonce;
+    };
+    /*  NOWE URUCHOMIENIE Z NIŻSZYM `u`, DWA STEROWNIKI NA PREFIKSIE  [sceptyk C, S1 - 02.10.2026; runda 2: R1, R2, R3]
+        WEJŚCIA:  migawka `stan` z boot/stan_seq/u; lustro obiektu: w.u, w.seq, w.uBrok = {u, t} (kiedy blok albo `zm`
+                  z brokera przyniósł u lustra, także retained - liczy się tylko dla TEGO u); uZyw[pref][u] - ostatnia ŻYWA
+                  (nie retained) paczka `zm` albo blok z danym u, także ODRZUCONA (drugi sterownik, stare uruchomienie:
+                  odrzucona paczka to też dowód, że ktoś nadaje); zegar apki.
+        CO Z CZEGO WYNIKA: `u` to licznik restartów w NVS - po skasowaniu pamięci, wymianie płyty albo przewinięciu
+                  licznika NOWE uruchomienie ma `u` NIŻSZE niż zapamiętane. Dotąd taki boot był odrzucany NA ZAWSZE:
+                  `stan` (u < r.u), `zm` i `blok` (u < w.u) szły do kosza, lustro stało na starych liczbach, zegar komend
+                  nie przyjmował czasu (próba sceptyka A2: 300 zamiast 350 po 3 min). Spóźniona migawka nieznanego
+                  STARSZEGO boot (A3) w pierwszej chwili wygląda tak samo - rozstrzyga więc CZAS: kopia drugą drogą
+                  spóźnia się najwyżej o sekundy (docs/36 §9: do 6 s), a martwe uruchomienie nowych numerów nie wyprodukuje.
+                    • nieznany boot z niższym u = KANDYDAT: jego migawki pomijamy (nie cofają zegara, nie ruszają lustra);
+                    • kandydat staje się bieżącym uruchomieniem, gdy jego `stan_seq` ROŚNIE dłużej niż STAN_NOWY_BOOT_MS
+                      od pierwszej migawki, a bieżące uruchomienie MILCZY od co najmniej STAN_NOWY_BOOT_MS: ani świeżej
+                      migawki, ani żywej paczki `zm`/bloku z jego u (heartbeat `zm` idzie co 5 s przy podglądzie - 20a6
+                      SIEC_ZM_HB_MS - więc 10 s ciszy to nie przerwa między paczkami);
+                    • [R3] DWA STEROWNIKI NA JEDNYM PREFIKSIE: inny boot nadaje rosnące numery dłużej niż STAN_NOWY_BOOT_MS
+                      od pierwszej migawki (a boot ZASTĄPIONY - od swojego pierwszego NOWEGO numeru po zastąpieniu, runda 3
+                      niżej), a bieżące uruchomienie też daje znak życia później niż STAN_NOWY_BOOT_MS po tej chwili -
+                      spóźniona kopia martwego boot tak nie potrafi.
+                      Wtedy JEDNA linia w dzienniku łącza i zostajemy przy uruchomieniu, na którym stoi lustro (zwykle
+                      pierwsze przyjęte): drugiego nie przyjmujemy, jego `zm`/bloki pomijamy bez wpisu (60 linii dziennika
+                      nie może zalać co sekundę), lustra nie resetujemy - bez przełączania tam i z powrotem i bez serii
+                      próśb o pełny blok (dawniej: 71 w 240 s, zegar komend z drugiego sterownika). Gdy bieżące zamilknie
+                      na dłużej niż STAN_NOWY_BOOT_MS, a drugie nadaje dalej - przyjmujemy drugie, z linią w dzienniku;
+                    • lustro z WYŻSZEGO u niż POTWIERDZONE bieżące uruchomienie (u lustra z kandydata wyżej albo z zasiewu:
+                      blok z pamięci telefonu, retained sprzed restartu) - lustro od nowa: w.u = u bieżące, w.seq = null
+                      (zasłona do pełnego bloku, D-318) i prośba o pełny blok od ręki; dalej `zm`/`blok` tego u idą zwykłą
+                      drogą. [R1] ALE NIE, gdy blok albo `zm` z u lustra przyszedł z brokera w ostatnich STAN_NOWY_BOOT_MS:
+                      wtedy spóźniona jest MIGAWKA (ostatnia migawka starego boot dowieziona QUIC-iem po pełnym bloku
+                      nowego uruchomienia, zwykły restart u 6 -> 7), a nie lustro - dawniej lustro wracało na u 6,
+                      spóźniona `zm` u 6 nakładała starą temperaturę i szła zbędna prośba o pełny blok;
+                    • [R2] SONDA: `stan` idzie co 30 s (20a4 SIEC_MQTT_STAN_MIN_MS, D-320), więc druga migawka kandydata
+                      przychodziłaby po 30 s. STAN_NOWY_BOOT_MS + STAN_SONDA_ZAPAS_MS po pierwszej migawce kandydata apka
+                      wysyła zwykłe odnowienie podglądu z sondą `;cap=` (nowy nonce) - firmware odsyła wtedy najbliższe
+                      `stan` od razu, najwyżej raz na 5 s (20a4 SIEC_CAP_WYMUS_MIN_MS). Żywe uruchomienie (oba, gdy są
+                      dwa sterowniki) odpowiada nowym numerem, martwe milczy - rozstrzygnięcie po ~11 s zamiast ~30 s.
+                    • [runda 3, Ś1] OKNO ZASTĄPIONEGO BOOT liczymy od jego PIERWSZEGO NOWEGO numeru po zastąpieniu (pole `od`
+                      wpisujemy dopiero wtedy), nie od chwili zastąpienia. Zwykły restart (u 6 -> 7) przy drodze, która stała
+                      i oddała zaległe migawki starego boot naraz po 12-35 s: dawniej to był „drugi sterownik” (linia „dwa”,
+                      a przy ciszy nowego - powrót martwego jako bieżącego; sceptyk: sweep 11/18 źle). Zaległość dowozi
+                      migawki w jednej chwili, a żywy sterownik nadaje nowe numery dłużej niż STAN_NOWY_BOOT_MS;
+                    • [runda 3, Ś3 - zasada 10] stan „dwa sterowniki” jest TRWAŁĄ flagą M.dwaSterowniki[prefiks] (linia
+                      w dzienniku wypada po 60 wpisach), zdejmowaną, gdy drugi nie daje migawki dłużej niż DWA_CISZA_MS;
+                      razem z nią gaśnie `r.dwa` - inaczej kolejny kandydat (skasowany NVS) nie dostałby sondy (D4);
+                    • [runda 3, S21.R3w] zegar komend NIE z migawki uruchomienia o NIŻSZYM u niż żywe lustro (pokazywany
+                      sterownik wrócił po ciszy, a rewizja `stan` jeszcze przy drugim) - przy obsłudze tematu `stan`;
+                    • [runda 3, D6] migawka RETAINED z rewizją nie wchodzi tu wcale (firmware nadaje `stan` bez retain;
+                      zastana migawka nie jest znakiem życia ani kandydatem).
+        WYJŚCIA:  stanNowszy() jak dotąd (true = migawkę wolno użyć) + reset lustra opisany wyżej.
+        ⚠ CZAS PRZEJŚCIA na nowe uruchomienie z niższym u: ~11 s od jego pierwszej migawki, gdy sonda doszła; bez odpowiedzi
+          na sondę - przy następnej zwykłej migawce, ~30 s od pierwszej (do ~40 s od restartu sterownika). Tyle samo czeka
+          zegar komend. Z wyższym u, jak dotąd, od pierwszej migawki. ⚠ [runda 3, D5 - NIE ruszane] ~30 s także wtedy, gdy
+          odpowiedź na sondę przyszła, ale stary jeszcze „żył” kopiami w oknie (szybki restart, RL1), albo gdy sonda trafiła
+          w 5 s firmware po zwykłej sondzie nowej sesji (RP1) - druga sonda to nowy mechanizm (pytanie do Tomasza).
+        ⚠ Dwa sterowniki z TYM SAMYM u: lustro ich nie rozdzieli (`zm` nie niesie boot) - zostaje linia w dzienniku.
+        ⚠ Stary sterownik (bez boot/stan_seq): bez zmian - nie mamy czym odróżnić nowego uruchomienia od spóźnionej kopii.
+        Tekst linii w dzienniku = szkic do korekty Tomasza. */
+    const STAN_NOWY_BOOT_MS = 10000, STAN_SONDA_ZAPAS_MS = 500, STAN_INNE_MAX = 16;
+    /* [runda 3, Ś3] drugi sterownik zniknął = dwa okresy `stan` (20a4 SIEC_MQTT_STAN_MIN_MS = 30 s) bez jego nowej migawki */
+    const DWA_CISZA_MS = 3 * 30000;   /* [sceptyk 4, drobne 1] 3 okresy `stan`: jedna zgubiona migawka (QoS 0) drugiego nie gasi flagi
+                                        i nie zdejmuje ochrony r.dwa przed jego `zm` (przeskok lustra 300 -> 999) */
+    const stanRew = {};       // prefiks -> { boot, seq, u, od, seq0, kiedy, inne: Map(boot -> {seq, seq0, u, od, stary, sonda}), dwa }
+    /*  TRWAŁA FLAGA „DWA STEROWNIKI”  [sceptyk C runda 3, Ś3 - zasada 10: każda blokada ma komunikat]
+        WEJŚCIA:  dwaSterowniki() (wykrycie), nowe migawki drugiego (odświeżają `kiedy`), tyknięcie co 1 s (dwaWygas).
+        CO Z CZEGO WYNIKA: rozkazy z apki trafiają do OBU sterowników na prefiksie, a apka pokazuje jeden - to stan, nie
+                  zdarzenie: linia w dzienniku łącza wypada po 60 wpisach. Flaga trwa, póki drugi nadaje; gaśnie, gdy jego
+                  migawki nie ma dłużej niż DWA_CISZA_MS (naprawiony prefiks, wyłączony sterownik) - z jedną linią w dzienniku.
+        WYJŚCIA:  M.dwaSterowniki[prefiks] = { boot, u, od, kiedy } (boot/u DRUGIEGO, od = pierwsze wykrycie) albo brak wpisu;
+                  M.dwaNaPasek() = flaga WYBRANEGO obiektu albo null - wywołanie gotowe dla paska.
+        [D-535 pkt 3, Tomasz 02.10.2026: „pasek widzi KLIENT i serwis”] M.dwaZdanie() = zdanie paska dla WYBRANEGO obiektu
+          ('' = brak flagi) - jedno źródło tekstu; hala (makiety/panel4_hala.html, #chmura-dwa) pokazuje je w pasku apki klienta
+          i serwisu bez rozróżniania kont. ⚠ Tekst = SZKIC do korekty Tomasza. */
+    M.dwaSterowniki = {};
+    M.dwaNaPasek = () => (wybrany && M.dwaSterowniki[wybrany]) || null;
+    const DWA_ZDANIE = 'pod tą nazwą nadają dwa sterowniki — rozkazy trafiają do obu, wezwij serwis';
+    M.dwaZdanie = () => (M.dwaNaPasek() ? DWA_ZDANIE : '');
+    const dwaWygas = (pref, teraz) => {
+      const d = M.dwaSterowniki[pref];
+      if (!d || teraz - d.kiedy <= DWA_CISZA_MS) return;
+      delete M.dwaSterowniki[pref];
+      const r = stanRew[pref]; if (r) r.dwa = null;      /* [D4] sonda kolejnego kandydata (sondaKandydata) zależy od r.dwa */
+      zapisz('drugiego sterownika na prefiksie ' + pref + ' (boot ' + bootKrotko(d.boot) + ' u ' + d.u + ') nie słychać od '
+             + Math.round((teraz - d.kiedy) / 1000) + ' s - flaga zdjęta');
+    };
+    const uZyw = {};          // prefiks -> { u: Date.now() ostatniej żywej paczki zm/bloku z tym u }
+    const odnotujU = (pref, u) => { (uZyw[pref] || (uZyw[pref] = {}))[u] = Date.now(); };
+    /* ostatni znak życia BIEŻĄCEGO uruchomienia: jego świeża migawka albo żywa paczka `zm` / blok z jego u */
+    const zyjeOd = (pref, r) => Math.max(r.kiedy || 0, (r.u != null && uZyw[pref] && uZyw[pref][r.u]) || 0);
+    const bootKrotko = b => String(b).slice(0, 8) + '…';
+    /* bieżące uruchomienie odchodzi na listę innych - jako ZASTĄPIONE. [runda 3, Ś1] `od` (początek okna spóźnionych kopii)
+       wpisuje stanNowszy przy PIERWSZYM NOWYM numerze tego boot - dawniej `od: teraz` (chwila zastąpienia): zaległe migawki
+       martwego boot dowiezione naraz po 12-35 s wyglądały jak drugi sterownik (sweep sceptyka rundy 3) */
+    const odlozBoot = r => {
+      r.inne.set(r.boot, { seq: r.seq, seq0: r.seq, u: r.u, od: null, stary: true, sonda: false });
+      while (r.inne.size > STAN_INNE_MAX) r.inne.delete(r.inne.keys().next().value);
+    };
+    /* [R2] sonda `;cap=` po STAN_NOWY_BOOT_MS od pierwszej migawki kandydata - tylko wybrany obiekt (do niego idzie `zadanie`) */
+    const sondaKandydata = (pref, boot, o) => {
+      if (o.sonda) return; o.sonda = true;
+      setTimeout(() => { const r = stanRew[pref];
+        if (!r || r.dwa || r.inne.get(boot) !== o || pref !== wybrany) return;
+        oglos(tempo, undefined, true); }, STAN_NOWY_BOOT_MS + STAN_SONDA_ZAPAS_MS);
+    };
+    /* [R3] drugi sterownik na prefiksie: zostajemy przy uruchomieniu, na którym stoi lustro; true = przełączono na tamto */
+    const dwaSterowniki = (pref, r, boot, o, teraz) => {
+      const w = obiekty[pref];
+      const naTamtym = !!(w && licznikU(w.u) && w.u === o.u && w.u !== r.u);
+      if (naTamtym) {
+        const a = { boot: r.boot, u: r.u };
+        odlozBoot(r); r.inne.delete(boot);
+        Object.assign(r, { boot, seq: o.seq, u: o.u, od: o.od, seq0: o.seq0, kiedy: teraz, dwa: a });
+      } else r.dwa = { boot, u: o.u };
+      const d0 = M.dwaSterowniki[pref];      /* [runda 3, Ś3] trwała flaga - od pierwszego wykrycia, póki drugi nadaje */
+      M.dwaSterowniki[pref] = { boot: r.dwa.boot, u: r.dwa.u, od: d0 ? d0.od : teraz, kiedy: teraz };
+      zapisz('dwa sterowniki nadają na prefiksie ' + pref + ' (boot ' + bootKrotko(r.boot) + ' u ' + r.u + ' / boot '
+             + bootKrotko(r.dwa.boot) + ' u ' + r.dwa.u + ') - pokazuję u ' + r.u + ', drugiego nie; sprawdź prefiks MQTT sterowników');
+      return naTamtym;
+    };
+    const stanNowszy = (pref, s, zastany) => {
+      if (typeof s.boot !== 'string' || !s.boot || !Number.isInteger(s.stan_seq)) return true;
+      if (zastany) return false;              /* [runda 3, D6] retained z rewizją: nie znak życia, nie kandydat, nie zegar */
+      const teraz = Date.now(), u = licznikU(s.u) ? s.u : null;
+      let r = stanRew[pref];
+      if (!r) r = stanRew[pref] = { boot: s.boot, seq: s.stan_seq, u, od: teraz, seq0: s.stan_seq, kiedy: teraz, inne: new Map(), dwa: null };
+      else if (s.boot === r.boot) {
+        if (s.stan_seq <= r.seq) return false;
+        r.seq = s.stan_seq; r.kiedy = teraz; if (u != null) r.u = u;
+      } else {
+        const o = r.inne.get(s.boot);
+        if (o) {                                /* znany inny boot: kandydat (niższe u) albo zastąpiony */
+          if (s.stan_seq <= o.seq) return false;                  /* kopia albo spóźniona migawka */
+          o.seq = s.stan_seq;
+          if (o.od == null) o.od = teraz;                         /* [runda 3, Ś1] zastąpiony: okno od 1. NOWEGO numeru */
+          { const d = M.dwaSterowniki[pref]; if (d && d.boot === s.boot) d.kiedy = teraz; }   /* [Ś3] drugi nadaje */
+          if (teraz - o.od <= STAN_NOWY_BOOT_MS) return false;    /* jeszcze w oknie spóźnionych kopii */
+          const zA = zyjeOd(pref, r);
+          if (teraz - zA <= STAN_NOWY_BOOT_MS) {                   /* bieżące uruchomienie też żyje */
+            if (zA - o.od > STAN_NOWY_BOOT_MS && !(r.dwa && r.dwa.boot === s.boot)) return dwaSterowniki(pref, r, s.boot, o, teraz);
+            return false;
+          }
+          /* bieżące milczy dłużej niż STAN_NOWY_BOOT_MS, ten boot nadaje rosnąco dłużej niż STAN_NOWY_BOOT_MS - przyjmujemy */
+          if (r.dwa && r.dwa.boot === s.boot) {
+            zapisz('stan: drugi sterownik na prefiksie (u ' + o.u + ') nadaje dalej, a pokazywany (u ' + r.u + ') milczy od '
+                   + Math.round((teraz - zA) / 1000) + ' s - przyjmuję drugi');
+            /* [sceptyk 4, Ś-1] flaga opisuje DRUGIEGO - po przejęciu drugim jest dotąd pokazywany (zasada 10: serwisant szuka właściwego) */
+            const d = M.dwaSterowniki[pref]; if (d) Object.assign(d, { boot: r.boot, u: r.u, kiedy: zA });
+          }
+          else if (!o.stary && u != null && r.u != null && u < r.u)
+            zapisz('stan: nowe uruchomienie sterownika z NIŻSZYM u (' + r.u + ' → ' + u + ', skasowana pamięć?) - nadaje od '
+                   + Math.round((teraz - o.od) / 1000) + ' s, przyjmuję');
+          else zapisz('stan: uruchomienie boot ' + bootKrotko(s.boot) + ' (u ' + o.u + ') nadaje dalej, a dotychczasowe (u ' + r.u
+                      + ') milczy od ' + Math.round((teraz - zA) / 1000) + ' s - przyjmuję');
+          odlozBoot(r); r.inne.delete(s.boot);
+          Object.assign(r, { boot: s.boot, seq: s.stan_seq, u: u != null ? u : o.u, od: o.od, seq0: o.seq0, kiedy: teraz, dwa: null });
+        } else if (u != null && r.u != null && u < r.u) {         /* nieznany boot z niższym u: spóźniony ALBO nowy po skasowaniu NVS */
+          const k = { seq: s.stan_seq, seq0: s.stan_seq, u, od: teraz, stary: false, sonda: false };
+          r.inne.set(s.boot, k);
+          while (r.inne.size > STAN_INNE_MAX) r.inne.delete(r.inne.keys().next().value);
+          zapisz('stan: nieznane uruchomienie z niższym u (' + u + ' < ' + r.u + ') - pomijam; jeśli będzie nadawać dalej przez '
+                 + Math.round(STAN_NOWY_BOOT_MS / 1000) + ' s, przyjmę je jako nowe');
+          sondaKandydata(pref, s.boot, k);
+          return false;
+        } else {                                /* nieznany boot z wyższym (albo nieznanym) u = nowe uruchomienie od razu */
+          odlozBoot(r);
+          Object.assign(r, { boot: s.boot, seq: s.stan_seq, u: u != null ? u : r.u, od: teraz, seq0: s.stan_seq, kiedy: teraz, dwa: null });   /* [D4] */
+          zapisz('stan: nowe uruchomienie sterownika (u ' + (u != null ? u : '?') + ')');
+        }
+      }
+      /* [S1] lustro z wyższego u niż POTWIERDZONE bieżące uruchomienie (numer rośnie dłużej niż STAN_NOWY_BOOT_MS)
+         [R1] ... chyba że u lustra przyszło z brokera przed chwilą - wtedy spóźniona jest ta migawka, nie lustro */
+      const w = obiekty[pref];
+      if (u != null && w && licznikU(w.u) && u < w.u && r.seq > r.seq0 && teraz - r.od > STAN_NOWY_BOOT_MS
+          && !(w.uBrok && w.uBrok.u === w.u && teraz - w.uBrok.t <= STAN_NOWY_BOOT_MS)) {
+        zapisz('lustro z uruchomienia u ' + w.u + ', a sterownik nadaje u ' + u + ' - lustro od nowa, proszę o pełny blok');
+        w.u = u; w.seq = null; w.luka = true; w.lukaOd = teraz;
+        if (pref === wybrany) prosPelny('nowe uruchomienie (niższe u)');
+      }
+      return true;
+    };
+    const zegarUstaw = (pref, czas) => {
+      const zg = zegar[pref], teraz = Date.now();
+      if (zg) {
+        const szac = zg.czas + (teraz - zg.kiedy) / 1000;
+        if (czas < szac - ZEGAR_LUZ_S && czas > szac - ZEGAR_SKOK_S) {
+          if (!zg.odrzOd) zg.odrzOd = teraz;
+          if (teraz - zg.odrzOd < ZEGAR_UPOR_MS) return false;
+          zapisz('zegar sterownika cofnął się o ' + Math.round(szac - czas) + ' s (próbki starsze przez '
+                 + Math.round((teraz - zg.odrzOd) / 1000) + ' s) - przyjmuję');
+        } else if (czas <= szac - ZEGAR_SKOK_S) zapisz('zegar sterownika przestawiony o ' + Math.round(czas - szac) + ' s - przyjmuję');
+      }
+      zegar[pref] = { czas, kiedy: teraz };
+      return true;
+    };
     /*  DOSTĘPNOŚĆ TYLKO Z DRÓG, KTÓRE ŻYJĄ [D-481, audyt Astry 20.09 „spójność" P2]. `statusy` trzyma
         ostatni `status` per broker; „online" liczy się, jeśli CHOĆ JEDEN broker tak mówi [D-314]. Ale wpis
         z drogi, która się ZERWAŁA, to „ostatnio online", nie „teraz online" — a przeważał nad świeżym
@@ -1269,7 +1592,9 @@
         /*  [PWA-6, Astra 13] NOWA PROSBA KONCZY POPRZEDNIA - wynikiem „zastapiona", nie porzuceniem (porzucona
             obietnica = ekran na zawsze „odswiezam…"). */
         if (czekaPliki) { const st = czekaPliki; czekaPliki = null; clearTimeout(st.t); st.res(odp({ karta: null, pliki: [], blad: 'prośba zastąpiona nowszą' })); }
-        return new Promise(res => { czekaPliki = { kat, res, pref: wybrany, t: setTimeout(() => { if (czekaPliki && czekaPliki.res === res) { czekaPliki = null; res(odp({ karta: null, pliki: [] })); } }, 8000) }; oglos('pliki:' + kat); }).then(r => r);
+        const ridP = rpcRid(wybrany);   /* [Sol S20] */
+        return new Promise(res => { czekaPliki = { kat, res, pref: wybrany, rid: ridP, t: setTimeout(() => { if (czekaPliki && czekaPliki.res === res) { czekaPliki = null; res(odp({ karta: null, pliki: [] })); } }, 8000) };
+                                    oglos('pliki:' + kat + (ridP ? ';rid=' + ridP + ';part=0' : '')); }).then(r => r);
       }
       if (s.startsWith('/okres')) {               /* zdarzenia z okresu [D-298]: kawałki aż dalej=0 */
         const q = new URLSearchParams(s.slice(s.indexOf('?') + 1)); const kat = q.get('kat') || 'zdarzenia', od = +q.get('od') || 0, dok = +q.get('do') || 0;
@@ -1278,9 +1603,9 @@
         if (stara) { clearTimeout(stara.t); delete czekaOkres[kat];
                      stara.res(new Response(JSON.stringify({ blad: 'prośba zastąpiona nowszą' }), { status: 200 })); }
         return new Promise(res => {
-          const c = { kat, od, dok, poz: 0, linie: [], res, t: null, pref: wybrany };   /* pref: kogo pytamy [2026-09-26] */
+          const c = { kat, od, dok, poz: 0, linie: [], res, t: null, pref: wybrany, rid: rpcRid(wybrany), part: 0 };   /* pref: kogo pytamy [2026-09-26]; rid/part [Sol S20] */
           czekaOkres[kat] = c;
-          const nastepny = () => { oglos('okres:' + kat + ':' + od + ':' + dok + ':' + c.poz);   /* poz = kursor z odpowiedzi [D-300] */
+          const nastepny = () => { oglos('okres:' + kat + ':' + od + ':' + dok + ':' + c.poz + (c.rid ? ';rid=' + c.rid + ';part=' + c.part : ''));   /* poz = kursor z odpowiedzi [D-300] */
             c.t = setTimeout(() => { if (czekaOkres[kat] === c) { delete czekaOkres[kat]; res(new Response(JSON.stringify({ blad: 'sterownik nie odesłał okresu w 10 s' }), { status: 200 })); } }, 10000); };
           c.nastepny = nastepny; nastepny();
         });
@@ -1293,8 +1618,8 @@
         if (czekaPlik) { const st = czekaPlik; czekaPlik = null; clearTimeout(st.t);
                          st.res(new Response(JSON.stringify({ blad: 'prośba zastąpiona nowszą' }), { status: 200 })); }
         return new Promise(res => {
-          czekaPlik = { kat, nazwa, od: 0, tekst: '', res, json, t: null, pref: wybrany };
-          const nastepny = () => { oglos('plik:' + kat + '/' + nazwa + ':' + czekaPlik.od);
+          czekaPlik = { kat, nazwa, od: 0, tekst: '', res, json, t: null, pref: wybrany, rid: rpcRid(wybrany), part: 0 };   /* rid/part [Sol S20] */
+          const nastepny = () => { oglos('plik:' + kat + '/' + nazwa + ':' + czekaPlik.od + (czekaPlik.rid ? ';rid=' + czekaPlik.rid + ';part=' + czekaPlik.part : ''));
             czekaPlik.t = setTimeout(() => { if (czekaPlik && czekaPlik.res === res) { czekaPlik = null; res(new Response(JSON.stringify({ blad: 'sterownik nie odesłał pliku w 10 s' }), { status: 200 })); } }, 10000); };
           czekaPlik.nastepny = nastepny; nastepny();
         });
@@ -1317,11 +1642,13 @@
         const msg = new Paho.Message(tresc); msg.destinationName = wybrany + '/komenda'; msg.qos = 1;
         const kk = klGot(wybrany);   /* [D-313] brokerem, którym ten obiekt nadaje; mógł paść między sprawdzeniem a wysyłką */
         if (!kk) { res({ ok: false, opis: 'brak połączenia z brokerem' }); return; }
-        oczekuja.set(id, { res, t0, co: coTxt, pref: wybrany }); czekaWynik = res; czekaWynikPref = wybrany;   /* [PWA-7] {sterownik, id} */
+        /* [zadanie 13] wpis + termin PRZED wysyłką, jeden koniec; [PWA-7] {sterownik, id}; [Sol S23] po terminie NIEZNANY */
+        const op = operacjaKomendy(id, coTxt, wybrany, res, 5000, {
+          termin: { ok: false, nieznany: true, opis: 'wynik nieznany - sterownik nie potwierdził w 5 s; rozkaz mógł się wykonać, sprawdź stan przed ponowieniem' },
+          nieWyslano: { ok: false, opis: 'nie wysłano - brak połączenia z brokerem' },
+          bladWysylki: { ok: false, nieznany: true, opis: 'wynik nieznany - błąd przy wysyłce; rozkaz mógł wyjść, sprawdź stan przed ponowieniem' } });
         czekamZmiany = { t0, co: coTxt };
-        kk.send(msg);
-        setTimeout(() => { if (oczekuja.has(id)) { oczekuja.delete(id); if (czekaWynik === res) czekaWynik = null;
-                                                   zapisz('bez wyniku 5 s: ' + coTxt); res({ ok: false, opis: 'sterownik nie potwierdził komendy w 5 s' }); } }, 5000);
+        op.wyslij(kk, msg);
       });
       return wyslij(pinSerwis).then(r => {
         if (r.kod === 3 && !pinSerwis) {           // rejestr serwisowy - raz zapytaj o PIN i powtórz
@@ -1516,8 +1843,18 @@
       b.zap.poBledzie = e => hiZakoncz(b, { blad: 'telefon nie zapisał historii (' + (e && e.message || e) + ') - pobieranie zatrzymane; '
                                                   + 'wykres pokazuje, co zdążył zebrać, następne dociągnięcie zacznie od miejsca błędu' });
       const kc = klDla(pref);
-      if (kc && kc.bezHistorii) {
+      /*  [INTEGRACJA-2a, Sol Z1/Z2] tylko filtry TEGO obiektu w BIEŻĄCEJ partii bieżącego klienta (histStan wyżej) */
+      const hs = histStan(kc, pref);
+      if (hs === 'odmowa') {
         res({ blad: 'konto na serwerze nie ma prawa odbierać historii (rola sprzed D-511) - wykres z danych zebranych w telefonie; serwis: dopisz temat historia do roli klienta' });
+        return;
+      }
+      if (hs === 'czeka') {
+        res({ blad: 'broker jeszcze nie potwierdził zapisu na historię tego obiektu - spróbuj za chwilę' });
+        return;
+      }
+      if (hs === 'lacze') {
+        res({ blad: 'zapis na historię tego obiektu nie potwierdzony (łącze albo brak odpowiedzi brokera) - spróbuj ponownie' });
         return;
       }
       hist.b = b;
@@ -1776,11 +2113,12 @@
     /*  ⚠ „REZERWY NIE MA" MÓWIMY WPROST (zasada 10) — to jest właśnie ta luka, przez którą D-373
         kazało zgadywać adres. Widoczny stan zamiast ciszy albo zgadywanki. */
     M.rezerwaBrak = (POL.length < 2);
-    /*  [próba w słabym zasięgu 02.10, Tomasz na LTE] IDENTYFIKATOR WEDŁUG NUMERU SERWERA, NIE POZYCJI NA LIŚCIE.
-        Dawniej `cid-(pozycja+1)`: przy serwerach 1 i 3 serwer 3 dostawał `cid-2`, a serwer 2 dopisany później ze spisu
-        sterownika (`dodajSerwer`, niżej) - też `cid-2`. Na TYM SAMYM brokerze dwie sesje z jednym identyfikatorem
-        wyrzucały się nawzajem co ~1 s (dziennik: „serwer 2: zerwane … połączony ponownie (przerwa 1 s)”, meldunek
-        `3:zerwane/laczy/ok` na przemian). Teraz wszędzie `cid` / `cid-2` / `cid-3` jak w `dodajSerwer`. */
+    /*  [próba w słabym zasięgu 02.10, Tomasz na LTE; z quic/audyt-wt 40585abf] IDENTYFIKATOR WEDŁUG NUMERU SERWERA, NIE
+        POZYCJI NA LIŚCIE. Dawniej `cid-(pozycja+1)`: przy serwerach 1 i 3 serwer 3 dostawał `cid-2`, a serwer 2 dopisany
+        później ze spisu sterownika (`dodajSerwer`, niżej) - też `cid-2`. Na TYM SAMYM brokerze dwie sesje z jednym
+        identyfikatorem wyrzucały się nawzajem co ~1 s (dziennik: „serwer 2: zerwane … połączony ponownie (przerwa 1 s)”).
+        Teraz wszędzie `cid` / `cid-2` / `cid-3` jak w `dodajSerwer`. Sufiks drogi nakładki MQTT 5 (QUIC = `…q`) zostaje
+        po stronie nakładki - tu go nie dublujemy. */
     POL.forEach(c => { c.kl = new Klient(c.host, c.port, '/mqtt', cid + (c.nr > 1 ? '-' + c.nr : ''));
                             c.stan = { stan: 'laczy', opis: 'łączę z brokerem…' }; });
     /*  ILE BROKEROW NAPRAWDE MAMY - WPROST W DZIENNIKU [D-353, 2026-09-13]
@@ -1874,7 +2212,7 @@
       return nr;
     };
     let niesieOst = -1;
-    const oglos = (v, niesie) => { if (!wybrany) return;
+    const oglos = (v, niesie, sonda) => { if (!wybrany) return;   /* sonda = true: wymuszona sonda `;cap=` [R2] */
       let tresc = String(v);
       if (typeof v === 'number') {                     /* dopisek tylko przy tempie, nie przy „pelny"/„okres:" */
         const nr = (niesie === undefined) ? niesieNr() : niesie;
@@ -1887,6 +2225,7 @@
         if (nr) { const cel = POL.find(x => (x.slot || 0) === nr);
                   if (cel && cel.lekki) { wepnijCiezkie(cel); cel.bliz = 0; } }
         tresc += ';niesie=' + nr;
+        tresc = rpcSondaDo(wybrany, tresc, sonda);   /* [Sol S20] sonda możliwości rid - w zwykłym odnowieniu, nic nie włącza */
         if (nr !== niesieOst) { niesieOst = nr;
           /*  ⚠ SKUTEK, NIE MECHANIZM [D-428a, Tomasz: „zamiast «prosze o ciezkie tematy» to
               «odbieram tematy»"]. Pod spodem to nadal dopisek `niesie=N` w `zadanie`, ktory kaze
@@ -1970,6 +2309,7 @@
         odnowKlienta(c);   /* [D-354] karta byla zamrozona - gniazdo i sesja u brokera sa nie do odzyskania */
         c.stan = { stan: 'laczy', opis: 'łączę ponownie…' }; c.odstepNr = 0; c.polaczTeraz('odmrożenie'); }); oddaj(); });
     setInterval(() => { const w = wybrany && obiekty[wybrany];
+      for (const p in M.dwaSterowniki) dwaWygas(p, Date.now());   /* [runda 3, Ś3] flaga „dwa sterowniki” gaśnie po ciszy drugiego */
       /*  [D-321] PROGI CISZY PODNIESIONE: sterownik nadaje heartbeat co 5 s (było 2 s), więc cztery
           sekundy bez paczki to teraz normalna praca, a nie kłopot. Dopytujemy po 10 s. */
       if (brokerOgolem().stan === 'ok' && w && w.kiedy && Date.now() - w.kiedy > 7000) oglosTeraz();
@@ -2006,7 +2346,35 @@
           (a w oryginalnym Paho wyjątek „Malformed UTF”). Musi stać PRZED każdą gałęzią, która czyta tekst. */
       if (rodzaj === 'historia') { hiOdebrano(cz.slice(0, -1).join('/'), m.payloadBytes); return; }
       if (rodzaj === 'stan') {
-        try { const s = JSON.parse(m.payloadString); if (s && s.czas) zegar[cz.slice(0, -1).join('/')] = { czas: s.czas, kiedy: Date.now() }; } catch (e) {}
+        let s = null; try { s = JSON.parse(m.payloadString); } catch (e) {}
+        const prefS = cz.slice(0, -1).join('/');
+        if (s && !stanNowszy(prefS, s, m.retained)) return;         /* [Sol S21] spóźniona kopia migawki - bez skutku */
+        { /* [Sol S20] echo sondy rid: tylko żywy stan, ten prefiks, ta sonda w terminie, z boot; inny boot kasuje */
+          /* [sceptyk C, W1 - 02.10.2026] BRAK `boot` TEŻ KASUJE: sterownik wrócił na STARY firmware (OTA wstecz, rollback
+             bootloadera, wymiana płyty) - jego `stan` nie ma pola boot. Dawny warunek kasował tylko przy INNYM boot, więc
+             apka dokładała `;rid=` godzinami: stary sterownik odrzuca `pliki:<kat>;rid=…` (_sd_kat_ok), a odpowiedzi
+             `okres`/`plik` bez rid nie przechodzą ridPasuje - ekran „brak karty” / „nie odesłał w 10 s” bez prawdziwego
+             powodu (próba sceptyka A1, test S20.M7). Każda migawka nie z TEGO boot = korelację potwierdzamy od nowa. */
+          const c = rpcCap[prefS];
+          if (s && c && c.stan === 'jest' && s.boot !== c.boot) {
+            delete rpcCap[prefS];
+            zapisz(typeof s.boot === 'string' ? 'sterownik uruchomiony na nowo - korelację odpowiedzi karty (rid) potwierdzę od nowa'
+                                              : 'sterownik bez znacznika uruchomienia (stary firmware?) - odczyty karty w trybie dawnym, bez rid');
+          } else if (s && c && c.stan === 'sonda' && !m.retained && typeof s.boot === 'string' && s.cap && Array.isArray(s.cap.n)
+                     && s.cap.n.indexOf(c.nonce) >= 0 && Date.now() - c.od < RPC_SONDA_WAZNA_MS) {
+            c.stan = 'jest'; c.boot = s.boot; zapisz('sterownik zna identyfikator odpowiedzi karty (rid) - odczyty karty z korelacją');
+          }
+        }
+        /* [sceptyk C runda 3, S21.R3w] ZEGAR KOMEND TYLKO Z URUCHOMIENIA LUSTRA: migawka z NIŻSZYM u niż lustro, na którym
+           właśnie płyną żywe paczki (zm/blok w STAN_NOWY_BOOT_MS), jest z drugiego sterownika na prefiksie - pokazywany wrócił
+           po ciszy, lustro już przy nim (wyższe u), a rewizja `stan` jeszcze przy drugim, póki pokazywany nie nada migawek
+           przez STAN_NOWY_BOOT_MS (okno Ś1). Bez tego warunku zegar przeskakiwał na drugiego przy każdej jego migawce i wracał
+           przy paczce pokazywanego - rozkaz w tej chwili niósł `t=` z cudzego zegara. Lustro bez żywych paczek (zasiew,
+           retained, przejście na nowe uruchomienie z niższym u - S21.R2r) - zegar jak dotąd. */
+        const wS = obiekty[prefS], uS = s && licznikU(s.u) ? s.u : null;
+        const zInnego = uS != null && wS && licznikU(wS.u) && uS < wS.u
+                        && Date.now() - ((uZyw[prefS] && uZyw[prefS][wS.u]) || 0) <= STAN_NOWY_BOOT_MS;
+        if (s && s.czas && !zInnego) zegarUstaw(prefS, s.czas);     /* [B.0z-78] bez cofania */
         return;
       }
       if (rodzaj === 'serwery') { spisSerwerow(m.payloadString, cz.slice(0, -1).join('/'), m.retained); return; }   /* [D-411] */
@@ -2034,8 +2402,10 @@
         if (!czekaPliki || czekaPliki.pref !== cz.slice(0, -1).join('/')) return;   /* tylko od pytanego sterownika [2026-09-26] */
         const l = m.payloadString.split('\n').filter(x => x.trim()); const brak = l.some(x => x[0] === '!');
         /*  [PWA-6] odpowiedz o INNEJ kategorii (spozniona po zastapieniu) nie konczy biezacej prosby */
-        const katOdp = (l[0] && l[0][0] === '#') ? l[0].slice(1).trim() : null;
+        const nag0 = (l[0] && l[0][0] === '#') ? l[0].slice(1).trim().split(';') : null;
+        const katOdp = nag0 ? nag0[0] : null;
         if (katOdp !== null && katOdp !== czekaPliki.kat) return;
+        if (!ridPasuje(czekaPliki, nag0 ? ridZPol(nag0.slice(1)) : null, 0)) return;   /* [Sol S20] cudza / stara / kopia */
         const c = czekaPliki; czekaPliki = null; clearTimeout(c.t);
         const pliki = l.filter(x => x[0] !== '#' && x[0] !== '!').map(x => { const [nazwa, rozmiar] = x.split(';'); return { nazwa, rozmiar: +rozmiar }; }).sort((a, b) => a.nazwa < b.nazwa ? 1 : -1);
         c.res(new Response(JSON.stringify({ karta: !brak, pliki }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
@@ -2065,6 +2435,7 @@
             28.09 21:35 trzy apki wyslaly po 256 = 2^8 prosb w minute, a sterownik warsztatu dwa razy
             zatrzymal strażnik rdzenia 0 (dowody/2026-09-28, paczka 02). */
         if (+nag[1] !== c.od || +nag[2] !== c.dok || +nag[3] !== c.poz) return;
+        if (!ridPasuje(c, ridZPol(nag.slice(7)), c.part)) return;    /* [Sol S20] ta prośba i TA część - przed zegarem i danymi */
         clearTimeout(c.t);
         const n = +nag[4], dalej = +nag[5], nast = +nag[6] || 0;
         if (n < 0) { delete czekaOkres[c.kat]; c.res(new Response(JSON.stringify({ blad: 'brak karty' }), { status: 200 })); return; }
@@ -2072,7 +2443,7 @@
         c.strony = (c.strony || 0) + 1;
         /*  kursor MUSI isc naprzod (ten sam = sterownik stoi w miejscu) i stron jest skonczenie wiele -
             bezpiecznik na wypadek bledu po drugiej stronie; ucieta odpowiedz mowi o tym wprost */
-        if (dalej && nast && nast !== c.poz && c.strony < OKRES_MAX_STRON) { c.poz = nast; c.nastepny(); return; }
+        if (dalej && nast && nast !== c.poz && c.strony < OKRES_MAX_STRON) { c.poz = nast; c.part++; c.nastepny(); return; }   /* [Sol S20] część przesunięta PRZED prośbą */
         if (dalej && nast) zapisz('okres ' + c.kat + ': zatrzymane po ' + c.strony + ' stronach (kursor ' + nast + ')');
         delete czekaOkres[c.kat];
         c.res(new Response(JSON.stringify({ kat: c.kat, od: c.od, do: c.dok, linie: c.linie }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
@@ -2087,10 +2458,11 @@
             sprawdzone PRZED licznikiem czasu i buforem. Odpowiedz A.csv nie konczy pobierania B.csv, a duplikat
             z drugiego brokera nie prosi drugi raz o ten sam kawalek (ta sama petla co przy `okres`). */
         if (nag[0] !== c.kat + '/' + c.nazwa || od !== c.od) return;
+        if (!ridPasuje(c, ridZPol(nag.slice(4)), c.part)) return;    /* [Sol S20] */
         clearTimeout(c.t);
         if (n < 0) { czekaPlik = null; c.res(new Response(JSON.stringify({ blad: 'brak pliku albo karty' }), { status: 200 })); return; }
         c.tekst += dane; c.od = od + n;
-        if (n > 0 && c.od < rozmiar) { c.nastepny(); return; }
+        if (n > 0 && c.od < rozmiar) { c.part++; c.nastepny(); return; }   /* [Sol S20] następna część */
         czekaPlik = null;
         if (c.json) c.res(new Response(JSON.stringify({ kat: c.kat, nazwa: c.nazwa, linie: c.tekst.split('\n').filter(x => x.trim()) }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
         else c.res(new Response(c.tekst, { status: 200, headers: { 'Content-Type': 'text/csv; charset=utf-8' } }));
@@ -2129,7 +2501,13 @@
         const r = { ok: w.kod === 0, kod: w.kod, opis: w.opis || (w.kod === 0 ? 'wykonano' : 'odmowa') };
         if (w.id != null) {
           const p = oczekuja.get(w.id);
-          if (!p || p.pref !== prefW) return;              /* cudza komenda, inny sterownik albo powtórka wyniku (dwie drogi) */
+          if (!p || p.pref !== prefW) {                    /* cudza komenda, inny sterownik albo powtórka wyniku (dwie drogi) */
+            const z = pozne.get(w.id);                     /* [Sol S23] spóźniony wynik rozkazu, który dostał „wynik nieznany” */
+            if (z && z.pref === prefW) { pozne.delete(w.id);
+              zapisz('spóźniony wynik ' + z.co + ' po ' + (Date.now() - z.t0) + ' ms: ' + (w.kod === 0 ? 'wykonano' : 'odmowa kod ' + w.kod + (w.opis ? ' (' + w.opis + ')' : '')));
+              oddaj(); }
+            return;
+          }
           oczekuja.delete(w.id); if (czekaWynik === p.res) czekaWynik = null;
           const ms = Date.now() - p.t0; M.pomiar.wynik_ms = ms; M.pomiar.ile++;
           zapisz('wynik ' + p.co + ': ' + ms + ' ms' + (w.kod ? ' kod ' + w.kod : ''));
@@ -2154,7 +2532,17 @@
                              prawdziwsze niż to, co mamy;
               • u == nasze → zwykła numeracja niżej; spóźniona kopia = KAŻDY numer nie nowszy (bez progu 1000).
             Bez `u` (stary wsad sterownika) zostaje dawna heurystyka skoku 1000. */
+        /*  [Sol S21] PACZKA Z NUMEREM URUCHOMIENIA MUSI MIEĆ KOMPLET: u w zakresie licznika (uint16 z NVS) i seq.
+            Dawniej `zm` z u, ale bez seq ustawiało nowe u i zerowało seq lustra - potem spóźniony pełny blok
+            starego uruchomienia przechodził bramkę bloku (patrzyła na u tylko przy znanym seq). */
+        if (typeof d.u === 'number' && (!licznikU(d.u) || !Number.isInteger(d.seq))) {
+          zapisz('paczka zmian z niepełnym numerem (u ' + d.u + ', seq ' + d.seq + ') - pomijam'); return;
+        }
         if (typeof d.u === 'number') {
+          if (!m.retained) odnotujU(pref, d.u);   /* [R3] znak życia uruchomienia z tym u - także przed odrzuceniem niżej */
+          /* [sceptyk C runda 2, R3] drugi sterownik na tym prefiksie (stanNowszy): jego paczki pomijamy bez wpisu - linia
+             „dwa sterowniki" już jest, a 60 linii dziennika zalałby co sekundę; lustro nie przeskakuje na jego u */
+          { const rr = stanRew[pref]; if (rr && rr.dwa && rr.dwa.u === d.u && d.u !== w.u) return; }
           if (w.u != null && d.u < w.u) { zapisz('paczka z poprzedniego uruchomienia sterownika (u ' + d.u + ' < ' + w.u + ') - pomijam'); return; }
           if (w.u == null || d.u > w.u) {
             zapisz(w.u == null ? 'pierwsza paczka z numerem uruchomienia u ' + d.u + ' - proszę o pełny blok'
@@ -2162,6 +2550,8 @@
             w.u = d.u; w.seq = null; w.luka = true; w.lukaOd = Date.now();
             if (pref === wybrany) prosPelny('nowe uruchomienie');
           }
+          /* [R1] u lustra przyszło z brokera przed chwilą (paczka z u lustra) */
+          w.uBrok = { u: w.u, t: Date.now() };
         }
         if (typeof d.seq === 'number') {
           /*  TA SAMA PACZKA DRUGĄ DROGĄ [D-313]: przy dwóch brokerach (i przy powtórce QoS 1) ten sam `seq`
@@ -2182,7 +2572,7 @@
           if (w.seq != null && d.seq !== w.seq + 1) { w.luka = true; w.lukaOd = Date.now(); if (pref === wybrany) { zapisz('luka seq ' + w.seq + '→' + d.seq); prosPelny('luka'); } }   /* luka → pełny blok od ręki; do niego lustro = zasiew [chwila luki: D-318] */
           w.seq = d.seq;
         }
-        if (d.t) zegar[pref] = { czas: d.t, kiedy: Date.now() };
+        if (d.t) zegarUstaw(pref, d.t);   /* [B.0z-78] */
         if (d.mb) for (const k in d.mb) w.mb[+k] = d.mb[k];
         if (d.mn) { if (!w.mn) w.mn = []; for (const k in d.mn) w.mn[+k] = d.mn[k]; }
         if (d.r)  { if (!w.r) w.r = {};  for (const k in d.r)  w.r[+k]  = d.r[k]; }
@@ -2205,6 +2595,15 @@
         const w0 = obiekty[pref];
         const wS = w0 && w0.seq, wU = w0 && w0.u;
         const zU = (zS && zS.length > 2 && zS[2] != null) ? zS[2] : null;
+        /*  [Sol S21, łatka 1] STARSZE URUCHOMIENIE = STARY BLOK także wtedy, gdy lustro czeka na pełny obraz (seq null po
+            nowym u): bramka niżej patrzyła na u tylko przy znanym seq. Odrzucony blok nie zmienia lustra, zegara, drogi
+            (`kl`) ani zasłony. */
+        if (licznikU(zU) && !m.retained) odnotujU(pref, zU);   /* [R3] znak życia uruchomienia z tym u */
+        { const rr = stanRew[pref]; if (rr && rr.dwa && rr.dwa.u === zU && zU !== wU) return; }   /* [R3] drugi sterownik - bez wpisu */
+        if (licznikU(zU) && licznikU(wU) && zU < wU) {
+          zapisz('pełny blok z poprzedniego uruchomienia sterownika (u ' + zU + ' < ' + wU + ') - pomijam');
+          return;
+        }
         if (zS && zS.length && wS != null) {
           if (zU != null && wU != null) {
             /*  [D-481] Z NUMEREM URUCHOMIENIA NIE MA ZGADYWANIA: starsze uruchomienie = stary blok
@@ -2238,7 +2637,9 @@
       const _byl = obiekty[pref] && obiekty[pref].kl;
       obiekty[pref] = Object.assign(obiekty[pref] || {}, { kiedy: Date.now() },
                                     (m.retained && _byl) ? {} : { kl: _zrodlo });   // `kl` = broker, którym przyszedł [D-313]
-      zastosujPelny(pref, obiekty[pref], m.payloadString);
+      /* [R1] blok z brokera z numerem uruchomienia: u lustra przyszło przed chwilą (retained też - spóźniona migawka starego
+         boot nie cofnie lustra; znak ŻYCIA dla stanNowszy daje tylko żywy - odnotujU wyżej). Zasiew z pamięci telefonu - nie. */
+      if (zastosujPelny(pref, obiekty[pref], m.payloadString)) obiekty[pref].uBrok = { u: obiekty[pref].u, t: Date.now() };
       /*  RETAINED = ZASIEW, NIE ŚWIEŻY STAN [D-280]: blok z flagą retained ma od 0 do 60 s. Zasiewa
           lustro (rejestry, seq), ale nie zdejmuje planszy - świeży pełny blok przychodzi po `zadanie`
           w ~0,5 s. Bez tego dotknięcie w pierwszej sekundzie po otwarciu szło na starym stanie
@@ -2346,17 +2747,103 @@
         ⚠ Odmowy NIE pokazujemy jako bledu uzytkownikowi: to nie usterka, tylko skutek tego, ze
           konto ma prawa do jednej postaci nazw. W dzienniku zostaje, bo serwis ma widziec, czym
           apka naprawde sie zapisala. */
+    /*  [Sol S17] WYNIK TYLKO DLA TEJ PARTII ZAPISÓW: wywołanie zwrotne liczy się wyłącznie, gdy `c.kl` to wciąż ten sam
+        klient i `c.zakresPartia` ta sama, co przy wysłaniu - SUBACK poprzedniego połączenia (albo starego klienta po
+        odnowKlienta) nie dopisuje się do liczników nowej partii. */
+    /*  KLASA WYNIKU ZAPISU  [Sol S19, 01.10.2026]
+        WEJŚCIA:  obiekt z onFailure biblioteki: nakładka MQTT 5 daje `przyczyna` {klasa, rc} (klasa z PRAWDZIWEGO SUBACK:
+                  acl = 0x87, broker = inny kod >= 0x80, transport = brak SUBACK, timeout, mieszany = różne na drogach);
+                  Paho 3.1.1 daje `errorCode` = tablica z kodem SUBACK (3.1.1 zna tylko 0x80 = odmowa).
+        CO Z CZEGO WYNIKA: tylko 'acl' i 'odmowa311' liczą się jako odmowa ZAKRESU KONTA (D-484); 0x80/0x97 z MQTT 5
+                  to odmowa brokera / limit, transport i timeout to łącze - NIE zakres konta. Treści błędu nie parsujemy.
+        WYJŚCIA:  'acl' | 'odmowa311' | 'broker' | 'limit' | 'transport' | 'timeout' | 'mieszany' | 'nieprawidlowy' | 'nieznany'.
+        ⚠ Zostaje stare zdanie D-484 dla Paho 3.1.1: jego jedyny kod porażki 0x80 to prawdziwa odpowiedź brokera
+          (zmierzone 19.09 na koncie klienckim), a nie zerwane łącze - Paho 3.1.1 nie woła onFailure przy zerwaniu. */
+    const klasaZapisu = r => {
+      const pr = r && r.przyczyna;
+      if (pr && pr.klasa) return (pr.klasa === 'broker' && pr.rc === 0x97) ? 'limit' : String(pr.klasa);
+      const k = r && r.errorCode, kod = (k && typeof k === 'object' && k.length) ? k[0] : k;
+      if (typeof kod === 'number' && kod >= 0x80) return 'odmowa311';
+      return 'nieznany';
+    };
+    M.klasaZapisu = klasaZapisu;              /* do prób i sond */
+    /*  ZAPIS NA HISTORIĘ: WYNIK WEDŁUG FILTRA, KLIENTA I PARTII  [Sol INTEGRACJA-2-Z1/Z2, INTEGRACJA-2a, 04.10.2026]
+        WEJŚCIA:  wynik SUBACK każdego filtra `…/historia` bieżącej partii zapisów bieżącego klienta: czeka (wysłany, bez
+                  odpowiedzi), grant, odmowa (klasa acl / odmowa311 - zakres konta), lacze (transport, timeout, inny kod).
+        CO Z CZEGO WYNIKA: o pobraniu dla obiektu `pref` decydują TYLKO filtry pasujące do `<pref>/historia` (konto
+                  serwisowe: wzorce `obiekt/+/…`, `basen/+/+/…`). Grant pasującego filtra wygrywa; „konto nie ma prawa”
+                  dopiero, gdy WSZYSTKIE pasujące filtry odmówiły - wynik nie zależy od kolejności odpowiedzi i od aliasu
+                  innego obiektu (Z1). Nowe połączenie / nowa partia = nowa, pusta mapa - stara odmowa nie przechodzi (Z2).
+        WYJŚCIA:  histStan(c, pref) = 'grant' | 'czeka' | 'lacze' | 'odmowa' | 'brak' (żaden pasujący filtr) | 'nieznany'
+                  (brak mapy bieżącej partii). Dawna jedna flaga `c.bezHistorii` usunięta. */
+    const pasujeFiltr = (filtr, temat) => {
+      const f = String(filtr).split('/'), t = String(temat).split('/');
+      for (let i = 0; i < f.length; i++) {
+        if (f[i] === '#') return true;
+        if (i >= t.length || (f[i] !== '+' && f[i] !== t[i])) return false;
+      }
+      return f.length === t.length;
+    };
+    const histUstaw = (c, kl, nr, temat, wynik) => {
+      let h = c.histZapisy;
+      if (!h || h.kl !== kl || h.partia !== nr) h = c.histZapisy = { kl, partia: nr, t: {} };
+      h.t[temat] = wynik;
+    };
+    const histStan = (c, pref) => {
+      const h = c && c.histZapisy;
+      if (!h || h.kl !== c.kl || h.partia !== c.zakresPartia) return 'nieznany';
+      const temat = pref + '/historia';
+      let jest = false, czeka = false, lacze = false;
+      for (const f in h.t) {
+        if (!pasujeFiltr(f, temat)) continue;
+        jest = true;
+        const w = h.t[f];
+        if (w === 'grant') return 'grant';
+        if (w === 'czeka') czeka = true; else if (w === 'lacze') lacze = true;
+      }
+      return !jest ? 'brak' : czeka ? 'czeka' : lacze ? 'lacze' : 'odmowa';
+    };
+    M.pasujeFiltr = pasujeFiltr; M.histStan = histStan;   /* do prób */
+    const KLASA_TXT = { transport: 'łącze przerwane', timeout: 'brak odpowiedzi brokera', broker: 'odmowa brokera',
+                        limit: 'limit brokera', mieszany: 'wynik mieszany', nieprawidlowy: 'niespójna odpowiedź', nieznany: 'powód nieznany' };
+    const DROGA_TXT = { tls: 'TLS', quic: 'QUIC' };
+    /* opis wyniku „mieszany” po drogach: „QUIC brak uprawnień, TLS brak odpowiedzi” */
+    const drogiTxt = d => Object.keys(d || {}).map(n => (DROGA_TXT[n] || n) + ' ' + (d[n].klasa === 'acl' ? 'brak uprawnień'
+                          : d[n].klasa === 'grant' ? 'przyjęła' : (KLASA_TXT[d[n].klasa] || d[n].klasa))).join(', ');
+    /*  [Sol S17] WYNIK TYLKO DLA TEJ PARTII ZAPISÓW: wywołanie zwrotne liczy się wyłącznie, gdy `c.kl` to wciąż ten sam
+        klient i `c.zakresPartia` ta sama, co przy wysłaniu - SUBACK poprzedniego połączenia (albo starego klienta po
+        odnowKlienta) nie dopisuje się do liczników nowej partii.
+        [Sol S19] partia liczy WYSŁANE i ZAKOŃCZONE zapisy; ocena po komplecie (albo w terminie), klasy osobno. */
     const _zapisz_sie = (c, temat, qos) => {
+      const kl = c.kl, nr = c.zakresPartia;
+      const biezaca = () => c.kl === kl && c.zakresPartia === nr;
+      const koniec = () => { c.zakresKoniec = (c.zakresKoniec || 0) + 1; if (c.zakresCzeka && c.zakresKoniec >= (c.zakresWyslane || 0)) { c.zakresCzeka = false; ocenZakres(c); } };
       try {
         /*  [D-511] `historia` zapamiętujemy osobno: rola klienta na brokerze v5 sprzed dopisania tematu (kontrakt_rol_v5.py)
             odrzuca subskrypcję, a sterownik i tak nadałby cały strumień w ciszę - apka ma to POWIEDZIEĆ (zasada 10),
-            a nie prosić o historię, której nie odbierze. */
+            a nie prosić o historię, której nie odbierze.
+            [INTEGRACJA-2a, Sol Z1/Z2] wynik zapisuje się PER FILTR w mapie bieżącej partii (histUstaw / histStan wyżej):
+            odmowa tylko przy klasie acl / odmowa311; łącze / brak odpowiedzi = osobny stan, nie odmowa roli. */
         const hist = /\/historia$/.test(temat);
+        if (hist) histUstaw(c, kl, nr, temat, 'czeka');
+        c.zakresWyslane = (c.zakresWyslane || 0) + 1;
         c.kl.subscribe(temat, { qos: qos,
-          onSuccess: () => { c.zakresOk = (c.zakresOk || 0) + 1; if (hist) c.bezHistorii = false; },
-          onFailure: () => { c.zakresOdmowy = (c.zakresOdmowy || 0) + 1; (c.zakresOdmowyTematy || (c.zakresOdmowyTematy = [])).push(temat);
-                             if (hist) c.bezHistorii = true; } });
-      } catch (e) { zapisz(etyk(c) + 'nie udało się zapisać na ' + temat); }
+          onSuccess: r => { if (!biezaca()) return; c.zakresOk = (c.zakresOk || 0) + 1; if (hist) histUstaw(c, kl, nr, temat, 'grant');
+                            /* [Sol S19] sukces z ograniczeniem jednej drogi (np. QUIC bez uprawnień, TLS ma) - liczymy na drogę */
+                            const d = r && r.drogi;
+                            if (d) for (const n in d) if (d[n] && d[n].klasa !== 'grant' && d[n].klasa !== 'czeka') (c.zakresDrogi || (c.zakresDrogi = {}))[n] = ((c.zakresDrogi || {})[n] || 0) + 1;
+                            koniec(); },
+          onFailure: r => { if (!biezaca()) return;
+                            const kl0 = klasaZapisu(r);
+                            if (kl0 === 'acl' || kl0 === 'odmowa311') { c.zakresOdmowy = (c.zakresOdmowy || 0) + 1; (c.zakresOdmowyTematy || (c.zakresOdmowyTematy = [])).push(temat);
+                                                                         if (hist) histUstaw(c, kl, nr, temat, 'odmowa'); }
+                            else { (c.zakresInne || (c.zakresInne = [])).push({ temat, klasa: kl0, drogi: r && r.drogi });
+                                   if (hist) histUstaw(c, kl, nr, temat, 'lacze'); }
+                            koniec(); } });
+      } catch (e) { c.zakresWyslane--; zapisz(etyk(c) + 'nie udało się zapisać na ' + temat);
+        /*  [Sol INTEGRACJA-2a-P3] wyjątek z subscribe() = SUBSCRIBE w ogóle nie wyszło: filtr historii nie może zostać
+            w `czeka` (apka mówiłaby „broker jeszcze nie potwierdził” bez końca) - dostaje `lacze`, czyli zdanie o łączu */
+        if (/\/historia$/.test(temat) && biezaca()) histUstaw(c, kl, nr, temat, 'lacze'); }
     };
     /*  JEDNO ZDANIE ZAMIAST LITANII [D-484, B.0z-38, zmierzone na PC Tomasza 19.09]. Konto KLIENCKIE
         z zaznaczonym ptaszkiem „serwisowe" zapisuje się wzorcami `obiekt/+/…` i `basen/+/+/…`, broker
@@ -2371,15 +2858,39 @@
             widzi jeden obiekt - jedna linia w dzienniku, żeby „zniknęły mi sterowniki" miało wyjaśnienie.
         Ocena po 3 s od kompletu zapisów: SUBACK-i wracają szybko, a broker, który milczy, i tak
         nie da żadnej odpowiedzi do oceny. */
+    /*  [Sol S19] 3 s to termin ZDANIA „zapisy jeszcze trwają”, nie domknięcie oceny: niepełną partię oceniamy po
+        komplecie wyników (nakładka MQTT 5 kończy każdy zapis najpóźniej po 10 s) albo po ZAKRES_OSTATNI_MS - brak
+        odpowiedzi to wtedy osobna klasa, nie odmowa konta. */
+    const ZAKRES_OSTATNI_MS = 12000;
     const ocenZakres = c => {
+      const wysl = c.zakresWyslane || 0, kon = c.zakresKoniec || 0;
+      if (kon < wysl && !c.zakresPozno) {
+        c.zakresCzeka = true;
+        if (!c.zakresTrwaZapisane) { c.zakresTrwaZapisane = true; zapisz(etyk(c) + 'zapisy na tematy jeszcze trwają (' + kon + ' z ' + wysl + ' potwierdzone) - ocenię po komplecie'); }
+        const nr = c.zakresPartia;
+        setTimeout(() => { if (c.zakresPartia === nr && c.zakresCzeka) { c.zakresCzeka = false; c.zakresPozno = true; ocenZakres(c); } }, ZAKRES_OSTATNI_MS - 3000);
+        return;
+      }
       const ok = c.zakresOk || 0, odm = c.zakresOdmowy || 0, tematy = c.zakresOdmowyTematy || [];
-      c.zakresOk = 0; c.zakresOdmowy = 0; c.zakresOdmowyTematy = [];
+      const inne = c.zakresInne || [], brak = Math.max(0, wysl - kon), drogiOgr = c.zakresDrogi || {};
+      c.zakresOk = 0; c.zakresOdmowy = 0; c.zakresOdmowyTematy = []; c.zakresInne = []; c.zakresDrogi = {};
+      c.zakresCzeka = false; c.zakresPozno = false; c.zakresTrwaZapisane = false;
+      /* [Sol S19] ograniczenie JEDNEJ drogi przy sukcesie: jedna linia na drogę, nie litania tematów */
+      for (const n in drogiOgr) zapisz(etyk(c) + (DROGA_TXT[n] || n) + ': ' + drogiOgr[n] + ' temat(y) bez dostępu na tej drodze - druga je przyjęła, dane idą nią');
+      /* [Sol S19] zapisy niepotwierdzone z powodu łącza / brokera / limitu - zgrupowane po klasie, to NIE zakres konta */
+      if (inne.length || brak) {
+        const gr = {};
+        inne.forEach(x => { const k = x.klasa === 'mieszany' ? 'mieszany (' + drogiTxt(x.drogi) + ')' : (KLASA_TXT[x.klasa] || x.klasa); gr[k] = (gr[k] || 0) + 1; });
+        if (brak) gr['brak odpowiedzi w ' + Math.round(ZAKRES_OSTATNI_MS / 1000) + ' s'] = brak;
+        zapisz(etyk(c) + 'zapisy niepotwierdzone (to nie zakres konta): ' + Object.keys(gr).map(k => k + ' - ' + gr[k]).join('; '));
+      }
       if (!odm) {
         if (!serwisowe && String(c.user || '').indexOf('-') < 0 && ok)
           zapisz(etyk(c) + 'konto „' + c.user + '" wygląda na serwisowe, a ptaszek „serwisowe" jest odznaczony - apka widzi tylko jeden obiekt; zaznacz go przy logowaniu, jeśli ma widzieć wszystkie');
         return;
       }
-      if (ok) { tematy.forEach(t => zapisz(etyk(c) + 'bez dostępu do ' + t + ' - to konto ogląda inną postać nazw')); return; }
+      /* [Sol S19] część przyjęta ALBO część z innego powodu (łącze, limit, brak odpowiedzi) = nie „odrzucił wszystkie” */
+      if (ok || inne.length || brak) { tematy.forEach(t => zapisz(etyk(c) + 'bez dostępu do ' + t + ' - to konto ogląda inną postać nazw')); return; }
       const kliencki = String(c.user || '').indexOf('-') > 0;
       const zdanie = serwisowe && kliencki
         ? 'to konto („' + c.user + '") jest klienckie - odznacz „serwisowe" przy logowaniu i zaloguj się ponownie'
@@ -2408,6 +2919,11 @@
       const moj = () => kl === c.kl;
       c.zerwaneOd = 0; c.byloWTle = false; c.byloZerwane = false; c.odstepNr = 0; c.ponowZegar = null; c.ostProba = 0;
       c.dzialaloOd = 0;   /* [D-407] kiedy to połączenie NAPRAWDĘ stanęło - stąd wiadomo, czy zerować odstęp */
+      /*  [B.0z-78, D-530] MARIAŻ QUIC + TLS: zgubienie i powrót JEDNEJ drogi nie są błędem połączenia (apka nadal
+          dostaje dane drugą) - nakładka mówi o nich tylko tutaj, w dzienniku łącza (widzi go serwis, D-366).
+          Pierwsza linia „mariaż: QUIC + TLS naraz” przy każdym łączeniu = dowód, że kod żyje. Paho (apka klienta)
+          tego wywołania nie ma - linia milczy. */
+      c.kl.onDroga = t => { if (moj()) zapisz(etyk(c) + t); };
       const ponowPozniej = powod => {
         /* [D-345] tablica zalezy od tego, czy ktos patrzy - patrz uzasadnienie przy ODSTEPY_PATRZY */
         const widac = (typeof document === 'undefined') || document.visibilityState !== 'hidden';
@@ -2476,10 +2992,9 @@
       /*  PO KAŻDYM POŁĄCZENIU: `onSuccess` (subskrypcje - cleanSession je kasuje przy zerwaniu) leci przy KAŻDYM
           CONNACK, a `onConnected` podpisuje pasek. Czy to POWRÓT po zerwaniu, wiemy z własnej flagi `byloZerwane`
           - Paho przy `reconnect:false` zawsze podaje „pierwsze połączenie" [D-310]. */
-      c.kl.onConnected = (r, uri) => {
+      c.kl.onConnected = () => {
         if (!moj()) { zapisz(etyk(c) + 'połączył się WYCOFANY klient - rozłączam go, nowy ma pierwszeństwo'); try { kl.disconnect(); } catch (e) {} return; }   /* [D-483] */
-        /* [audyt WT/QUIC 02.10] KTÓRĄ DROGĄ: adapter v5 podaje `webtransport:` albo `wss:` (Paho 3.1.1 - zawsze wss) */
-        const drTxt = /^webtransport:/.test(String(c.kl.droga || uri || '')) ? ' [QUIC/WebTransport]' : ' [TLS/wss]';
+        const drTxt = M.drogaOpis ? ' [' + M.drogaOpis(c.kl) + ']' + M.diagWT() : '';   /* [audyt WT/QUIC 02.10] którą drogą / które drogi żyją */
         const ponownie = c.byloZerwane;
         const przerwa = (ponownie && c.zerwaneOd) ? ' (przerwa ' + Math.round((Date.now() - c.zerwaneOd) / 1000) + ' s' + (c.byloWTle ? ', telefon był w tle' : '') + ')' : '';
         c.zerwaneOd = 0; c.byloWTle = false; c.byloZerwane = false; c.odstepNr = 0; c.nieudane = 0;
@@ -2491,26 +3006,33 @@
             zgubilem dzis wyjatek `m is not defined`, ktory zrywal polaczenie co sekunde.
             ⚠ Nie czesciej niz raz na minute: pelny dziennik to 2-3 kB, a apka ze zrywajacym sie
               laczem zalalaby brokera wlasnie wtedy, gdy lacze ledwo dycha. */
+        c.nrPol = (c.nrPol || 0) + 1;    /* [Astra zad. 20] numer połączenia tego serwera w tej sesji (generacja drogi) */
         setTimeout(() => { try {
           if (!M.wyslijDziennik) return;
           const teraz = Date.now();
           const pelny = ponownie && (!M._pelnyLog || teraz - M._pelnyLog > 60000);
-          if (pelny) M._pelnyLog = teraz;
-          M.wyslijDziennik(pelny);
+          if (pelny) { M._pelnyLog = teraz; M.meldunekKrotki(true); return; }
+          M.meldunekKrotki(false);
         } catch (e) {} }, 4000);
         c.ostOdbior = Date.now();        /* [D-355] swiezo polaczony - strażnik ciszy liczy od teraz */
         if (c.ponowZegar) { clearTimeout(c.ponowZegar); c.ponowZegar = null; }
         c.stan = { stan: 'ok', opis: ponownie ? 'połączony ponownie' + przerwa : 'połączony' };
-        zapisz(etyk(c) + (ponownie ? 'połączony ponownie' + przerwa : 'połączony') + drTxt + (M.diagWT ? M.diagWT() : ''));
+        zapisz(etyk(c) + (ponownie ? 'połączony ponownie' + przerwa : 'połączony') + drTxt);
         if (ponownie && wybrany && klDla(wybrany) === c) { _pelnyOst = 0; prosPelny('powrót łącza'); }   /* w czasie przerwy paczki zmian przepadły, retained blok bywa 60 s stary [D-278] */
         oddaj();
       };
       c.opcje = { useSSL: true, userName: c.user, password: c.pass, timeout: 10, keepAliveInterval: 30, cleanSession: true, reconnect: false,
         onSuccess: () => { if (!moj()) return;   /* [D-483] */
                            c.lekki = false; c.bliz = 0;
+                           for (const k in rpcCap) delete rpcCap[k];   /* [Sol S20] nowa sesja - możliwość rid potwierdzamy od nowa */
                            c.zakresOk = 0; c.zakresOdmowy = 0; c.zakresOdmowyTematy = [];
+                           c.zakresInne = []; c.zakresDrogi = {}; c.zakresWyslane = 0; c.zakresKoniec = 0;   /* [Sol S19] */
+                           c.zakresCzeka = false; c.zakresPozno = false; c.zakresTrwaZapisane = false;
+                           /* [Sol S17] numer partii zapisów: zegar oceny i wyniki SUBACK należą do TEJ partii - zegar
+                              z poprzedniego połączenia (zerwanie i powrót w 3 s) nie ocenia nowej, niepełnej partii */
+                           const partia = c.zakresPartia = (c.zakresPartia || 0) + 1;
                            (c.tematy || [c.temat]).forEach(z => TEMATY.forEach(tm => _zapisz_sie(c, z + '/' + tm[0], tm[1])));
-                           setTimeout(() => { if (moj()) ocenZakres(c); }, 3000);   /* [D-484] jedno zdanie o zakresie konta */
+                           setTimeout(() => { if (moj() && c.zakresPartia === partia) ocenZakres(c); }, 3000);   /* [D-484] jedno zdanie o zakresie konta */
                            if (wybrany) oglos(tempo); },
         onFailure: r => {
           if (!moj()) return;   /* [D-483] nieudana próba WYCOFANEGO klienta nie planuje ponowień ani nie zmienia stanu */
@@ -2578,12 +3100,13 @@
       if (c.ponowZegar) { clearTimeout(c.ponowZegar); c.ponowZegar = null; }
       c.kl = nowyKl; c.gniazdo = null; c.nieudane = 0;
       try { if (gniazdo && gniazdo.close) gniazdo.close(); } catch (e) {}
-      /*  [audyt WT/QUIC 02.10] TAKŻE PRÓBA W TOKU: stary klient adaptera v5 (apka3) mógł być w środku próby
-          (WebTransport albo wss) - dotąd zostawała żywa: dochodziła do końca własnym zapasem wss, otwierała
-          połączenie pod starym identyfikatorem (potem „WYCOFANY klient - rozłączam”), a jej WebTransport zostawał
-          w kolejce przeglądarki. `disconnect()` adaptera w trakcie próby ją wycofuje (bez wywołań zwrotnych);
-          Paho 3.1.1 (apka/apka2) nie ma `_proba` - zachowanie bez zmian. */
-      try { if (stary && (stary.isConnected() || stary._proba)) stary.disconnect(); } catch (e) {}
+      /*  [audyt WT/QUIC 02.10, K6; z quic/audyt-wt d1b43d87] TAKŻE PRÓBA W TOKU: stary klient nakładki v5 (apka3) mógł być
+          w środku próby - jednej drogi (`_proba`: WebTransport albo wss) albo mariażu (`_m`: dwie drogi, nic jeszcze nie
+          połączone). Dotąd zostawała żywa: dochodziła do końca, otwierała połączenie pod starym identyfikatorem (potem
+          „WYCOFANY klient - rozłączam”), a jej uzgodnienie WebTransport zostawało w kolejce przeglądarki. `disconnect()`
+          nakładki w trakcie próby ją wycofuje (bez wywołań zwrotnych; porzucone uzgodnienie WT = porażka QUIC). Paho 3.1.1
+          (apka/apka2) nie ma `_proba` ani `_m` - zachowanie bez zmian. */
+      try { if (stary && (stary.isConnected() || stary._proba || stary._m)) stary.disconnect(); } catch (e) {}
       zrobDriver(c);
       podepnijOdbior(c);        /* [D-359] bez tego nowy klient jest „polaczony", ale gluchy */
       c.odstepNr = 0;
@@ -2612,26 +3135,99 @@
           temat diagnostyczny w drugi strumień stanu, którego nikt nie czyta.
         ⚠ Wysyłamy na temat WYBRANEGO obiegu: konto klienta ma prawo pisać tylko u siebie, więc
           diagnostyka jednego klienta nie trafi nigdy w cudze poddrzewo. */
-    /*  [audyt WT/QUIC 02.10, docs/36 §11] LICZNIKI PRÓB WebTransport w dzienniku łącza i w meldunku do serwisu — z telefonu
-        w słabym zasięgu widać wprost: ile prób WT powstało, ile padło od ręki, ile porzucono, ile razy zastój PUBACK,
-        ile startów wss. Kanał T3 (adapter v5) ma dziennik zdarzeń prób włączony domyślnie (pierścień 400 wpisów w RAM,
-        bez treści i PIN-ów); apka/apka2 (Paho 3.1.1) nie mają adaptera - pusty napis. */
+    /*  [audyt WT/QUIC 02.10, docs/36 §11; z quic/audyt-wt b758b1b6] DROGA I LICZNIKI PRÓB WebTransport w dzienniku łącza
+        i w meldunku do serwisu - z telefonu w słabym zasięgu widać wprost: ile prób WT powstało, ile padło od ręki, ile
+        porzucono, ile razy zastój PUBACK, ile startów wss, ile wybaczeń po zmianie sieci i ile wstrzymanych prób
+        (pamięć porażki / dzierżawa innej karty). W mariażu: KTÓRE DROGI ŻYJĄ (TLS / QUIC) i czemu QUIC stoi. Kanał T3
+        (nakładka v5) ma dziennik zdarzeń prób włączony domyślnie (pierścień 400 wpisów w RAM, bez treści i PIN-ów);
+        apka/apka2 (Paho 3.1.1) nakładki nie mają - pusty napis i „droga TLS/wss”. */
     if (window.Paho && window.Paho.MQTT_WERSJA === 5 && window.APKA_DIAG_WT === undefined) window.APKA_DIAG_WT = true;
     M.diagWT = () => {
       try {
         if (!window.Paho || !window.Paho._diagWT) return '';
         const L = window.Paho._diagWT().liczniki;
         return ' | WT: utw ' + L.wt_utworzone + ', ready ' + L.wt_ready + ', odrz ' + L.wt_odrzucone + ', porz ' + L.wt_porzucone
-             + ', zastoj ' + L.puback_zastoj + ' | wss ' + L.wss_starty + ' | wybacz ' + L.wybaczenia + '/' + L.wybaczenia_wstrzymane;
+             + ', zastoj ' + L.puback_zastoj + ', wstrz ' + (L.proby_wstrzymane || 0) + ' | wss ' + L.wss_starty
+             + ' | wybacz ' + L.wybaczenia + '/' + L.wybaczenia_wstrzymane;
       } catch (e) { return ''; }
     };
-    M.wyslijDziennik = pelny => {
+    const DROGA_SLOWO = { ok: 'niesie', laczy: 'łączy', stop: 'leży' };
+    M.drogaOpis = kl => {
+      try {
+        const d = kl && typeof kl.stanDrog === 'function' ? kl.stanDrog() : null;
+        if (d && d.mariaz) {
+          const wq = d.szczegoly && d.szczegoly.quic && d.szczegoly.quic.wstrzymany;
+          return 'drogi: TLS ' + (DROGA_SLOWO[d.tls] || d.tls) + ', QUIC ' + (DROGA_SLOWO[d.quic] || d.quic) + (wq ? ' (' + wq + ')' : '');
+        }
+        return /^webtransport:/.test(String((kl && kl.droga) || '')) ? 'droga QUIC/WebTransport' : 'droga TLS/wss';
+      } catch (e) { return ''; }
+    };
+    /*  [Astra zad. 20, DLA_OPUSA_PWA_TLS_QUIC.md; 03.10.2026] MELDUNKI DIAGNOSTYCZNE Z LIMITEM. Dawniej KAŻDE udane
+        połączenie dawało po 4 s linię na `<obiekt>/apka` - przy migającym serwerze zapasowym do 119 meldunków/min
+        (próba 02.10), czyli zalew brokera dokładnie wtedy, gdy łącze ledwo dycha. Teraz: krótki meldunek najwyżej raz
+        na MELDUNEK_KROTKI_MS; połączenia w tym oknie są LICZONE i wychodzą jednym podsumowaniem („+N połączeń w serii”)
+        po końcu okna - seria nie ginie, tylko nie zalewa. Pełny dziennik po zerwaniu jak dotąd najwyżej raz na minutę
+        (liczy się też jako krótki). Alarmów sterownika to NIE dotyczy (inny temat, inny nadawca).
+        Pseudonim sesji (losowy na wczytanie strony) i numer połączenia serwera: dwa telefony na jednym koncie da się
+        odróżnić bez haseł, PIN-ów i treści komend (hipoteza migania 02.10: dwie apki na jednym koncie).
+        KONTRAKT TEMATU `<obiekt>/apka` - OPÓŹNIENIE I CZAS ZDARZENIA [Sol A0.12, 04.10; pełny opis: DIAGNOSTYKA.md]:
+        to DIAGNOSTYKA HISTORII, nie natychmiastowe zgłoszenie awarii. Zerwanie łącza apka zapisuje u siebie, a wysyła
+        dopiero PO POWROCIE (w przerwie nie ma czym): najwcześniej ~4 s po ponownym połączeniu; „+N połączeń w serii”
+        do 10 s po ostatnim meldunku; po nieudanej wysyłce liczba czeka na następne połączenie. Chwila odbioru na
+        brokerze NIE jest chwilą zdarzenia: czas zdarzeń niosą tylko linie pełnego dziennika (zegar telefonu, HH:MM:SS,
+        „połączony ponownie (przerwa N s)”); krótki meldunek niesie liczbę połączeń, bez czasu. */
+    const MELDUNEK_KROTKI_MS = 10000;
+    const SESJA_PSEUDONIM = Math.random().toString(36).slice(2, 8);
+    /*  [Sol A0.12-Z1, A0.12a; 04.10.2026] LICZNIK = PRAWDZIWE POŁĄCZENIA BEZ WŁASNEGO MELDUNKU. Rejestracja połączenia
+        (`meldunekKrotki` - woła je TYLKO onConnected, raz na połączenie) jest oddzielona od opróżniania licznika przez
+        zegar końca okna (`_meldunekKoniecOkna` - niczego NIE nalicza). Dawniej zegar wołał meldunekKrotki(false): gdy
+        pełny meldunek przesunął okno, stary termin trafiał w NOWE okno i zegar liczył SAM SIEBIE jako połączenie
+        (próba Sol: wysyłki [1 s, 0] [3 s pełny, 1] [13 s, 2] - ostatnia liczba powinna być 1).
+        Teraz: udana wysyłka zabiera dokładnie liczbę, którą podała, i unieważnia stary termin; nowy termin liczy się
+        od BIEŻĄCEGO okna; nieudana wysyłka (także wyjątek) zostawia liczbę RAZEM z połączeniem, które ją wywołało
+        (dawniej to jedno ginęło, a okno przesuwało się mimo braku meldunku). Nieudane podsumowanie czeka na następne
+        połączenie - bez ponawiania w kółko. */
+    M._pominiete = 0; M._krotkiLog = 0; M._zbiorczyZegar = null;
+    const _meldunekTermin = () => {
+      if (M._zbiorczyZegar) clearTimeout(M._zbiorczyZegar);
+      M._zbiorczyZegar = setTimeout(M._meldunekKoniecOkna, Math.max(0, M._krotkiLog + MELDUNEK_KROTKI_MS - Date.now()));
+    };
+    const _meldunekWyslij = (pelny, ile, teraz) => {
+      let ok = false;
+      try { ok = !!M.wyslijDziennik(pelny, ile); } catch (e) { ok = false; }
+      if (ok) {
+        M._pominiete -= ile; M._krotkiLog = teraz;
+        if (M._zbiorczyZegar) { clearTimeout(M._zbiorczyZegar); M._zbiorczyZegar = null; }   /* stary termin nieważny */
+      }
+      return ok;
+    };
+    M._meldunekKoniecOkna = () => {                                 /* koniec okna: podsumowanie serii, BEZ naliczania */
+      M._zbiorczyZegar = null;
+      if (!M._pominiete) return;
+      const teraz = Date.now();
+      if (M._krotkiLog && teraz - M._krotkiLog < MELDUNEK_KROTKI_MS) { _meldunekTermin(); return; }   /* okno przesunięte */
+      _meldunekWyslij(false, M._pominiete, teraz);
+    };
+    M.meldunekKrotki = pelny => {                                   /* JEDNO prawdziwe połączenie */
+      const teraz = Date.now();
+      if (!pelny && M._krotkiLog && teraz - M._krotkiLog < MELDUNEK_KROTKI_MS) {
+        M._pominiete++;
+        if (!M._zbiorczyZegar) _meldunekTermin();
+        return false;
+      }
+      const ok = _meldunekWyslij(pelny, M._pominiete, teraz);
+      if (!ok) M._pominiete++;                                      /* to połączenie też czeka na meldunek */
+      return ok;
+    };
+    M.wyslijDziennik = (pelny, pominiete) => {
       const c = klDla(wybrany);
       if (!wybrany || !c || !c.kl || !c.kl.isConnected()) return false;
       const gl = 'apka ' + (window.APKA_WERSJA || '?')
+               + ' | sesja ' + SESJA_PSEUDONIM + ' pol. ' + (c.nrPol || 0)
                + ' | serwery: ' + POL.map(x => (x.nr || 1) + ':' + ((x.stan && x.stan.stan) || '?')).join(' ')
                + ' | obiekt ' + wybrany
-               + ' | droga ' + (/^webtransport:/.test(String(c.kl.droga || '')) ? 'QUIC' : 'TLS') + M.diagWT();
+               + ' | ' + M.drogaOpis(c.kl) + M.diagWT()
+               + (pominiete ? ' | +' + pominiete + ' połączeń w serii (meldunki pominięte, limit ' + (MELDUNEK_KROTKI_MS / 1000) + ' s)' : '');
       /*  ⚠ Znak nowej linii składamy z kodu, nie z literału [D-408a]: zapis `'\n'` w napisie
           padł ofiarą narzędzia, którym wstawiałem tę łatkę — ukośnik zniknął, w pliku został
           PRAWDZIWY przełam wiersza w środku napisu i CAŁY skrypt przestał się wykonywać.
@@ -2640,7 +3236,7 @@
           odporny na taką pomyłkę i tak samo robi to reszta tego pliku. */
       const NL = String.fromCharCode(10);
       const dwa = n2 => (n2 < 10 ? '0' : '') + n2;
-      /* [audyt WT 02.10] przy PEŁNYM: ostatnie zdarzenia prób adaptera (czas ścienny do zestawienia z dziennikiem bramki) */
+      /* [audyt WT 02.10] przy PEŁNYM: ostatnie zdarzenia prób nakładki (czas ścienny do zestawienia z dziennikiem bramki) */
       let zdWT = '';
       try {
         if (pelny && window.Paho && window.Paho._diagWT) {
@@ -2654,7 +3250,7 @@
         ? gl + NL + M.dziennik.map(w => {
             const d = new Date(w.t);
             return dwa(d.getHours()) + ':' + dwa(d.getMinutes()) + ':' + dwa(d.getSeconds()) + ' ' + w.txt;
-          }).join(NL) + (zdWT ? NL + '--- proby adaptera ---' + NL + zdWT : '')
+          }).join(NL) + (zdWT ? NL + '--- proby nakladki ---' + NL + zdWT : '')
         : gl;
       try {
         const m = new Paho.Message(tresc); m.destinationName = wybrany + '/apka'; m.qos = 0;
@@ -2694,7 +3290,12 @@
         ⚠ BRAMKI NA SKLADNIE SA PO NASZEJ STRONIE, BO STEROWNIK ICH NIE MA. Rozbiera rozkaz
           `strchr(':')` i `strstr(";pin=")`, wiec dwukropek w hasle rozjechalby pola, a srednik
           uciąłby PIN — i to bez zadnego bledu, po prostu zapisalaby sie bzdura. Zamiast tego
-          mowimy wprost, czego nie wolno (zasada 10). Limit dlugosci z `char buf[240]` w firmware.
+          mowimy wprost, czego nie wolno (zasada 10).
+          LIMIT DLUGOSCI [sceptyk C, D7 - 02.10.2026]: firmware do sol/c-firmware rozbieral rozkaz w `char buf[240]`
+          (najwyzej 239 B, dluzszy ucinany PO CICHU), po poprawce Sola S20 bufor = SIEC_ODB_TRESC, czyli tyle, ile
+          przyjmuje poczekalnia (247 B; dluzszy odrzucony juz przy odbiorze). Apka tnie WCZESNIEJ: 200 BAJTOW UTF-8
+          (nie znakow - polska litera to 2 B, a firmware liczy bajty) - miesci sie w obu firmware'ach z zapasem,
+          a najdluzszy prawdziwy rozkaz (zapas: adres 64 + konto 32 + haslo 32 + port + PIN) ma ok. 155 B ASCII.
 
         ⛔ HASLO REZERWY TO HASLO STEROWNIKA DO CUDZEGO BROKERA, nie haslo klienta. Idzie tresci
           rozkazu, wiec wylacznie po szyfrowanym polaczeniu (apka z Pages laczy sie po wss) i
@@ -2704,7 +3305,8 @@
       if (!wybrany) { res('nie wybrano sterownika'); return; }
       const kk = klGot(wybrany);
       if (!kk) { res('brak połączenia z brokerem'); return; }
-      if (tresc.length > 200) { res('rozkaz za długi (' + tresc.length + ' znaków, mieści się 200)'); return; }
+      const bajty = new TextEncoder().encode(tresc).length;   /* [D7] firmware liczy bajty, nie znaki */
+      if (bajty > 200) { res('rozkaz za długi (' + bajty + ' bajtów, mieści się 200)'); return; }
       let oddane = false, zegarek = null;
       const oddaj1 = t => { if (oddane) return; oddane = true;
                             if (zegarek) clearTimeout(zegarek);
@@ -2756,9 +3358,10 @@
         const nr = parseInt(port, 10);
         /*  ⚠ DLUGOSCI Z FIRMWARE, NIE Z OKA [D-412]: sterownik trzyma adres w 64 znakach, konto
             i haslo w 32 (SIEC_TXT_DLUGI / SIEC_TXT_KROTKI), a caly rozkaz kopiuje do bufora 240
-            znakow i TNIE BEZ SLOWA. Urwalby sie wtedy ogon z `;pin=`, a sterownik odpowiedzialby
-            „zmiana rezerwy wymaga PIN" - przy PIN-ie, ktory przeciez zostal podany. Wolimy odmowic
-            tutaj i nazwac prawdziwy powod. */
+            znakow i TNIE BEZ SLOWA (stary firmware; po S20 bufor = SIEC_ODB_TRESC - patrz LIMIT DLUGOSCI wyzej
+            przy rezRozkaz; dlugosci pol nizej sa w znakach, a firmware liczy bajty - pola ASCII). Urwalby sie
+            wtedy ogon z `;pin=`, a sterownik odpowiedzialby „zmiana rezerwy wymaga PIN" - przy PIN-ie, ktory
+            przeciez zostal podany. Wolimy odmowic tutaj i nazwac prawdziwy powod. */
         if (!h) return Promise.resolve('podaj adres brokera rezerwowego');
         if (REZ_ZLE_ZNAKI.test(h)) return Promise.resolve('adres bez dwukropka, średnika i spacji - port wpisz w osobnym polu');
         if (h.length > 64) return Promise.resolve('adres dłuższy niż 64 znaki - sterownik tyle nie zapamięta');
@@ -2791,10 +3394,14 @@
         else if (r.kod === 3) res('zle');
         else res(op || 'sterownik nie przyjął PIN-u');
       };
-      oczekuja.set(id, { res: mój, t0: Date.now(), co: 'PIN', pref: wybrany }); czekaWynik = mój; czekaWynikPref = wybrany;   /* [PWA-7] */
+      /* [zadanie 13] połączenie sprawdzone PRZED wpisem oczekiwania (dawniej wpis zostawał przy braku klienta), wpis + termin
+         PRZED wysyłką, jeden koniec; wyniki zastępcze niosą gotowe zdanie (`pin`) */
       const kk = klGot(wybrany); if (!kk) { res('brak połączenia z brokerem'); return; }
-      kk.send(msg);
-      setTimeout(() => { if (oczekuja.has(id)) { oczekuja.delete(id); if (czekaWynik === mój) czekaWynik = null; res('sterownik nie odpowiedział w 5 s'); } }, 5000);
+      const op = operacjaKomendy(id, 'PIN', wybrany, r => { if (r && r.pin) res(r.pin); else mój(r); }, 5000, {
+        termin: { pin: 'sterownik nie odpowiedział w 5 s' },
+        nieWyslano: { pin: 'nie wysłano - brak połączenia z brokerem' },
+        bladWysylki: { pin: 'nie wiadomo, czy sprawdzenie PIN-u doszło (błąd przy wysyłce) - spróbuj ponownie za chwilę' } });
+      op.wyslij(kk, msg);
     });
     /*  ⚠ Bez retained `blok` obiekt „nie istnieje" dla apki, dopóki sam nie nada —
         a nadaje dopiero po `zadanie`. Zamknięte koło rozcina parametr ?obiekt=

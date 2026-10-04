@@ -166,7 +166,7 @@
    ============================================================================================ */
 (function () {
   'use strict';
-  const POMIAR_WERSJA = '2026-10-02a';   /* + liczniki prób WebTransport w wyniku (audyt WT/QUIC) */
+  const POMIAR_WERSJA = '2026-09-30c';
   const LOGIKA_OCZEKIWANA = '2026-09-30c';   /* pomiar_logika.js z tej samej wersji — inna = stara kopia w telefonie */
   const L = window.PomiarLogika;
 
@@ -681,10 +681,6 @@
     r.dziala = false; clearTimeout(r.zegar); r.zegar = null;
     L.TRANSPORTY.forEach(tr => { S.oczek[tr].forEach(p => { p.stan = 'przerwany'; zapiszProbke(p); }); S.oczek[tr].clear(); rozlacz(tr); });
     zdarz('*', 'stop', 'STOP');
-    /* [audyt WT/QUIC 02.10, docs/36 §11] ILE PRÓB WebTransport NAPRAWDĘ POWSTAŁO: ta strona ponawia QUIC co RECONNECT_MS
-       (1 s, bez zapasu wss) - przeglądarka trzyma każdą nieudaną próbę 5 min jako „oczekującą” i wykładniczo opóźnia
-       następne (64 = odmowa od ręki, bez UDP). Liczniki adaptera idą do wyniku, żeby seria pokazała tę burzę wprost. */
-    try { if (window.Paho && window.Paho._diagWT) S.sesja.diag_wt = window.Paho._diagWT().liczniki; } catch (e) {}
     S.sesja.koniec_t = Date.now(); zapiszSesje();
     gpsStop(); wakeOddaj();
     $('b_start').disabled = false; $('b_stop').disabled = true;
