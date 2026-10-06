@@ -1162,7 +1162,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '21bdc68ffa';
+window.APKA_WERSJA = '6bea3887be';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1661,7 +1661,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-04 11:28';
+window.HMI_ZBUDOWANO = '2026-10-06 14:26';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -10657,6 +10657,13 @@ const ZD_FAZA = ['spoczynek', 'dopełnienie', 'filtracja wstępna', 'płukanie',
 /* powód zaworu trybu cichego na zbiorniku (CichyPowod, 06b_tryb_cichy.h [4]) - numery idą w rejestrze i w dzienniku */
 const ZD_CICHY_POWOD = ['', 'pompa stoi', 'nadmiar w zbiorniku', 'płukanie', 'brak pomiaru poziomu', 'test wyjść'];
 const ZD_START_POWOD = ['powód nieznany', 'włączenie zasilania', 'przycisk RESET', 'restart z firmware', 'wyjątek procesora', 'pies łańcuchowy przerwań', 'pies łańcuchowy zadania', 'pies łańcuchowy RTC', 'wybudzenie', 'zanik napięcia (brownout)', 'restart po SDIO', 'reset przez USB (wgranie firmware)', 'reset przez JTAG', 'błąd eFuse', 'zakłócenie zasilania', 'procesor się zawiesił'];   /* = DIAG_* z 01h_diag_start.h [D-302] */   /* = DIAG_* z 01h_diag_start.h */
+/*  [B.0z-83, docs/52 S16] NAZWY KROKÓW PĘTLI STEROWNIKA - 1:1 z 01k_okruszek.h OKR_NAZWY (ta sama lista w panelach srv_dziennik.c
+    i makiecie). ZD 23/27 niosą sam numer kroku; numery się NIE przesuwają (nowe kroki tylko na końcu, usunięte zostają),
+    więc nieznany numer = „nr N", a nie zła nazwa. */
+const ZD_KROKI = ['setup', 'poczatek', 'konsola_sim', 'jitter', 'web_komendy', 'web_meldunek', 'siec', 'siec_ota', 'siec_zapas', 'siec_dziennik', 'siec_konsola', 'siec_meldunek', 'zegar', 'proba_startu', 'wejscia', 'poziomy', 'cisnienie', 'bezpieczenstwo', 'diag', 'bateria_zegara', 'harm_plukania', 'pompa', 'czas_pomp', 'temperatura', 'uv', 'plukanie', 'dolewanie', 'pilot', 'akcesoria', 'panel_uart', 'serwis_wyjsc', 'zapis_wyjsc', 'dziennik_automat', 'zmiana_dnia', 'modbus_slave', 'akc_od_reki', 'ota_panelu', 'modbus_master', 'most_usb', 'nvs', 'dmx', 'siec_zmiany', 'karta', 'status_uart', 'log_uart', 'podglad', 'oled', 'koniec', 'tryb_cichy', 'historia'];
+const zdKrok = k => (k < ZD_KROKI.length ? `${ZD_KROKI[k]} (nr ${k})` : `nr ${k}`);
+/* ZrzutKod (01h_diag_start.h) - ZD 30: zrzut po awarii NIECZYTELNY = awaria diagnostyki, nie brak awarii */
+const ZD_ZRZUT_KOD = ['brak zrzutu', 'zrzut czytelny', 'brak partycji', 'zły rozmiar - zapis urwany na początku', 'zła suma kontrolna - zapis urwany w treści', 'błąd odczytu partycji', 'zrzut jest, podsumowania nie ma'];
 function zdTekst(w) {
   const [czas, kat, kod, zr, ob, a, b, c] = w;
   const _ob = obiegEtykieta(ob), obieg = _ob ? ' ' + _ob : '';   /* „ wanna 1” albo pusto przy jednym obiegu [2026-09-26] */
@@ -10704,11 +10711,13 @@ function zdTekst(w) {
                return `nastawa ${nazwa || 'rejestr ' + a}: ${c === 0xFFFF ? '' : s16(c) + ' → '}${s16(b)}`; }
     case 21: return `sieć: ZASTOSUJ ${b ? 'przyjęte' : 'odrzucone'}`;
     case 22: return `zmieniono nazwę kanału: ${kan(a)}`;   /* [D-493] */
-    case 23: return `AWARIA sterownika · ${ZD_START_POWOD[c] || 'powód ' + c} · życie nr ${b} · krok pętli ${a === 0xFFFF ? 'nieznany' : 'nr ' + a}`;
+    case 23: return `AWARIA sterownika · ${ZD_START_POWOD[c] || 'powód ' + c} · życie nr ${b} · krok pętli ${a === 0xFFFF ? 'nieznany' : zdKrok(a)}`;
     case 24: return `aktualizacja WYCOFANA — obraz ${a ? 'z ' + String(a & 31).padStart(2, '0') + '.' + String((a >> 5) & 15).padStart(2, '0') + '.' + (2000 + (a >> 9)) : 'bez daty'} nie przeszedł próby, wrócił poprzedni`;
     case 25: return `panel: restart · ${a === 0xFFFF ? 'wykryty znacznikiem' : (ZD_START_POWOD[a] || 'powód ' + a)} · nr ${b}`;
     case 26: return `panel: ekran nie odpowiadał ${czasSl(a)}`;
-    case 27: return `pętla sterownika stała ${a} ms · krok nr ${b}`;
+    case 27: return `pętla sterownika stała ${a} ms · krok ${zdKrok(b)}`;
+    /*  [B.0z-83] zrzut po awarii NIECZYTELNY (zapis urwany / zła suma) - a = ZrzutKod; tekst 1:1 z panelami (srv_dziennik.c case 30) */
+    case 30: return `zrzut po awarii NIECZYTELNY · ${ZD_ZRZUT_KOD[a] || 'kod ' + a} · życie nr ${b} · ${ZD_START_POWOD[c] || 'powód ' + c}`;
     /*  TRYB CICHY [D-495, 2026-09-26] - 06b_tryb_cichy.h [6] e). a = 0 żądanie (b włączony/wyłączony,
         c = AkcPowod wyłączenia: 3 upłynął czas, 4 czas graniczny), a = 1 zawór sam (b dno/zbiornik,
         c = powód zaworu na zbiorniku). Tekst do akceptacji Tomasza - ten sam w panelu (srv_dziennik.c). */
