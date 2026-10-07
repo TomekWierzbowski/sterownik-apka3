@@ -166,15 +166,17 @@
    ============================================================================================ */
 (function () {
   'use strict';
-  const POMIAR_WERSJA = '2026-09-30c';
-  const LOGIKA_OCZEKIWANA = '2026-09-30c';   /* pomiar_logika.js z tej samej wersji — inna = stara kopia w telefonie */
+  const POMIAR_WERSJA = '2026-10-03';   /* + ponawianie QUIC jak T3, stan „potwierdzony” (D-537 pkt 2) */
+  const LOGIKA_OCZEKIWANA = '2026-10-03';   /* pomiar_logika.js z tej samej wersji — inna = stara kopia w telefonie */
   const L = window.PomiarLogika;
 
   /* ------------------------------------------------------------------------------------------
      [A] NASTAWY POŁĄCZENIA — JEDNE DLA OBU DRÓG (różni je tylko adres i sposób otwarcia gniazda)
      Wartości jak w apce (most_js.js: keepAliveInterval 30, timeout 10, cleanSession true; pierwszy odstęp
-     ponawiania przy widocznej apce 1 s). ⚠ Apka ponawia rosnąco (1, 2, 3, 5 s), tu MQTT.js ponawia co stały
-     odstęp — tak samo na obu drogach, więc porównanie jest uczciwe, ale czas powrotu jest czasem TEJ strony.
+     ponawiania przy widocznej apce 1 s). ⚠ Apka ponawia rosnąco (1, 2, 3, 5 s), tu po zerwaniu stały odstęp
+     RECONNECT_MS — tak samo na obu drogach, więc czas powrotu jest czasem TEJ strony.
+     ⛔ [D-537 pkt 2, 03.10] QUIC po NIEUDANEJ próbie czeka QUIC_PRZERWA_MS jak w T3 (do 02.10 ponawiał co 1 s, czym
+     wywoływał karę Chrome za nieudane WebTransport — docs/36 §11.3). Regułę liczy pomiar_logika.js [10b].
      ------------------------------------------------------------------------------------------ */
   const NASTAWY = {
     URL_TLS: 'wss://aquareact.duckdns.org:8889/mqtt',    /* broker v5, WebSocket po TLS */
@@ -182,6 +184,7 @@
     KEEPALIVE_S: 30,
     CONNECT_TIMEOUT_MS: 10000,
     RECONNECT_MS: 1000,
+    QUIC_PRZERWA_MS: 600000,   /* = QUIC_PRZERWA_MIN 10 w paho_na_mqttjs.js (T3): po porażce QUIC tyle bez QUIC */
     QOS: 1,
     TEMAT: 'pomiar',                                     /* konto „pomiar” ma prawo wyłącznie do pomiar/# */
     USER_DOMYSLNY: 'pomiar',
@@ -212,7 +215,7 @@
   const S = {
     inst: null, sesja: null, probki: [], zdarzenia: [],
     idx: { tls: new Map(), quic: new Map() }, oczek: { tls: new Map(), quic: new Map() },
-    kl: { tls: null, quic: null },
+    kl: { tls: null, quic: null }, wybaczonoM: null,   /* chwila ostatniego wybaczenia QUIC (performance.now) [D-537] */
     rytm: { dziala: false, startM: 0, ostK: -1, seq: 1, zegar: null },
     gps: null, gpsBlad: null, gpsWatch: null, wake: null, wakeStan: 'nie wzięta (po START)',
     db: null, dbBlad: null, lista: [], alarmyStale: [], ostatniBladZapisu: null,
@@ -401,16 +404,26 @@
        • 'connect' (CONNACK) → subskrypcja własnego tematu; GOTOWY dopiero po SUBACK < 0x80 (wcześniej echo
          nie ma szans wrócić — liczenie go jako zgubione obciążałoby transport, nie sieć);
        • pierwsze close/offline po gotowości = 'utrata' (początek przerwy); kolejne nieudane próby — tylko dziennik;
-       • odmowa CONNACK z kodem ostatecznym (zły login, brak roli) = transport stoi z komunikatem, bez ponawiania
-         (MQTT.js sam wstrzymuje ponawianie); inne kody (serwer zajęty/niedostępny) — ponawiamy po RECONNECT_MS;
-       • SUBACK ≥ 0x80 = konto bez prawa do pomiar/# — komunikat, bez echa.
-     WYJŚCIA:  S.kl[tr] = { k, stan, opis, gotowy, gen }.
+       • odmowa CONNACK z kodem ostatecznym (zły login, brak roli) = transport stoi z komunikatem, bez ponawiania;
+         inne kody (serwer zajęty/niedostępny) — ponawiamy według reguły niżej;
+       • SUBACK ≥ 0x80 = konto bez prawa do pomiar/# — komunikat, bez echa;
+       • [D-537 pkt 2] PONAWIANIE: MQTT.js sam nie ponawia (reconnectPeriod 0), odstęp daje L.odstepPonowienia:
+         TLS i QUIC po zerwaniu GOTOWEGO połączenia — RECONNECT_MS; QUIC po NIEUDANEJ próbie — QUIC_PRZERWA_MS
+         (zdarzenie 'wstrzymany'), wcześniej tylko przy zmianie rodzaju łącza ([G], wybaczenie jak T3);
+       • [D-537 pkt 2] przy utracie echa w drodze dostają `przy_utracie`; PUBACK takiej próbki (przed zerwaniem albo
+         z powtórki MQTT.js na nowym połączeniu) = 'potwierdzony' — broker ją ma, a echo nie mogło wrócić, bo MQTT.js
+         powtarza publikacje PRZED zdarzeniem 'connect', a subskrypcja idzie dopiero po nim (docs/36 §11.3 P2).
+     WYJŚCIA:  S.kl[tr] = { k, stan, opis, gotowy, gen, udana, tokPon, przerwaQ, ponowTeraz }.
      ------------------------------------------------------------------------------------------ */
   function polacz(tr, konto) {
-    /* niegotowyOdM / bylGotowy / ostBlad — do zdania „nie połączył się od …” (komunikaty, POMIAR.ALARM_BEZ_GOTOWOSCI_MS) */
+    /* niegotowyOdM / bylGotowy / ostBlad — do zdania „nie połączył się od …” (komunikaty, POMIAR.ALARM_BEZ_GOTOWOSCI_MS);
+       udana — próba od ostatniego 'reconnect' doszła do gotowości; tokPon — ponawia tylko ostatnie zaplanowanie;
+       przerwaQ — QUIC czeka po porażce (wybaczenie w [G]) */
     const kl = { k: null, stan: 'laczy', opis: 'łączę…', gotowy: false, gen: 0, connM: 0,
-                 niegotowyOdM: performance.now(), bylGotowy: false, ostBlad: null };
+                 niegotowyOdM: performance.now(), bylGotowy: false, ostBlad: null,
+                 udana: false, tokPon: 0, przerwaQ: false, ponowTeraz: null };
     S.kl[tr] = kl;
+    if (tr === 'quic') S.wybaczonoM = null;
     if (tr === 'quic' && !window.WebTransport) {
       kl.stan = 'brak'; kl.opis = 'przeglądarka bez WebTransport — QUIC nie ruszy (bez przejścia na wss)';
       zdarz(tr, 'brak', kl.opis); return;
@@ -444,9 +457,33 @@
     const moj = () => S.kl[tr] === kl && kl.k === k;
     const utrata = powod => {
       if (!moj()) return;
-      if (kl.gotowy) { kl.gotowy = false; kl.niegotowyOdM = performance.now(); zdarz(tr, 'utrata', powod); }
+      if (kl.gotowy) {
+        kl.gotowy = false; kl.niegotowyOdM = performance.now(); zdarz(tr, 'utrata', powod);
+        /* echa w drodze już nie wrócą (nowa subskrypcja przyjdzie po powtórce); z PUBACK = potwierdzone od razu */
+        S.oczek[tr].forEach(p => { p.przy_utracie = true; if (p.puback != null && !p.puback_blad) potwierdzona(tr, p); else zapiszProbke(p); });
+      }
       if (kl.stan !== 'odmowa') { kl.stan = 'przerwa'; kl.opis = powod; }
     };
+    /* PONAWIANIE [D-537 pkt 2] — reconnect z TYMI SAMYMI magazynami: MQTT.js powtarza niepotwierdzone publikacje jak
+       przy własnym ponawianiu (reconnect() bez argumentu założyłby puste magazyny i powtórki by nie było) */
+    const ponow = tok => {
+      if (tok !== kl.tokPon || !moj() || !S.rytm.dziala || k.connected) return;
+      kl.przerwaQ = false;
+      try { k.reconnect({ incomingStore: k.incomingStore, outgoingStore: k.outgoingStore }); } catch (x) {}
+    };
+    const planuj = () => {
+      if (!moj() || !S.rytm.dziala || kl.stan === 'odmowa' || kl.stan === 'brak') return;
+      const d = L.odstepPonowienia(tr, !kl.udana, NASTAWY);
+      const tok = ++kl.tokPon;
+      kl.przerwaQ = d.wstrzymany;
+      if (d.wstrzymany) {
+        kl.stan = 'przerwa';
+        kl.opis = 'nieudana próba — QUIC czeka ' + d.ms / 60000 + ' min (jak apka T3) albo do zmiany rodzaju łącza';
+        zdarz(tr, 'wstrzymany', kl.opis);
+      }
+      setTimeout(() => ponow(tok), d.ms);
+    };
+    kl.ponowTeraz = () => ponow(++kl.tokPon);
     k.on('connect', ack => {
       if (!moj()) return;
       const gen = ++kl.gen; kl.connM = performance.now(); kl.stan = 'laczy'; kl.opis = 'CONNACK, czekam na SUBACK';
@@ -459,7 +496,7 @@
             kl.stan = 'odmowa'; kl.opis = 'broker nie pozwolił subskrybować ' + temat(tr) + ' (SUBACK ' + hex(kod) + ') — konto bez prawa do ' + NASTAWY.TEMAT + '/#';
             zdarz(tr, 'odmowa', kl.opis); rysuj(); return;
           }
-          kl.gotowy = true; kl.stan = 'gotowy'; kl.bylGotowy = true; kl.niegotowyOdM = null;
+          kl.gotowy = true; kl.stan = 'gotowy'; kl.bylGotowy = true; kl.niegotowyOdM = null; kl.udana = true;
           let droga = '';
           if (tr === 'quic') { try { const wt = kl.ostWT && kl.ostWT._wt; droga = ', WebTransport reliability=' + (wt && wt.reliability ? wt.reliability : 'nieznane'); } catch (e) {} }
           kl.opis = 'gotowy';
@@ -469,8 +506,8 @@
       } catch (e) { zdarz(tr, 'error', 'subskrypcja: ' + (e.message || e)); }
     });
     k.on('message', (t, dane) => odbior(tr, dane));
-    k.on('reconnect', () => { if (!moj()) return; if (kl.stan !== 'odmowa') { kl.stan = kl.stan === 'przerwa' ? 'przerwa' : 'laczy'; } zdarz(tr, 'reconnect', ''); });
-    k.on('close', () => { if (!moj()) return; zdarz(tr, 'close', ''); utrata('close'); rysuj(); });
+    k.on('reconnect', () => { if (!moj()) return; kl.udana = false; if (kl.stan !== 'odmowa') { kl.stan = kl.stan === 'przerwa' ? 'przerwa' : 'laczy'; } zdarz(tr, 'reconnect', ''); });
+    k.on('close', () => { if (!moj()) return; zdarz(tr, 'close', ''); utrata('close'); planuj(); rysuj(); });
     k.on('offline', () => { if (!moj()) return; zdarz(tr, 'offline', ''); utrata('offline'); });
     k.on('disconnect', p => { if (!moj()) return; zdarz(tr, 'disconnect', 'DISCONNECT od brokera ' + hex(p && p.reasonCode || 0)); });
     k.on('end', () => { if (!moj()) return; zdarz(tr, 'end', ''); });
@@ -484,7 +521,7 @@
           kl.stan = 'odmowa'; kl.opis = 'broker odrzucił logowanie: ' + ODMOWY_OSTATECZNE[kod] + ' (' + hex(kod) + ', konto „' + konto.user + '”) — popraw i zrób nowy START';
         } else {
           kl.stan = 'przerwa'; kl.opis = 'broker odmówił chwilowo (' + hex(kod) + ') — ponawiam';
-          setTimeout(() => { if (moj() && S.rytm.dziala && !k.connected) { try { k.reconnect(); } catch (x) {} } }, NASTAWY.RECONNECT_MS);
+          planuj();   /* broker v5 zamyka połączenie po takim CONNACK — 'close' zaplanuje to samo, liczy się ostatnie */
         }
         rysuj();
       }
@@ -574,9 +611,14 @@
         zdarz(tr, 'odmowa', kl.pubOdmowa);
       }
     }
-    else p.puback = Math.round((performance.now() - p.m) * 10) / 10;
+    else {
+      p.puback = Math.round((performance.now() - p.m) * 10) / 10;
+      if (p.stan === 'wyslany' && p.przy_utracie) { potwierdzona(tr, p); return; }   /* powtórka MQTT.js po zerwaniu */
+    }
     zapiszProbke(p);
   }
+  /* broker potwierdził, echo nie mogło wrócić (połączenie padło) — dostarczona bez czasu echa [D-537 pkt 2; logika [8]] */
+  function potwierdzona(tr, p) { p.stan = 'potwierdzony'; S.oczek[tr].delete(p.seq); zapiszProbke(p); }
 
   /* ------------------------------------------------------------------------------------------
      [G] OTOCZENIE: GPS, sieć, widoczność, Wake Lock
@@ -606,11 +648,24 @@
     if (document.visibilityState === 'visible' && (!S.wake || S.wake.released)) wakeWez().then(rysuj);
     rysuj();
   });
+  /* WYBACZENIE [D-537 pkt 2] jak w T3: zmiana RODZAJU łącza (wifi ↔ komórka — nie sam szacunek rtt/downlink, który
+     w słabym zasięgu zmienia się dziesiątki razy na minutę) albo `online` w czasie przerwy QUIC po porażce = jedna
+     próba od razu, najwyżej raz na QUIC_PRZERWA_MS (L.wybaczenie). Zdarzenia 'wybaczenie' / 'wybaczenie_wstrzymane'. */
+  let ostRodzaj = '';
+  try { ostRodzaj = (navigator.connection && navigator.connection.type) || ''; } catch (e) {}
+  function wybacz(skad) {
+    const kl = S.kl.quic; if (!S.rytm.dziala || !kl || !kl.przerwaQ || !kl.ponowTeraz) return;
+    const teraz = performance.now();
+    if (L.wybaczenie(kl.przerwaQ, S.wybaczonoM, teraz, NASTAWY)) { S.wybaczonoM = teraz; zdarz('quic', 'wybaczenie', skad); kl.ponowTeraz(); }
+    else zdarz('quic', 'wybaczenie_wstrzymane', skad);
+  }
   try { if (navigator.connection && navigator.connection.addEventListener) navigator.connection.addEventListener('change', () => {
     if (!S.rytm.dziala) return; const c = navigator.connection;
     zdarz('*', 'siec', (c.type || '?') + '/' + (c.effectiveType || '?') + ' rtt ' + c.rtt + ' ms, ' + c.downlink + ' Mb/s');
+    const r = c.type || '';
+    if (r && r !== ostRodzaj) { ostRodzaj = r; wybacz('rodzaj łącza ' + r); }
   }); } catch (e) {}
-  window.addEventListener('online', () => { if (S.rytm.dziala) zdarz('*', 'przegladarka', 'online'); });
+  window.addEventListener('online', () => { if (S.rytm.dziala) { zdarz('*', 'przegladarka', 'online'); wybacz('online'); } });
   window.addEventListener('offline', () => { if (S.rytm.dziala) zdarz('*', 'przegladarka', 'offline'); });
   window.addEventListener('beforeunload', e => { if (S.rytm.dziala) { e.preventDefault(); e.returnValue = ''; } });
 
@@ -681,6 +736,10 @@
     r.dziala = false; clearTimeout(r.zegar); r.zegar = null;
     L.TRANSPORTY.forEach(tr => { S.oczek[tr].forEach(p => { p.stan = 'przerwany'; zapiszProbke(p); }); S.oczek[tr].clear(); rozlacz(tr); });
     zdarz('*', 'stop', 'STOP');
+    /* [audyt WT/QUIC 02.10, docs/36 §11] ILE PRÓB WebTransport NAPRAWDĘ POWSTAŁO: ta strona ponawia QUIC co RECONNECT_MS
+       (1 s, bez zapasu wss) - przeglądarka trzyma każdą nieudaną próbę 5 min jako „oczekującą” i wykładniczo opóźnia
+       następne (64 = odmowa od ręki, bez UDP). Liczniki adaptera idą do wyniku, żeby seria pokazała tę burzę wprost. */
+    try { if (window.Paho && window.Paho._diagWT) S.sesja.diag_wt = window.Paho._diagWT().liczniki; } catch (e) {}
     S.sesja.koniec_t = Date.now(); zapiszSesje();
     gpsStop(); wakeOddaj();
     $('b_start').disabled = false; $('b_stop').disabled = true;
@@ -725,7 +784,8 @@
       obie('Echo p50', x => ms(x.rtt.p50)) + obie('Echo p95', x => '<b>' + ms(x.rtt.p95) + '</b>') + obie('Echo p99', x => ms(x.rtt.p99)) +
       obie('Echo max · n', x => ms(x.rtt.max) + ' · ' + x.rtt.n) +
       obie('PUBACK p50', x => ms(x.puback.p50)) + obie('PUBACK p95', x => ms(x.puback.p95)) + obie('PUBACK p99', x => ms(x.puback.p99)) +
-      obie('Odebr. / zgub. / bez poł.', x => x.odebrane + ' / ' + x.zgubione + ' / ' + x.bez_polaczenia) +
+      obie('Odebr. / potw. / zgub. / bez poł.', x => x.odebrane + ' / ' + x.potwierdzone + ' / ' + x.zgubione + ' / ' + x.bez_polaczenia) +
+      obie('Próby / wstrzymania', x => x.proby + ' / ' + x.wstrzymania) +
       obie('Zerwania', x => x.zerwania) + obie('Suma przerw', x => ms(x.suma_przerw_ms)) +
       obie('Powrót p50', x => ms(x.powrot.p50)) + obie('Powrót p95 · n', x => ms(x.powrot.p95) + ' · ' + x.powrot.n) +
       obie('Zimny start', x => (x.zimny_ms.length ? ms(x.zimny_ms[0]) : '—')) +
@@ -860,7 +920,8 @@
     $('user').value = lsCzytaj('user') || NASTAWY.USER_DOMYSLNY;
     $('haslo').value = lsCzytaj('haslo') || '';
     $('nastawy_opis').textContent = 'Nastawy obu połączeń: MQTT 5, keepalive ' + NASTAWY.KEEPALIVE_S + ' s, limit połączenia ' + NASTAWY.CONNECT_TIMEOUT_MS / 1000 +
-      ' s, ponawianie co ' + NASTAWY.RECONNECT_MS / 1000 + ' s, QoS ' + NASTAWY.QOS + ', czysta sesja; echo co ' + (L ? L.POMIAR.INTERWAL_MS / 1000 : '?') +
+      ' s, ponawianie po zerwaniu ' + NASTAWY.RECONNECT_MS / 1000 + ' s (QUIC po nieudanej próbie czeka ' + NASTAWY.QUIC_PRZERWA_MS / 60000 +
+      ' min albo do zmiany rodzaju łącza — jak apka T3), QoS ' + NASTAWY.QOS + ', czysta sesja; echo co ' + (L ? L.POMIAR.INTERWAL_MS / 1000 : '?') +
       ' s, zgubione po ' + (L ? L.POMIAR.LIMIT_ZGUBIENIA_MS / 1000 : '?') + ' s. TLS: ' + NASTAWY.URL_TLS + ' · QUIC: ' + NASTAWY.URL_QUIC.replace(/^wss:/, 'https:') + ' (WebTransport).';
     /* kryteria na ekranie muszą być tymi z logiki — inaczej ekran obiecuje co innego, niż liczy (zasada 10) */
     if (L) {

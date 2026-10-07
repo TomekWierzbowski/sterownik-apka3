@@ -3,7 +3,7 @@
    --------------------------------------------------------------------------------------------
    PO CO: Tomasz 30.09: „Tylko telefon” — przed sobotą pomiar autem na trasie ze słabym zasięgiem, kilka
    przejazdów. Strona `pomiar.html` trzyma DWA połączenia naraz tym samym kontem (TLS = MQTT.js po wss 8889,
-   QUIC = MQTT.js po WebTransport 8890 przez bramkę) i co 2 s puszcza echo. Tu leży WSZYSTKO, co liczy:
+   QUIC = MQTT.js po WebTransport 8890 przez gateway) i co 2 s puszcza echo. Tu leży WSZYSTKO, co liczy:
    percentyle, zgubione, przerwy, ważność przejazdu, porównanie z kryteriami i werdykt serii. Strona tylko
    zbiera zdarzenia i rysuje — dzięki temu każdą liczbę da się sprawdzić offline w Node, bez telefonu
    i bez brokera (granica pomiaru, zasada 3). Test: narzedzia_hmi/proby_audyt/pwa/proba_pomiar36.cjs.
@@ -20,6 +20,7 @@
      [8] Podsumowanie transportu i całego przejazdu
      [9] Ważność przejazdu, porównanie TLS/QUIC, werdykt serii
      [10] Opcje połączenia (te same dla obu dróg; QUIC bez zapasu wss)
+     [10b] Ponawianie jak w aplikacji T3 (QUIC po porażce czeka; wybaczenie przy zmianie rodzaju łącza) [D-537]
      [11] Eksport CSV
      [12] Opis kryteriów słowami (nagłówek strony i docs/36 — spięte testem)
 
@@ -29,7 +30,8 @@
 
    KSZTAŁT PRÓBKI (jedna na tick i transport):
      { sesja, tr: 'tls'|'quic', seq, t (Date.now), m (performance.now), inst (id wczytania strony),
-       stan: 'wyslany'|'odebrany'|'zgubiony'|'bez_polaczenia'|'przerwany',
+       stan: 'wyslany'|'odebrany'|'zgubiony'|'bez_polaczenia'|'przerwany'|'potwierdzony' (PUBACK bez echa po zerwaniu, [8]),
+       przy_utracie (true: była w drodze, gdy połączenie padło),
        rtt (ms, echo), puback (ms), puback_blad, spozn (ms, echo po limicie), dup (ile duplikatów),
        lat, lon, dokl (m), v (m/s), gps_wiek (ms), n_typ, n_eff, n_rtt (ms), n_down (Mb/s),
        widok ('visible'|'hidden'), opozn (ms spóźnienia ticku) }
@@ -58,7 +60,7 @@
     LIMIT_ZGUBIENIA_MS: 30000,  /* echo nie wróciło w tym czasie = zgubione */
     OPOZN_MAX_MS: 1000,         /* tick spóźniony bardziej = „nie w terminie” (strona w tle, telefon oszczędza) */
     /* [30.09, przegląd sceptyka; zasada 10] transport niegotowy dłużej = zdanie na ekranie z ostatnim błędem i tym, co
-       sprawdzić (QUIC: bramka, UDP 8890, adres strony). 2 × limit połączenia MQTT.js (10 s) — pierwsza próba mogła
+       sprawdzić (QUIC: gateway, UDP 8890, adres strony). 2 × limit połączenia MQTT.js (10 s) — pierwsza próba mogła
        paść na słabym zasięgu, druga już nie powinna. Tylko ekran — na liczby i ocenę nie wpływa. */
     ALARM_BEZ_GOTOWOSCI_MS: 20000
   };
@@ -270,13 +272,24 @@
     var ile = function (st) { return p.filter(function (x) { return x.stan === st; }).length; };
     var odebrane = ile('odebrany'), zgubione = ile('zgubiony'), bez = ile('bez_polaczenia');
     var przerwane = ile('przerwany'), oczek = ile('wyslany');
+    /* POTWIERDZONE [D-537 pkt 2; docs/36 §11.3 P2]: wysłane na połączeniu, które padło, zanim echo mogło wrócić,
+       a broker potwierdził je PUBACK-iem (przed zerwaniem albo po powtórce MQTT.js na nowym połączeniu). MQTT.js
+       powtarza zaległe publikacje PRZED zdarzeniem 'connect', a strona subskrybuje dopiero po nim — echo powtórki
+       nie ma dokąd wrócić. Broker ma wiadomość = DOSTARCZONA (bez czasu echa); do 02.10 liczone jako zgubione
+       (9 z 13 „zgubionych” przejazdu 01.10 15:00). */
+    var potwierdzone = ile('potwierdzony');
     var baza = p.length - przerwane - oczek;
     var prz = przerwy(zdarzenia, tr, koniec);
-    var bledy = kolejnoscZdarzen(zdarzenia).filter(function (e) { return e.tr === tr && TYPY_BLEDU.indexOf(e.typ) >= 0 && e.opis; });
+    var zd = kolejnoscZdarzen(zdarzenia).filter(function (e) { return e.tr === tr; });
+    var bledy = zd.filter(function (e) { return TYPY_BLEDU.indexOf(e.typ) >= 0 && e.opis; });
     return {
       ticki: p.length, odebrane: odebrane, zgubione: zgubione, bez_polaczenia: bez, przerwane: przerwane, oczekujace: oczek,
-      dostarczone_proc: baza > 0 ? 100 * odebrane / baza : null,
-      dostarczone_z_wyslanych_proc: (odebrane + zgubione) > 0 ? 100 * odebrane / (odebrane + zgubione) : null,
+      potwierdzone: potwierdzone,
+      /* próby ponowienia (MQTT.js 'reconnect') i przerwy QUIC po porażce ([10b]) — „licznik prób w wyniku” (D-537) */
+      proby: zd.filter(function (e) { return e.typ === 'reconnect'; }).length,
+      wstrzymania: zd.filter(function (e) { return e.typ === 'wstrzymany'; }).length,
+      dostarczone_proc: baza > 0 ? 100 * (odebrane + potwierdzone) / baza : null,
+      dostarczone_z_wyslanych_proc: (odebrane + potwierdzone + zgubione) > 0 ? 100 * (odebrane + potwierdzone) / (odebrane + potwierdzone + zgubione) : null,
       rtt: rozklad(p.filter(function (x) { return x.stan === 'odebrany'; }).map(function (x) { return x.rtt; })),
       puback: rozklad(p.map(function (x) { return x.puback; })),
       puback_bledy: p.filter(function (x) { return x.puback_blad; }).length,
@@ -405,14 +418,14 @@
      WEJŚCIA: lista wyników przejazdów (ocenPrzejazd(...).wynik).
      CO Z CZEGO WYNIKA:  N = ważne, L = QUIC_LEPSZY, G = QUIC_GORSZY, Q = QUIC_NIE_DZIALA (zaznaczone, NIE są ważne)
        N < min_przejazdow                 → BRAK_DANYCH (karta 36: brak wyniku = BRAK DANYCH)
-       L ≥ ⌈N·udział⌉ i G = 0 i Q = 0     → PREFEROWANY (QUIC może być pierwszą drogą apki; wss dalej zapasem,
+       L ≥ ⌈N·udział⌉ i G = 0 i Q = 0     → PREFEROWANY (QUIC może być pierwszą drogą aplikacji; wss dalej zapasem,
                                             produkt dopiero po słowie Tomasza „wdrażamy”, D-499 pkt 3)
        L = 0 albo G ≥ L                   → ODLOZONY (przy małym zysku wygrywa prostszy TLS/WSS, 5.3-f)
        pozostałe                          → OPCJONALNY (zysk niepowtarzalny: QUIC zostaje dodatkową drogą T3)
-     ⚠ QUIC_NIE_DZIALA [30.09, przegląd sceptyka]: nie wchodzi do N ani do G — martwa bramka nie może dać serii
+     ⚠ QUIC_NIE_DZIALA [30.09, przegląd sceptyka]: nie wchodzi do N ani do G — martwy gateway nie może dać serii
        „QUIC gorszy”. Ale zaznaczony blokuje PREFEROWANY: QUIC, który w części przejazdów nie połączył się wcale,
-       nie zostaje pierwszą drogą apki, dopóki ktoś nie wyjaśni dlaczego. Odznaczenie „wlicz do serii” = świadome
-       „to była bramka, nie QUIC” (Tomasz, po sprawdzeniu dziennika bramki). */
+       nie zostaje pierwszą drogą aplikacji, dopóki ktoś nie wyjaśni dlaczego. Odznaczenie „wlicz do serii” = świadome
+       „to był gateway, nie QUIC” (Tomasz, po sprawdzeniu dziennika gatewaya). */
   function werdyktSerii(wyniki, K) {
     K = K || KRYTERIA;
     var Q = (wyniki || []).filter(function (w) { return w === 'QUIC_NIE_DZIALA'; }).length;
@@ -436,13 +449,15 @@
      WEJŚCIA:  transport, nastawy połączenia strony, konto, budowniczy WebTransport (klasa udająca WebSocket
                z paho_na_mqttjs.js — `Paho._WTjakoWS`).
      CO Z CZEGO WYNIKA: jedyna różnica to adres i — dla QUIC — `createWebsocket`. ⛔ QUIC NIE MA ZAPASU wss:
-       porażka QUIC ma zostać porażką QUIC (w apce T3 nakładka przechodzi na wss, tu celowo nie).
+       porażka QUIC ma zostać porażką QUIC (w aplikacji T3 nakładka przechodzi na wss, tu celowo nie).
      WYJŚCIA:  { url, opcje } do mqtt.connect.
      ------------------------------------------------------------------------------------------ */
   function opcjePolaczenia(tr, N, konto, WT) {
     var opcje = {
       protocolVersion: 5, clientId: konto.clientId, username: konto.user, password: konto.haslo,
-      keepalive: N.KEEPALIVE_S, clean: true, reconnectPeriod: N.RECONNECT_MS, connectTimeout: N.CONNECT_TIMEOUT_MS,
+      /* reconnectPeriod 0 [D-537 pkt 2]: MQTT.js sam NIE ponawia — kiedy ponowić, decyduje odstepPonowienia ([10b]),
+         a strona woła reconnect z tymi samymi magazynami (powtórka niepotwierdzonych publikacji jak dotąd) */
+      keepalive: N.KEEPALIVE_S, clean: true, reconnectPeriod: 0, connectTimeout: N.CONNECT_TIMEOUT_MS,
       resubscribe: false   /* subskrypcję stawiamy sami po KAŻDYM połączeniu — dopiero SUBACK = „gotowy” */
     };
     if (tr === 'quic') {
@@ -451,6 +466,32 @@
       return { url: N.URL_QUIC, opcje: opcje };
     }
     return { url: N.URL_TLS, opcje: opcje };
+  }
+
+  /* ------------------------------------------------------------------------------------------
+     [10b] PONAWIANIE JAK W APLIKACJI T3  [D-537 pkt 2, 03.10.2026; docs/36 §11.3, §11.7]
+     PO CO: do 02.10 QUIC ponawiał co 1 s. Każda nieudana próba WebTransport zostaje w Chrome „oczekująca” przez
+       5 min i opóźnia następne wykładniczo (do 60 s, przy 64 oczekujących odmowa od ręki) — seria mierzyła więc
+       karę, którą strona sama sobie wywołała, a nie sieć. Teraz QUIC ponawia tak, jak robi to T3
+       (paho_na_mqttjs.js: QUIC_PRZERWA_MIN, quicZapomnij), więc wynik mówi, co QUIC da klientowi.
+     WEJŚCIA:  transport, czy zakończona próba była PORAŻKĄ (nie doszła do gotowości: CONNACK + SUBACK), nastawy strony
+               (N.RECONNECT_MS, N.QUIC_PRZERWA_MS); dla wybaczenia: czy przerwa QUIC trwa, chwila ostatniego wybaczenia.
+     CO Z CZEGO WYNIKA:
+       • TLS — zawsze po N.RECONNECT_MS (jak dotąd; wss nie ma kary przeglądarki, porównanie z seriami 01.10 zostaje);
+       • QUIC po utracie GOTOWEGO połączenia — po N.RECONNECT_MS (T3: nowa próba QUIC od razu, pamięci porażki brak);
+       • QUIC po PORAŻCE — przerwa N.QUIC_PRZERWA_MS (T3: tyle minut prosto wss; tu QUIC po prostu czeka — bez zapasu
+         wss, porażka QUIC zostaje porażką QUIC);
+       • WYBACZENIE: zmiana RODZAJU łącza (wifi ↔ komórka) albo `online` w czasie przerwy = jedna próba od razu,
+         najwyżej raz na N.QUIC_PRZERWA_MS od poprzedniego wybaczenia (T3, audyt WT 02.10).
+     WYJŚCIA:  odstepPonowienia → { ms, wstrzymany }; wybaczenie → true/false.
+     ------------------------------------------------------------------------------------------ */
+  function odstepPonowienia(tr, porazka, N) {
+    if (tr === 'quic' && porazka) return { ms: N.QUIC_PRZERWA_MS, wstrzymany: true };
+    return { ms: N.RECONNECT_MS, wstrzymany: false };
+  }
+  function wybaczenie(przerwaTrwa, ostWybaczenieM, terazM, N) {
+    if (!przerwaTrwa) return false;
+    return ostWybaczenieM == null || (terazM - ostWybaczenieM) >= N.QUIC_PRZERWA_MS;
   }
 
   /* ------------------------------------------------------------------------------------------
@@ -523,7 +564,8 @@
   }
 
   var API = {
-    WERSJA: '2026-09-30c', POMIAR: POMIAR, KRYTERIA: KRYTERIA, TRANSPORTY: TRANSPORTY,
+    WERSJA: '2026-10-03', POMIAR: POMIAR, KRYTERIA: KRYTERIA, TRANSPORTY: TRANSPORTY,
+    odstepPonowienia: odstepPonowienia, wybaczenie: wybaczenie,
     percentyl: percentyl, rozklad: rozklad, czasMiedzy: czasMiedzy, planTicku: planTicku,
     przeterminowane: przeterminowane, kolejnoscZdarzen: kolejnoscZdarzen, przerwy: przerwy, najdluzszaSeria: najdluzszaSeria,
     podsumujTransport: podsumujTransport, podsumuj: podsumuj, waznosc: waznosc, porownaj: porownaj,

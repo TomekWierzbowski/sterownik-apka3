@@ -1162,7 +1162,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '6bea3887be';
+window.APKA_WERSJA = 'a9983415fd';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1661,7 +1661,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-06 14:26';
+window.HMI_ZBUDOWANO = '2026-10-07 03:35';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -7884,6 +7884,7 @@ function ekrSerwis(){
     <div class="mrow" data-lv="idz.siec" onclick="siecWejdz()"><span class="t">Sieć<i>Ethernet, WiFi (punkt dostępu i połączenie z siecią), MQTT</i></span>
       <span class="w">${siecSkrot()}</span><span class="ch">›</span></div>
     ${wierszDrogaApki()}
+    ${wierszWylogujApki()}
     <div class="grupka" data-lv="g">INFORMACJE</div>
     ${/* RAPORT GOTOWOSCI: nie usterki, tylko funkcje spiace po cichu.
           Licznik przy wierszu, zeby bylo widac BEZ wchodzenia.
@@ -8028,6 +8029,29 @@ function drogaApkiPrzelacz(){
                : [r.zapamietane ? '' : 'nie zapamiętane — pamięć telefonu niedostępna, wraca po zamknięciu karty',
                   r.uwaga || ''].filter(Boolean).join(' · ');
   srvRender(false);
+}
+/* WYLOGUJ I ZAPOMNIJ DANE LOGOWANIA  [B.0z-99, docs/53 R7; decyzja Tomasza 06.10: hasło zostaje w telefonie świadomie,
+   ale ma być JEDEN ruch, który je usuwa]
+   WEJŚCIA:  wpis `odbior_mqtt` z przedrostkiem apki (window.APKA_KLUCZ z zbuduj_pwa.py) w localStorage („zapamiętaj na tym
+             telefonie") albo sessionStorage (tylko ta karta): login, hasło, adres brokera, zapasy.
+   CO Z CZEGO WYNIKA: usuwa oba wpisy i wraca na stronę logowania (index.html?login=1 - bez `login=1` strona startowa
+             odesłałaby z powrotem, gdyby coś zostało). Połączenia nie trzeba zamykać - strona znika razem z nim.
+   WYJŚCIA:  wiersz menu tylko w apce (SRV_CHMURA) i tylko gdy coś jest zapamiętane („nie pokazuj, czego nie ma");
+             bez `data-lv` - to ustawienie telefonu, na szkle panelu i w moście wiersza nie ma (jak „Łącze aplikacji"). */
+function wierszWylogujApki(){
+  if (!SRV_CHMURA) return '';
+  let jest = false;
+  try { const k = (window.APKA_KLUCZ || '') + 'odbior_mqtt'; jest = !!(localStorage.getItem(k) || sessionStorage.getItem(k)); } catch(e){}
+  if (!jest) return '';
+  return `<div class="mrow" onclick="apkaWylogujZapomnij()">
+    <span class="t">Wyloguj i zapomnij dane logowania<i>usuwa login, hasło i adres brokera z tego telefonu; wraca na stronę logowania</i></span>
+    <span class="ch">›</span></div>`;
+}
+function apkaWylogujZapomnij(){
+  const k = (window.APKA_KLUCZ || '') + 'odbior_mqtt';
+  try { localStorage.removeItem(k); } catch(e){}
+  try { sessionStorage.removeItem(k); } catch(e){}
+  location.replace('index.html?login=1');
 }
 function przelacznikNast(klucz){
   /* ⚠ TĄ SAMĄ DROGĄ, CO EDYTOR [2026-09-01]. Ptaszek też kończył się na
