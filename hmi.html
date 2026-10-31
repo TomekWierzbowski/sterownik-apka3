@@ -1104,7 +1104,10 @@
      zasada Tomasza: stare pomysly wycinac z kodu, nie zostawiac */
 
   /* ---------- PIN pad ---------- */.srv .pinwrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:8px}.srv .pinwrap .naglowek{font-size:13px;font-weight:750;text-align:center;line-height:1.3}.srv .pinwrap .naglowek i{display:block;font-style:normal;font-size:9.5px;font-weight:600;color:#6a7280;margin-top:2px}.srv .kropki{display:flex;gap:10px;height:16px;align-items:center}.srv .kropki i{width:12px;height:12px;border-radius:50%;border:2px solid #5d6470;background:transparent}.srv .kropki i.pelna{background:#14161a;border-color:#14161a}.srv .kropki.zle i{border-color:#bb0000;background:#bb0000}.srv .pad{display:grid;grid-template-columns:repeat(3,76px);grid-auto-rows:52px;gap:7px}.srv .pad b{display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:650;
-         background:#fff;border:1px solid #cfd3d8;border-radius:6px;cursor:pointer;user-select:none}.srv .pad b:active{background:#e2e4e8}.srv .pad b.fx{font-size:13px;font-weight:750;background:#e9ebee}.srv .pinblad{font-size:10px;font-weight:700;color:#bb0000;height:13px;text-align:center}
+         background:#fff;border:1px solid #cfd3d8;border-radius:6px;cursor:pointer;user-select:none}.srv .pad b:active{background:#e2e4e8}.srv .pad b.fx{font-size:13px;font-weight:750;background:#e9ebee}
+  /* [31.10] wyszarzone wiersze grupki OBEJŚCIA (SERWIS -> Funkcje) */.srv .mrow.szary{background:#e4e6ea}.srv .mrow.szary .t{color:#4a515c}
+  /* [31.10, Tomasz: „monit o błędnym PIN-ie zasłaniają inne elementy”] bez sztywnej wysokości - dłuższy komunikat
+     przesuwa klawiaturę w dół, zamiast wchodzić pod nią */.srv .pinblad{font-size:10px;font-weight:700;color:#bb0000;min-height:13px;max-width:300px;line-height:1.35;text-align:center}
 
   /* ---------- edytor nastawy: duża wartość + / − ---------- */.srv .edy{flex:1;display:flex;flex-direction:column;justify-content:center;gap:9px;padding:10px 12px}.srv .edy .opis{font-size:10.5px;color:#5d6470;line-height:1.4;text-align:center}.srv .edy .pole{background:#fff;border:1px solid #dcdcdc;border-radius:6px;padding:9px 10px;
              display:flex;align-items:center;gap:8px}.srv .edy .cz{font-size:30px;font-weight:680;letter-spacing:-.02em;flex:1;text-align:center;line-height:1}.srv .edy .cz small{font-size:13px;font-weight:620;color:#5d6470;margin-left:3px}.srv .edy b.pm{width:46px;height:46px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;
@@ -1128,7 +1131,7 @@
              padding:1px 5px;border-radius:3px}
 
 /* ===== SKLEJENIE: jedno urzadzenie, dwa zestawy ekranow =====
-   ⚠ ZNACZNIK OBU PLIKOW ZOSTAJE W CALOSCI, TYLKO SCHOWANY. Skrypty
+   ⚠ MARKER OBU PLIKOW ZOSTAJE W CALOSCI, TYLKO SCHOWANY. Skrypty
    czytaja pola paneli symulacji (hala: 35 roznych `el(...)`), wiec ich
    usuniecie dawalo PUSTY EKRAN - pierwsze odwolanie do `null` zatrzymuje
    caly skrypt, zanim cokolwiek narysuje.
@@ -1162,7 +1165,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = 'a9983415fd';
+window.APKA_WERSJA = '2ea6fa6855';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1661,7 +1664,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-07 03:35';
+window.HMI_ZBUDOWANO = '2026-10-31 09:14';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -3239,6 +3242,7 @@ window.HMI_ZBUDOWANO = '2026-10-07 03:35';
     else if (S.ekran==='harm'){
       /* [D-495] funkcja zniknela (skimmer, zawor odpiety) w trakcie ogladania - wracamy do filtracji */
       if (H.tab==='cichy' && !cichyJest()){ H.tab = 'filtracja'; H.edy = null; }
+      if (H.tab==='plukanie' && !funON('pluk')){ H.tab = 'filtracja'; H.edy = null; }   /* [31.10] płukanie wyłączone */
       if (H.widok==='wykresy' && !wykresyJest()) H.widok = 'harm';
       H.edy!==null ? ekranEdy()
       : H.widok==='dziennik' ? ekranDziennik() : H.widok==='wykresy' ? ekranWykresy() : ekranHarm();
@@ -3576,7 +3580,7 @@ window.HMI_ZBUDOWANO = '2026-10-07 03:35';
            czasu - i jako jedyna z tych trzech NIE ZNIKA sama. */
         const dolHtml =
             awWoda   ? '<div class="dol blok" data-lv="poziom.zawor">zawór zablokowany</div>'
-          : wylDol   ? '<div class="dol wyl" data-lv="poziom.zawor">zawór wyłączony</div>'
+          : wylDol   ? '<div class="dol" data-lv="poziom.zawor">&nbsp;</div>'   /* [31.10] dolewanie wyłączone - napisu nie ma */
           : alarmDol ? '<div class="dol blok" data-lv="poziom.zawor">zawór blokada</div>'
           : dolewa   ? '<div class="dol on" data-lv="poziom.zawor">dolewa</div>'
                      : '<div class="dol" data-lv="poziom.zawor">&nbsp;</div>';
@@ -3926,7 +3930,7 @@ window.HMI_ZBUDOWANO = '2026-10-07 03:35';
 
     h += `<div class="tabs">
         <div class="${tab==='filtracja'?'sel':''}" data-lv="taby.filtracja" onclick="H.tab='filtracja';render()">FILTRACJA</div>
-        <div class="${tab==='plukanie'?'sel':''}" data-lv="taby.plukanie" onclick="H.tab='plukanie';render()">PŁUKANIE</div>
+        ${funON('pluk') ? `<div class="${tab==='plukanie'?'sel':''}" data-lv="taby.plukanie" onclick="H.tab='plukanie';render()">PŁUKANIE</div>` : ''}
         ${cichyJest() ? `<div class="${tab==='cichy'?'sel':''}" data-lv="taby.cichy" onclick="H.tab='cichy';H.edy=null;render()">TRYB CICHY</div>` : ''}
       </div>`;
 
@@ -4543,11 +4547,11 @@ window.HMI_ZBUDOWANO = '2026-10-07 03:35';
        blokuje płukanie z harmonogramu. STOP znaczy "ten tor ma stać",
        a płukanie to praca pompy. Przycisk NIE znika (znikający przycisk
        uczy, że panel się psuje) - jest wyszarzony i MÓWI DLACZEGO. */
-    /* PŁUKANIE ZDJĘTE SERWISOWO [Tomasz 2026-08-21] — ta sama zasada co
-       przy STOP: przycisk nie znika, tylko mówi, dlaczego nie działa */
+    /* PŁUKANIE ZDJĘTE SERWISOWO: [31.10, Tomasz: „jeśli któraś funkcja jest odznaczona, to znika z menu serwisowego
+       oraz z harmonogramów i odczytów”] przycisku NIE MA - zmienia zasadę z 21.08 („nie znika, mówi dlaczego”) tylko dla
+       świadomego wyłączenia funkcji; przy STOP, awarii i obejściu sondy, termiku przycisk dalej zostaje i mówi powód. */
     if (!funON('pluk'))
-      return `<div class="reczne zablok" data-lv="reczne" title="Włącz płukanie w HMI serwis → obejścia i funkcje">
-        ${IKO_PLUK}PŁUKANIE WYŁĄCZONE</div>`;
+      return '';
     /* SONDA POZIOMU: awaria ALBO OBEJŚCIE blokują płukanie [Tomasz
        2026-08-21, CLAUDE.md §6] — bez wiarygodnego poziomu nie ma czym
        przerwać zrzutu, gdy wody zabraknie, ani policzyć ubytku */
@@ -5379,6 +5383,7 @@ window.HMI_ZBUDOWANO = '2026-10-07 03:35';
   var _cichyZad = null;               /* {stan, do} - żądanie w toku (pod sterownikiem) */
   var _cichyOdm = null;               /* {do, txt} - odmowa do pokazania */
   function cichyJest(){
+    if (!funON('cichy')) return false;                          /* [31.10] wyłączony serwisowo = kafla i zakładki nie ma */
     if (POD_STER) return !!(window.DUO_CICHY && window.DUO_CICHY.jest);
     const p = el(S.ob===0 ? 'b_cichy' : 'w_cichy');
     return !!(p && p.checked) && przelewOb();
@@ -7094,6 +7099,7 @@ const N = {
    * w module: z pompą (start +1 min, stop 1 min przed końcem okna),
    * OFF na cały cykl płukania. */
   grz_wl:true, dol_wl:true, pluk_wl:true, uv_wl:true,
+  cichy_wl:true,                   /* [31.10] tryb cichy - wyłącznik serwisowy (5120 + obieg*10 + 3) */
   /* geometria [Tomasz 2026-08-19]: przelew → parametry ZBIORNIKA
    * (wysokość do przelewu + boki lustra), skimmer → parametry NIECKI
    * (boki proste: a×b×głębokość; okrągła: średnica — wanny ze skimmerem
@@ -7216,7 +7222,10 @@ async function pinDoSterownika(pin){
       const r = await window.MOST_JS.sprawdzPin(pin);
       if (r === 'ok')  return 'ok';
       /* kod 3 przychodzi także, gdy sterownik NIE MA ustawionego PIN-u strony (basen 09.09) - mówimy o obu */
-      if (r === 'zle') return 'sterownik odrzucił PIN: zły PIN serwisowy (6 cyfr) albo - gdy serwisowego jeszcze nie ustawiono - zły PIN obiektu / brak PIN-u strony (ustawia się przy szafie: serwis → sieć → strona) [D-510]';
+      /* [31.10] krócej: 3 wiersze drobnym drukiem nie mieściły się nad klawiaturą. Treść jak dawniej: zły PIN serwisowy
+         (6 cyfr) albo - gdy serwisowego jeszcze nie ustawiono - zły PIN obiektu / brak PIN-u strony [D-510] */
+      if (r === 'zle') return 'Sterownik odrzucił PIN. Serwisowy ma 6 cyfr; bez serwisowego — PIN obiektu (4), '
+                              + 'ustawiany przy szafie: serwis → sieć → strona.';
       return r;                                  /* brak połączenia / timeout — pokaż powód, nie wpuszczaj */
     }
     return 'brak';
@@ -7716,6 +7725,10 @@ function ekrStart(){
 function ekrPin(zmiana){
   /* zmiana=false: wejście; true: ustawianie nowego (2 kroki w SRV_S.pinNowy) */
   const dl = SRV_S.pin.length;
+  /* [31.10, Tomasz: „monit o błędnym PIN-ie zasłaniają inne elementy”] PIN SERWISOWY STEROWNIKA MA 6 CYFR [D-510], PIN obiektu 4;
+     ekran przyjmował tylko 4, więc ustawionego PIN-u serwisowego nie dało się wpisać z apki ani strony. Wejście: 4 albo 6
+     cyfr (po piątej 6 kropek); ustawianie PIN-u panelu (zmiana) zostaje przy 4. */
+  const kropek = (!zmiana && dl > 4) ? 6 : 4;
   const krok2 = zmiana && SRV_S.pinNowy.length === 4;
   const zMenu = SRV_S.ekran === 'pinzmiana';        /* zmiana z menu ≠ wymuszenie */
   const tytul = !zmiana ? 'Serwis — podaj PIN'
@@ -7726,7 +7739,7 @@ function ekrPin(zmiana){
                               : 'PIN fabryczny musi zostać zmieniony'));
   return `<div class="pinwrap">
     <div class="naglowek">${tytul}<i>${pod}</i></div>
-    <div class="kropki ${SRV_S.pinBlad?'zle':''}">${[0,1,2,3].map(i =>
+    <div class="kropki ${SRV_S.pinBlad?'zle':''}">${Array.from({length: kropek}, (_, i) => i).map(i =>
       `<i class="${i<dl?'pelna':''}"></i>`).join('')}</div>
     <div class="pinblad">${SRV_S.pinBlad}</div>
     <div class="pad">${[1,2,3,4,5,6,7,8,9].map(c =>
@@ -7738,10 +7751,11 @@ function ekrPin(zmiana){
                          : 'SERWIS',
                   zmiana ? (zMenu ? 'serwis' : null) : 'start');
 }
-function pinCyfra(c, zmiana){ if (SRV_S.pin.length<4){ SRV_S.pin += c; SRV_S.pinBlad=''; srvRender(false);} }
+function pinCyfra(c, zmiana){ if (SRV_S.pin.length < (zmiana ? 4 : 6)){ SRV_S.pin += c; SRV_S.pinBlad=''; srvRender(false);} }
 function pinKasuj(){ SRV_S.pin = SRV_S.pin.slice(0,-1); SRV_S.pinBlad=''; srvRender(false); }
 async function pinOk(zmiana){
-  if (SRV_S.pin.length !== 4){ SRV_S.pinBlad = 'wpisz cztery cyfry'; srvRender(false); return; }
+  if (zmiana ? SRV_S.pin.length !== 4 : (SRV_S.pin.length !== 4 && SRV_S.pin.length !== 6)){
+    SRV_S.pinBlad = zmiana ? 'wpisz cztery cyfry' : 'wpisz 6 cyfr (PIN serwisowy) albo 4 (PIN obiektu)'; srvRender(false); return; }
   if (!zmiana){
     const w = await pinDoSterownika(SRV_S.pin);
     if (w === 'ok'){ SRV_S.pin=''; idz('serwis'); return; }       /* PIN sprawdził sterownik */
@@ -7814,8 +7828,11 @@ function ekrSerwis(){
           tylko wtedy, gdy styki grzania są dwa — przy jednym nie ma
           czego wybierać ani łączyć, więc i w podpisie tego nie ma */''}
     <div class="mrow" data-lv="idz.grzanie" onclick="idz('grzanie')"><span class="t">${regGrz() ? 'Grzanie' : 'Odczyt temperatur'}<i>${regGrz() ? 'histereza, korekta' + (KONTRAKT.DO.filter(d=>/Grzanie/.test(d[1])).length>1 ? ', źródła ciepła' : '') : 'kalibracja, odczyty'}</i></span><span class="ch">›</span></div>
-    <div class="mrow" data-lv="idz.poziom" onclick="idz('poziom')"><span class="t">Dolewanie i sonda poziomu<i>progi, rodzaj układu, parametry zbiornika / niecki</i></span><span class="ch">›</span></div>
-    <div class="mrow" data-lv="idz.pluk" onclick="idz('pluk')"><span class="t">Płukanie filtra<i>dodatkowe parametry płukania filtra / kontrola prawidłowości płukania</i></span><span class="ch">›</span></div>
+    ${/* [31.10] DOLEWANIE WYŁĄCZONE: ekran zostaje (sonda pilnuje suchobiegu, rodzaj układu, geometria), ale nazywa się
+          jak to, co na nim zostało - bez progów dolewania i kontroli zużycia */''}
+    <div class="mrow" data-lv="idz.poziom" onclick="idz('poziom')"><span class="t">${N.dol_wl ? 'Dolewanie i sonda poziomu' : 'Sonda poziomu'}<i>${N.dol_wl ? 'progi, rodzaj układu, parametry zbiornika / niecki' : 'suchobieg, rodzaj układu, parametry zbiornika / niecki'}</i></span><span class="ch">›</span></div>
+    ${/* [31.10] PŁUKANIE WYŁĄCZONE = wiersza nie ma (włącza się w SERWIS → Funkcje) */''}
+    ${N.pluk_wl ? `<div class="mrow" data-lv="idz.pluk" onclick="idz('pluk')"><span class="t">Płukanie filtra<i>dodatkowe parametry płukania filtra / kontrola prawidłowości płukania</i></span><span class="ch">›</span></div>` : ''}
     <div class="mrow" data-lv="idz.cisn" onclick="idz('cisn')"><span class="t">Pomiar ciśnienia<i>ochrona przed nieprawidłowym ciśnieniem w układzie filtracyjnym</i></span><span class="ch">›</span></div>
     ${/* JEDNA GRUPA ZAMIAST DWÓCH [Tomasz 2026-08-21: „scal narzędzia
           i funkcje serwisowe i napisz tylko funkcje serwisowe"] — podział
@@ -7849,6 +7866,7 @@ function ekrSerwis(){
       (SRV_S.obejscie_sonda||SRV_S.obejscie_mano) ? '<span class="w" style="color:#7a5200">AKTYWNE</span>'
       : (() => { const wyl = [['grz_wl','GRZANIE'],['dol_wl','DOLEWANIE'],
                               ['pluk_wl','PŁUKANIE'],['uv_wl','UV']]
+                             .concat(N.cichy_jest && N.cichy_wl_jest !== false ? [['cichy_wl','TRYB CICHY']] : [])   /* [31.10] */
                              .filter(f => !N[f[0]]);
                  return wyl.length === 0 ? ''
                       : `<span class="w" style="color:#7a5200">${
@@ -8079,7 +8097,9 @@ function ekrPoziom(){
             skracala to do „przelew". Skrót w jednym z dwóch miejsc znaczy,
             że serwisant czyta dwie różne nazwy tej samej nastawy. */''}
       <span class="w">${przelew?'zbiornik przelewowy':'skimmer'}</span><span class="ch">›</span></div>
-    <div class="grupka" data-lv="g">POZIOMY DOLEWANIA / SUCHOBIEGU</div>
+    ${/* [31.10] DOLEWANIE WYŁĄCZONE: zostaje próg suchobiegu i START dolewania - ten drugi jest też progiem POWROTU po
+          suchobiegu [D-96]; znikają stop dolewania, czas, wstępne dopełnienie, autokasowanie i kontrola zużycia */''}
+    <div class="grupka" data-lv="g">${N.dol_wl ? 'POZIOMY DOLEWANIA / SUCHOBIEGU' : 'POZIOMY SUCHOBIEGU'}</div>
     ${/* CAŁA RODZINA PROGÓW W JEDNEJ RAMCE [Tomasz 2026-08-21] — te
           cztery nastawy trzymają się razem łańcuchem walidacji
           (0 < suchobieg STOP < start dolewania < stop dolewania),
@@ -8087,10 +8107,10 @@ function ekrPoziom(){
           Nota pod suchobiegiem USUNIĘTA [2026-08-20] — informacja
           została w opisie samej nastawy (widać ją w edytorze). */''}
     <div class="para" data-lv="para">
-      ${wierszN('dol_start')}${wierszN('dol_stop')}
-      ${wierszN('sucho_stop')}${wierszN('dol_maxs')}${wierszN('prefill_max')}
-          ${wierszWyl('dol_autokas','Kasuj alarm czasu dolewania po każdym dniu',
-            'o północy alarm gaśnie sam i dolewanie próbuje od nowa')}
+      ${wierszN('dol_start')}${N.dol_wl ? wierszN('dol_stop') : ''}
+      ${wierszN('sucho_stop')}${N.dol_wl ? wierszN('dol_maxs') + wierszN('prefill_max') : ''}
+          ${N.dol_wl ? wierszWyl('dol_autokas','Kasuj alarm czasu dolewania po każdym dniu',
+            'o północy alarm gaśnie sam i dolewanie próbuje od nowa') : ''}
     </div>
     ${/* REAKCJA NA USZKODZENIE SONDY — POD „MAX CZAS DOLEWANIA" [Tomasz
           2026-08-28]. POZA ramką progów: tamte cztery wiąże łańcuch
@@ -8115,7 +8135,7 @@ function ekrPoziom(){
           nie było gdzie ustawić. Ta sama konstrukcja co przy kontroli
           płukania: POMIAR u góry (żeby operator miał z czego wpisać
           liczbę), NASTAWA pod nim, a bez przelicznika l/cm alarm śpi. */''}
-    <div class="grupka" data-lv="g">ZUŻYCIE WODY NA DOLEWANIE — KONTROLA</div>
+    ${N.dol_wl ? `<div class="grupka" data-lv="g">ZUŻYCIE WODY NA DOLEWANIE — KONTROLA</div>
     ${/* PO CO TA SEKCJA — słowami Tomasza [2026-08-21]. Stoi NAD liczbami,
           bo to ona mówi, na co się patrzy; szczegóły progu są pod ramką. */''}
     <div class="nota" data-lv="nota">Ubytki na parowanie, wychlapanie i nieszczelność
@@ -8235,8 +8255,9 @@ function ekrPoziom(){
       <div class="mrow odczyt" data-lv="o"><span class="t">Całkowite średnie miesięczne zużycie wody</span>
         <span class="w">${SRV_S.sr_mies ? lLub(SRV_S.sr_mies) : '— —'}</span></div>
     </div>
+    ` : ''}
     ${sekcjaCichy()}
-  </div>` + pasek('SERWIS · dolewanie i sonda poziomu', 'serwis');
+  </div>` + pasek(N.dol_wl ? 'SERWIS · dolewanie i sonda poziomu' : 'SERWIS · sonda poziomu', 'serwis');
 }
 
 /* ===== TRYB CICHY - ZAWÓR SSANIA Z DNA [D-495, 2026-09-26] ===============
@@ -8266,7 +8287,7 @@ function cichyStanSrv(){
   return 'włączony · ' + (CICHY_POWOD_SRV[c.powod] || 'zawór na zbiorniku') + zost;
 }
 function sekcjaCichy(){
-  if (!N.cichy_jest) return '';
+  if (!N.cichy_jest || !N.cichy_wl) return '';                 /* [31.10] wyłączony w SERWIS → Funkcje = sekcji nie ma */
   const sp = N.cichy_sposob;
   const zle = !!(SRV_S.cichy && SRV_S.cichy.zadany && SRV_S.cichy.powod === 4);
   return `<div class="grupka" data-lv="g">TRYB CICHY</div>
@@ -8716,7 +8737,8 @@ function ekrGrzanie(){
           Tomasz 2026-09-04: 'bez ptaszka tylko podglad, bez info czy grzeje czy
           stop'; 'grzanie bedzie w przyszlosci dorobione - zaznaczamy ptaszek
           i mamy regulator']. Styk nieprzypisany w mapie = to samo, bez ptaszka. */''}
-    ${grzStyk() ? wierszWyl('grz_wl','Regulacja grzania','bez ptaszka tylko podgląd temperatury — kafel bez „grzeje / grzanie stop”') : ''}
+    ${/* [31.10] wyłącznik grzania przeniesiony do SERWIS → Funkcje (jedne drzwi z dolewaniem, płukaniem, trybem cichym);
+          tu zostaje to, co grzanie robi albo - po wyłączeniu - sam odczyt i kalibracja */''}
     <div class="grupka" data-lv="g">ODCZYT</div>
     <div class="mrow odczyt" data-lv="o"><span class="t">Temperatura wody</span>
       ${/* formater lokalny: w sklejce `srvFmt` hali formatuje CZAS (00:00) [sonda 2026-09-04] */''}
@@ -9718,41 +9740,46 @@ function ekrSiecEdy(){
 
 
 function ekrObejscia(){
+  /* [31.10, Tomasz: „na górze pod funkcje dać dolewanie i płukanie filtra, oraz dodać tryb cichy, grzanie (jeśli któraś
+     funkcja jest odznaczona, to znika z menu serwisowego oraz z harmonogramów i odczytów, za wyjątkiem temperatury,
+     która zostaje jako tylko podgląd); pod nimi dopiero na szaro obejścia — Sonda poziomu wody, Czujnik ciśnienia”]
+     KOLEJNOŚĆ ODWRÓCONA względem 21.08: wyłączniki funkcji to to, po co serwisant wchodzi tu przy uruchomieniu
+     (czego ta szafa nie robi), obejścia — rzadka czynność awaryjna, więc niżej i na szaro.
+     GRZANIE WRÓCIŁO TUTAJ z ekranu Grzanie (D-207 „Regulacja grzania”) — jedne drzwi do każdej blokady; wyłączone
+     = kafel temperatury bez stanu grzania i bez nastawy, menu „Odczyt temperatur” (kalibracja zostaje).
+     TRYB CICHY: wiersz tylko, gdy funkcja jest w tej szafie (przelew + zawór, N.cichy_jest) i sterownik zna jej
+     wyłącznik (N.cichy_wl_jest !== false - starszy firmware go nie ma; nie pokazujemy, czego nie ma).
+     PODPIS MÓWI STAN FAKTYCZNY [2026-08-21]: opis tylko przy zdjętym ptaszku, nie „co się stanie po odznaczeniu”. */
+  const jestCichy = !!N.cichy_jest && N.cichy_wl_jest !== false;
+  const zdjete = (jestW('dol') && !N.dol_wl) || (jestW('pluk') && !N.pluk_wl) || (jestW('uv') && !N.uv_wl)
+              || (grzStyk() && !N.grz_wl) || (jestCichy && !N.cichy_wl);
   return `<div class="tresc">
-    <div class="mrow ${SRV_S.obejscie_sonda?'wl':''}" data-lv="k.obejscie_sonda" onclick="obejscieSonda()">
+    ${jestW('dol')  ? wierszWyl('dol_wl', 'Dolewanie', N.dol_wl ? '' : 'wyłączone — sonda dalej pilnuje suchobiegu') : ''}
+    ${jestW('pluk') ? wierszWyl('pluk_wl', 'Płukanie filtra', N.pluk_wl ? '' : 'wyłączone — bez harmonogramu i przycisku') : ''}
+    ${jestCichy     ? wierszWyl('cichy_wl', 'Tryb cichy', N.cichy_wl ? '' : 'wyłączony — bez kafla i harmonogramu') : ''}
+    ${grzStyk()     ? wierszWyl('grz_wl', 'Grzanie', N.grz_wl ? '' : 'wyłączone — temperatura tylko do podglądu') : ''}
+    ${jestW('uv')   ? wierszWyl('uv_wl', 'Lampa UV') : ''}
+    ${zdjete ? `
+      <div class="ostrzega" data-lv="ostrzega"><b>Funkcja zdjęta z ruchu — nie wraca sama.</b>
+      Znika z menu serwisowego, harmonogramów i odczytów (temperatura zostaje do podglądu). Włącza ją
+      z powrotem człowiek — sprawdź tę listę, zanim oddasz obiekt.</div>` : ''}
+    <div class="grupka" data-lv="g">OBEJŚCIA</div>
+    <div class="mrow szary ${SRV_S.obejscie_sonda?'wl':''}" data-lv="k.obejscie_sonda" onclick="obejscieSonda()">
       <span class="ptaszek">${PTASZEK}</span>
       ${/* CO OBEJŚCIE ROBI [Tomasz 2026-08-21, CLAUDE.md §6]: zdejmuje
             ochronę SUCHOBIEGOWĄ (pompa może pracować mimo nieznanego
             poziomu), ale BLOKUJE dolewanie i płukanie — bez wiarygodnego
             poziomu nie ma czym przerwać zrzutu, gdy wody zabraknie. */''}
-      <span class="t">Obejście sondy poziomu</span></div>
-    <div class="mrow ${SRV_S.obejscie_mano?'wl':''}" data-lv="k.obejscie_mano" onclick="obejscieMano()">
+      <span class="t">Sonda poziomu wody${SRV_S.obejscie_sonda ? '<i>obejście: pompa pracuje bez pomiaru, dolewanie i płukanie stoją</i>' : ''}</span></div>
+    <div class="mrow szary ${SRV_S.obejscie_mano?'wl':''}" data-lv="k.obejscie_mano" onclick="obejscieMano()">
       <span class="ptaszek">${PTASZEK}</span>
-      <span class="t">Obejście manometru</span></div>
+      <span class="t">Czujnik ciśnienia${SRV_S.obejscie_mano ? '<i>obejście: pompa pracuje bez ochrony ciśnieniowej</i>' : ''}</span></div>
     ${(SRV_S.obejscie_sonda||SRV_S.obejscie_mano) ? `
       <div class="ostrzega" data-lv="ostrzega"><b>Obejście aktywne — znacznik na pasku pilnuje z każdego
       ekranu.</b> Nie wygasa samo i <b>przetrwa zanik zasilania</b> — zdejmuje je
       wyłącznie człowiek z tego ekranu. Serwis czeka na część tygodniami,
       a samoczynny powrót blokad zatrzymałby obiekt w nocy.</div>` : ''}
-    ${/* WYŁĄCZNIKI FUNKCJI TRAFIŁY TU [Tomasz 2026-08-21: „obejścia zmień
-          na obejścia i funkcje i umieść tam lampę UV"] — to ta sama półka
-          co obejścia: świadome zdjęcie czegoś z ruchu ręką serwisanta,
-          nie nastawa procesu. W NASTAWACH UV nie ma już wiersza. */''}
-    <div class="grupka" data-lv="g">FUNKCJE — WYŁĄCZNIKI SERWISOWE</div>
-    ${/* ptaszek ZDJĘTY = funkcja nie pracuje; nastawy zostają na miejscu,
-          więc po ponownym włączeniu nie trzeba niczego ustawiać od nowa.
-          PODPIS MÓWI STAN FAKTYCZNY, nie skutek odznaczenia [2026-08-21]:
-          stały opis „wyłączone: …" przy zaznaczonym ptaszku czytał się
-          jak informacja, że funkcja stoi. */''}
-    ${/* grzanie przeniesione do ekranu Grzanie jako 'Regulacja grzania' [D-207];
-          reszta TYLKO dla funkcji obecnych w mapie sterownika */''}
-    ${jestW('dol')  ? wierszWyl('dol_wl','Dolewanie') : ''}
-    ${jestW('pluk') ? wierszWyl('pluk_wl','Płukanie filtra') : ''}
-    ${jestW('uv')   ? wierszWyl('uv_wl','Lampa UV') : ''}
-    ${(!N.dol_wl||!N.pluk_wl||!N.uv_wl) ? `
-      <div class="ostrzega" data-lv="ostrzega"><b>Funkcja zdjęta z ruchu — nie wraca sama.</b>
-      Tak samo jak obejście: wyłącza ją i włącza człowiek. Sprawdź tę listę,
-      zanim oddasz obiekt.</div>` : ''}
+
   </div>` + pasek('SERWIS · funkcje', 'serwis');
 }
 
@@ -11629,7 +11656,10 @@ if (PANEL_LEWY) {
        `null` znaczy „starszy firmware nie przysyla" i wtedy zostawiamy to,
        co jest - zgadywanie bylo wlasnie tym bledem. */
     if (d.funkcje){
-      const PAR = {grz:'grz_wl', dol:'dol_wl', pluk:'pluk_wl', uv:'uv_wl'};
+      const PAR = {grz:'grz_wl', dol:'dol_wl', pluk:'pluk_wl', uv:'uv_wl', cichy:'cichy_wl'};
+      /* [31.10] tryb cichy: null = sterownik nie zna wylacznika (linia MN bez znacznika b15) - wiersza w Funkcjach nie ma */
+      const wlJest = d.funkcje.cichy !== null && d.funkcje.cichy !== undefined;
+      if (N.cichy_wl_jest !== wlJest){ N.cichy_wl_jest = wlJest; zmiana = true; }
       for (const kf in PAR){
         const v = d.funkcje[kf];
         if (v === null || v === undefined) continue;
@@ -11834,7 +11864,7 @@ if (DUO && window.parent !== window){
     /* WYŁĄCZNIKI SERWISOWE FUNKCJI [Tomasz 2026-08-21] — panel użytkownika
        ma pokazać skutek: zimna woda, zamknięty zawór, martwy przycisk
        płukania. Bez tego wyłącznik żyłby tylko po stronie serwisu. */
-    funkcje:{grz:N.grz_wl, dol:N.dol_wl, pluk:N.pluk_wl, uv:N.uv_wl},
+    funkcje:{grz:N.grz_wl, dol:N.dol_wl, pluk:N.pluk_wl, uv:N.uv_wl, cichy:N.cichy_wl},
     /* LIMIT ZUŻYCIA WODY [Tomasz 2026-08-21: „gdy ustawione limit 0, to
        brak alarmów"] — panel użytkownika musi wiedzieć, czy ten alarm
        w ogóle istnieje: przy zerze nie ma z czym porównywać, więc

@@ -2,30 +2,30 @@
    paho_na_mqttjs.js — API Paho (tyle, ile używa apka) NA BIBLIOTECE MQTT.js W WERSJI 5.0
    [D-498, apka3 = TEST3 · MQTT 5, 26.09.2026]
    --------------------------------------------------------------------------------------------
-   PO CO: Paho w przeglądarce zna tylko MQTT 3.1/3.1.1. Zamiast przepisywać apkę (most_js.js,
+   PO CO: Paho w przeglądarce zna tylko MQTT 3.1/3.1.1. Zamiast przepisywać aplikację (most_js.js,
    index.html — kilkadziesiąt miejsc z logiką ponawiania, zakresu kont i komunikatów), podmieniamy
    SAMĄ BIBLIOTEKĘ: z zewnątrz ten plik udaje Paho, w środku łączy się MQTT.js protokołem 5.0.
    Dzięki temu apka3 różni się od apki2 wyłącznie drogą, a nie logiką — różnicę w pomiarze można
    przypisać protokołowi (granica pomiaru, zasada 3).
 
    WEJŚCIA:  globalny `mqtt` z mqtt.min.js (MQTT.js 5.16.0, ładowany WCZEŚNIEJ).
-   CO Z CZEGO WYNIKA — wiernie jak Paho, bo apka na tym polega:
+   CO Z CZEGO WYNIKA — wiernie jak Paho, bo aplikacja na tym polega:
      • odmowa CONNACK → onFailure({errorCode: 6, errorMessage: "AMQJS0006E Bad Connack return code:N ..."}),
-       gdzie N to kod w stylu 3.1.1 (apka i ekran logowania rozpoznają po nim złe hasło: 4/5).
+       gdzie N to kod w stylu 3.1.1 (aplikacja i ekran logowania rozpoznają po nim złe hasło: 4/5).
        Kody przyczyn MQTT 5 → 3.1.1:  0x84→1 (wersja), 0x85→2 (identyfikator), 0x88/0x89→3 (niedostępny),
        0x86→4 (zły login/hasło), 0x87/0x8C→5 (brak uprawnień); oryginał zostaje w treści („MQTT 5: 0x86").
      • brak CONNACK w `timeout` s → onFailure({errorCode: 1, "AMQJS0001E Connect timed out."})
      • błąd gniazda przed połączeniem → onFailure({errorCode: 7, "AMQJS0007E Socket error:..."})
      • zerwanie po połączeniu → onConnectionLost: 7 „Socket error" (błąd), 4 „Ping timed out" (keepalive),
        8 „AMQJS0008I Socket closed." (zwykłe zamknięcie, także DISCONNECT od brokera — powód v5 w treści)
-     • disconnect() → onConnectionLost({errorCode: 0, "AMQJS0000I OK."}) — Paho robi to samo, a apka
+     • disconnect() → onConnectionLost({errorCode: 0, "AMQJS0000I OK."}) — Paho robi to samo, a aplikacja
        ma na to osłonę [D-483]
      • connect() gdy połączony / send() i subscribe() gdy nie → wyjątek "AMQJS0011E Invalid state ..."
      • subscribe(t, {qos, onSuccess, onFailure}): SUBACK z kodem ≥ 0x80 (w v5 np. 0x87 „brak uprawnień")
-       = onFailure — na tym apka liczy zakres konta [D-484]
+       = onFailure — na tym aplikacja liczy zakres konta [D-484]
      • onSuccess PRZED onConnected(false, uri), jak w Paho
    WYJŚCIA:  window.Paho = { Client, Message, MQTT: { Client, Message } }.
-   ⚠ Ponawianie: `reconnectPeriod: 0` — ponawia APKA (D-310), dokładnie jak przy Paho `reconnect:false`.
+   ⚠ Ponawianie: `reconnectPeriod: 0` — ponawia APLIKACJA (D-310), dokładnie jak przy Paho `reconnect:false`.
    ⚠ Właściwości MQTT 5 (wygaśnięcie sesji, aliasy tematów) celowo jeszcze NIE — najpierw pomiar
      „to samo co apka2, tylko po v5" (skill loxone-mqtt5 §2a, D-498).
    ⛔ JEDEN WŁAŚCICIEL POŁĄCZENIA [Astra 11, 29.09.2026]: próba = numer generacji (`_gen`) + jeden termin całej
@@ -37,20 +37,20 @@
      końcu strumienia, błędzie i close() - raz; strumień otwarty po anulowaniu jest od razu porzucany.
    ⚠ MARIAŻ QUIC + TLS [B.0z-78, D-530, 01.10.2026]: trzy tryby drogi (drogaTryb niżej):
        'kolejno' - dawne zachowanie (QUIC 4 s, potem wss) - DOMYŚLNE, gdy nikt nie ustawi inaczej;
-       'mariaz'  - dwie drogi NARAZ pod jednym klientem Paho (sekcja MARIAŻ niżej) - apka T3 z budowania;
-       'tls'     - ta sama nakładka dwóch dróg, ale z samą drogą TLS (przełącznik w serwisie apki).
+       'mariaz'  - dwie drogi NARAZ pod jednym klientem Paho (sekcja MARIAŻ niżej) - aplikacja T3 z budowania;
+       'tls'     - ta sama nakładka dwóch dróg, ale z samą drogą TLS (przełącznik w serwisie aplikacji).
      Tryby 'mariaz' i 'tls' dotyczą tylko serwera z mapy QUIC_DROGI (nasz broker v5); inne serwery (zapasy)
-     zostają pojedynczym wss jak dotąd. Apka klienta (Paho 3.1.1) tej nakładki nie ma - nie zmienia się nic.
+     zostają pojedynczym wss jak dotąd. Aplikacja klienta (Paho 3.1.1) tej nakładki nie ma - nie zmienia się nic.
    ⛔ PUBLIKACJA NALEŻY DO SWOJEGO POŁĄCZENIA [zadanie 11 Astry, 02.10.2026; sekcja PUBACK niżej]: wywołanie zwrotne
      PUBACK kończy wpis w mapie TEGO połączenia (klient + generacja + mapa przechwycone przy wysyłce), najwyżej raz;
      spóźnione wywołanie starego połączenia nie rusza nowej sesji (dowód 1 Astry na 3b785af7: stara #1 kasowała nową #1
-     i strażnik PUBACK przestawał widzieć zastój). Strażnik zastoju PUBACK (5 s, z audytu WT 02.10, docs/36 §11 K7)
+     i guard PUBACK przestawał widzieć zastój). Guard zastoju PUBACK (5 s, z audytu WT 02.10, docs/36 §11 K7)
      działa TYLKO na drodze WebTransport: w trybie jednej drogi zrywa to połączenie (jak na quic/audyt-wt), w mariażu
      zamyka i odnawia SAMĄ drogę QUIC - działający TLS zostaje nietknięty.
    ⛔ JEDEN WARUNEK KAŻDEJ PRÓBY WebTransport [zadanie 12 Astry + audyt WT 02.10 K4/K5; docs/36 §11]: czyWolnoProbowacQUIC
-     (pamięć porażki NA PUNKT POŁĄCZENIA w localStorage z wersją - przeżywa logowanie -> HMI i ponowne otwarcie apki;
+     (pamięć porażki NA PUNKT POŁĄCZENIA w localStorage z wersją - przeżywa logowanie -> HMI i ponowne otwarcie aplikacji;
      dzierżawa innej karty) obowiązuje w pierwszym połączeniu obu trybów, zegarze ponowienia, zmianie sieci, powrocie na
-     ekran, strażniku drogi i przełączniku serwisu. Zmiana sieci (`online` albo zmiana `connection.type`, nie sam szacunek
+     ekran, guardzie drogi i przełączniku serwisu. Zmiana sieci (`online` albo zmiana `connection.type`, nie sam szacunek
      rtt) i przełącznik dają drugą szansę NAJWYŻEJ raz na przerwę. Porzucone uzgodnienie WebTransport = porażka QUIC
      (przeglądarka i tak je prowadzi). Liczniki i dziennik prób: Paho._diagWT() (razem i na drogę).
    ============================================================================================ */
@@ -63,7 +63,7 @@
   var SEK = window.APKA_SEKUNDA_MS || 1000;   /* [Astra 11] test offline skraca sekundę (_test_polaczenie11.html) */
   var WSS_MIN_MS = SEK;                       /* mniej niż tyle z terminu po porażce QUIC = od razu „timed out" */
   var enc = new TextEncoder();
-  /* ZEGAR MONOTONICZNY STRONY [zadanie 11 Astry]: czasy TRWANIA (czekanie na PUBACK, strażnik) liczymy performance.now() -
+  /* ZEGAR MONOTONICZNY STRONY [zadanie 11 Astry]: czasy TRWANIA (czekanie na PUBACK, guard) liczymy performance.now() -
      przestawienie zegara telefonu (sieć, strefa czasowa) ich nie skraca ani nie wydłuża. */
   var mono = function () { try { return performance.now(); } catch (e) { return Date.now(); } };
 
@@ -102,14 +102,14 @@
          raz, także dla spóźnionego wywołania starego połączenia, które stanu bieżącej sesji nie zmienia;
        • wyjątek synchroniczny publish(): wpis wycofany (koniec z błędem), wyjątek idzie dalej do wołającego;
        • QoS 0 (bez PUBACK) - bez wpisu.
-     WYJŚCIA:  nic; wynik przez poPuback. Strażnik zastoju czyta mapę przez pubWiek(). */
-  var WT_PUBACK_LIMIT_S = 5;   /* [audyt WT 02.10] = termin wyniku komendy w apce (most_js: 5 s); TLS: PUBACK p95 0,23 s */
+     WYJŚCIA:  nic; wynik przez poPuback. Guard zastoju czyta mapę przez pubWiek(). */
+  var WT_PUBACK_LIMIT_S = 5;   /* [audyt WT 02.10] = termin wyniku komendy w aplikacji (most_js: 5 s); TLS: PUBACK p95 0,23 s */
   var widocznyOd = 0;          /* chwila (mono) ostatniego powrotu karty na ekran - czas w tle nie liczy się do zastoju */
   var pubNr = 0;
   /* [zadanie 13 Astry] WYJĄTEK Z WNĘTRZA BIBLIOTEKI = WYNIK NIEPEWNY: publish() już wywołany - pakiet mógł wyjść (część
-     zapisana do gniazda, kopia drugą drogą). Znacznik `niepewne` mówi apce „nie wiadomo, czy wysłano” (most_js: wynik
+     zapisana do gniazda, kopia drugą drogą). Marker `niepewne` mówi aplikacji „nie wiadomo, czy wysłano” (most_js: wynik
      NIEZNANY, bez ponowienia z nowym id). Wyjątek „AMQJS0011E … not connected” nakładka rzuca PRZED biblioteką - bez
-     znacznika, czyli „na pewno nie wysłano”. */
+     markera, czyli „na pewno nie wysłano”. */
   var niepewny = function (e) {
     if (!e || typeof e !== 'object') { var w = new Error(String(e)); w.niepewne = true; return w; }
     try { e.niepewne = true; } catch (x) {}
@@ -140,7 +140,7 @@
     catch (e) { koniec(e); throw niepewny(e); }
   };
   /* ile ms czeka NAJSTARSZA publikacja tej mapy, licząc tylko czas widocznej karty (-1 = nic nie czeka). Telefon w tle
-     mrozi zegary JS - po powrocie PUBACK bywa jeszcze w kolejce zdarzeń; bez tego strażnik zrywałby zdrową drogę. */
+     mrozi zegary JS - po powrocie PUBACK bywa jeszcze w kolejce zdarzeń; bez tego guard zrywałby zdrową drogę. */
   var pubWiek = function (mapa) {
     var najst = null;
     if (mapa) mapa.forEach(function (t) { if (najst === null || t < najst) najst = t; });
@@ -149,7 +149,7 @@
 
   /* ------------------------------------------------------------------------------------------
      QUIC PRZEZ WebTransport [D-500 Q2]
-     QUIC_DROGI: serwer wss (host:port z ekranu logowania) -> port UDP bramki QUIC (dodatek aquareact_quic).
+     QUIC_DROGI: serwer wss (host:port z ekranu logowania) -> port UDP gatewaya QUIC (dodatek aquareact_quic).
      Tylko NASZ broker [Tomasz: „nieważne, czy zewnętrzne brokery to mają — ważne, żeby nasz to miał"].
      ------------------------------------------------------------------------------------------ */
   var QUIC_DROGI = window.APKA_QUIC || { 'aquareact.duckdns.org:8889': 8890 };
@@ -165,13 +165,13 @@
                              catch (e) { return Math.random().toString(36).slice(2) + Date.now().toString(36); } })();
   var epZ = function (url) { var m = /^[a-z]+:\/\/([^\/?#]+)/i.exec(String(url)); return m ? m[1] : String(url); };
 
-  /* PAMIĘĆ PORAŻKI QUIC - OSOBNO NA PUNKT POŁĄCZENIA (host:port UDP bramki)  [zadanie 12 Astry, 02.10.2026]
+  /* PAMIĘĆ PORAŻKI QUIC - OSOBNO NA PUNKT POŁĄCZENIA (host:port UDP gatewaya)  [zadanie 12 Astry, 02.10.2026]
      WEJŚCIA:  porażki prób QUIC (quicZapamietaj), wybaczenia (quicZapomnij: zmiana sieci, przełącznik serwisu),
-               wpisy innych kart i poprzednich otwarć apki (localStorage, wersja 1).
+               wpisy innych kart i poprzednich otwarć aplikacji (localStorage, wersja 1).
      CO Z CZEGO WYNIKA:
-       • pamięć dotyczy PUNKTU POŁĄCZENIA, nie całej apki - porażka bramki jednego serwera nie blokuje innego;
+       • pamięć dotyczy PUNKTU POŁĄCZENIA, nie całej aplikacji - porażka bramki jednego serwera nie blokuje innego;
        • w tej karcie czasy z zegara monotonicznego (PAM); w localStorage czas ścienny - wpis przeżywa przejście
-         logowanie -> HMI i ponowne otwarcie apki (w czasie przerwy apka NIE zaczyna od WebTransport). Wpis z PRZYSZŁOŚCI
+         logowanie -> HMI i ponowne otwarcie aplikacji (w czasie przerwy aplikacja NIE zaczyna od WebTransport). Wpis z PRZYSZŁOŚCI
          (zegar telefonu cofnięty o więcej niż SKOK_TOL_MS) jest nieważny, za stary - wygasł; wpis tej samej karty
          czytamy z pamięci strony (monotonicznie), cudzy dokładamy, gdy jest nowszy;
        • porażka trwa, gdy jest młodsza niż PRZERWA_MS i późniejsza niż ostatnie wybaczenie;
@@ -260,7 +260,7 @@
   /* JEDEN WARUNEK PRÓBY QUIC  [zadanie 12 Astry; dowód 5: _mOzyw omijał pamięć porażki]
      WEJŚCIA:  punkt połączenia; WebTransport w przeglądarce, pamięć porażki, dzierżawa innej karty.
      CO Z CZEGO WYNIKA: JEDYNE miejsce decyzji „czy teraz wolno zacząć próbę WebTransport” - woła je pierwsze połączenie
-               (oba tryby), zegar ponowienia, zmiana sieci i powrót na ekran (_mOzyw), strażnik drogi i przełącznik
+               (oba tryby), zegar ponowienia, zmiana sieci i powrót na ekran (_mOzyw), guard drogi i przełącznik
                serwisu. Żadna droga nie tworzy WebTransport z pominięciem tego warunku (TLS startuje od razu niezależnie).
      WYJŚCIA:  {wolno, za_ms (kiedy znowu zapytać; 0 = nie planować), powod (zdanie dla człowieka), klucz (do jednego wpisu)}. */
   var czyWolnoProbowacQUIC = function (ep) {
@@ -371,7 +371,7 @@
   Object.defineProperty(Message.prototype, 'payloadString', { get: function () { return utf8.decode(this._bajty); } });
   Object.defineProperty(Message.prototype, 'payloadBytes', { get: function () { return this._bajty; } });
 
-  /* new Client(host, port, path, clientId) albo new Client(uri, clientId) — apka używa pierwszej postaci */
+  /* new Client(host, port, path, clientId) albo new Client(uri, clientId) — aplikacja używa pierwszej postaci */
   function Client(host, port, path, clientId) {
     if (!(this instanceof Client)) return new Client(host, port, path, clientId);
     if (typeof port === 'string' && clientId === undefined && path === undefined) { this._uri = host; this.clientId = port; }
@@ -422,10 +422,10 @@
       if (o.onFailure) o.onFailure(r);
     };
     /* [D-500 Q2] QUIC NAJPIERW, wss JAKO ZAPAS — tylko dla serwera z mapy QUIC_DROGI i przeglądarki z WebTransport.
-       Porażka QUIC (UDP zablokowane, bramka nie działa, stary telefon) = od razu wss, niewidocznie dla apki,
+       Porażka QUIC (UDP zablokowane, gateway nie działa, stary telefon) = od razu wss, niewidocznie dla aplikacji,
        i przez QUIC_PRZERWA_MIN nie próbujemy QUIC na tym serwerze (inaczej każde ponowne łączenie czekałoby na
        nieudaną próbę). ⚠ Odmowa LOGOWANIA (kod 6) NIE przechodzi na wss: broker już odpowiedział przez QUIC,
-       złe hasło zostaje złym hasłem — apka ma dostać tę odmowę, a nie drugą taką samą po wss. */
+       złe hasło zostaje złym hasłem — aplikacja ma dostać tę odmowę, a nie drugą taką samą po wss. */
     var q = (!this._uri && o.useSSL) ? QUIC_DROGI[this._host + ':' + this._port] : null;
     var ep = q ? this._host + ':' + q : null, w = q ? czyWolnoProbowacQUIC(ep) : null;   /* [zadanie 12] jeden warunek */
     if (q && w.wolno) {
@@ -454,7 +454,7 @@
     var ja = this;
     if (p.martwa) return;
     var zamkniety = false, udane = false, bladGniazda = null, bladKeepalive = false, powodV5 = null;
-    var droga = budowniczy ? uri.replace(/^wss?:/, 'webtransport:') : uri;   /* do dziennika łącza apki: widać, którą drogą */
+    var droga = budowniczy ? uri.replace(/^wss?:/, 'webtransport:') : uri;   /* do dziennika łącza aplikacji: widać, którą drogą */
     var dd = DIAG.drogi[budowniczy ? 'quic' : 'tls'];
     if (budowniczy) dd.proby++;
     /* [Astra 11] czy ten klient to wciąż BIEŻĄCA droga bieżącej generacji (inaczej: wycofany, spóźniony) */
@@ -478,7 +478,7 @@
       p.martwa = true; p.etap = null; if (ja._proba === p) ja._proba = null;   /* próba zakończona sukcesem - połączenie trzyma `_k` */
       dd.polaczenia++; zdarzenie(p.gen, 'MQTT_CONNACK', droga);
       /* [zadanie 11] NOWE POŁĄCZENIE = NOWA MAPA oczekujących PUBACK; stare wywołania zwrotne kończą wpisy w swojej mapie.
-         STRAŻNIK ZASTOJU [audyt WT 02.10, K7] tylko na WebTransport: sesja formalnie żywa, która nie potwierdza publikacji
+         GUARD ZASTOJU [audyt WT 02.10, K7] tylko na WebTransport: sesja formalnie żywa, która nie potwierdza publikacji
          przez WT_PUBACK_LIMIT_S, jest zrywana (kod 7 z powodem), a QUIC trafia do pamięci porażki - następna próba wss. */
       clearInterval(ja._straz); ja._straz = null;
       var mapa = ja._pub = new Map(); ja._pubDroga = budowniczy ? 'quic' : 'tls';
@@ -515,7 +515,7 @@
       if (/keepalive/i.test(String(e && e.message))) bladKeepalive = true; else bladGniazda = e;
     });
     k.on('disconnect', function (p) { if (p && p.reasonCode) powodV5 = p.reasonCode; });   /* DISCONNECT od brokera (v5) */
-    /* zamknięcie połączenia: zdarzenie close biblioteki ALBO strażnik PUBACK (wtedy od razu) - drugi raz nic nie robi */
+    /* zamknięcie połączenia: zdarzenie close biblioteki ALBO guard PUBACK (wtedy od razu) - drugi raz nic nie robi */
     var naZamkniecie = function () {
       if (ja._k !== k) return;
       if (!udane) { if (!zamkniety) porazka(7, 'AMQJS0007E Socket error:' + (bladGniazda ? (bladGniazda.message || bladGniazda) : 'polaczenie zamkniete przed CONNACK') + '.'); return; }
@@ -531,9 +531,9 @@
   };
 
   Client.prototype.disconnect = function () {
-    if (this._m) { this._mRozlacz(); return; }   /* [B.0z-78] obie drogi naraz, jedno zdarzenie dla apki */
+    if (this._m) { this._mRozlacz(); return; }   /* [B.0z-78] obie drogi naraz, jedno zdarzenie dla aplikacji */
     if (!this._polaczony) {
-      /* [Astra 11] anulowanie próby w toku: wycofana bez wywołań zwrotnych (zdecydowała apka), bez wyjątku */
+      /* [Astra 11] anulowanie próby w toku: wycofana bez wywołań zwrotnych (zdecydowała aplikacja), bez wyjątku */
       if (this._proba) { this._wycofaj(); return; }
       throw new Error('AMQJS0011E Invalid state not connected.');
     }
@@ -548,7 +548,7 @@
     if (!this._polaczony) throw new Error('AMQJS0011E Invalid state not connected.');
     if (this._m) { this._mSubskrybuj(temat, o); return; }   /* [B.0z-78] */
     /* [Sol S19] klasa z PRAWDZIWEGO SUBACK (mSubKlasa): zerwane łącze bez SUBACK to 'transport' z rc null, a nie
-       udawane „SUBACK 0x80" - apka liczyła je jako odmowę konta (ocenZakres) */
+       udawane „SUBACK 0x80" - aplikacja liczyła je jako odmowę konta (ocenZakres) */
     var koniec = this._jednaOperacja(o, 'sub');
     try {
       this._k.subscribe(temat, { qos: o.qos || 0 }, function (blad, dane, pakiet) {
@@ -556,28 +556,28 @@
         if (w.stan === 'grant') { koniec(true, { grantedQos: [w.rc] }); return; }
         koniec(false, { errorCode: 0, errorMessage: mSubTekst(w.stan, w.rc, blad), przyczyna: { klasa: w.stan, rc: w.rc } });
       });
-    } catch (e) { koniec.anuluj(); throw e; }   /* wyjątek idzie do apki jak dotąd - bez drugiego sygnału z terminu */
+    } catch (e) { koniec.anuluj(); throw e; }   /* wyjątek idzie do aplikacji jak dotąd - bez drugiego sygnału z terminu */
   };
 
   /* JEDNA DROGA ('kolejno' albo serwer bez QUIC_DROGI): TEN SAM TERMIN OPERACJI CO W MARIAŻU  [sceptyk C, D6 - 02.10.2026]
-     WEJŚCIA:  wywołanie subscribe()/unsubscribe() apki w trybie jednej drogi, wywołanie zwrotne MQTT.js, zegar terminu,
+     WEJŚCIA:  wywołanie subscribe()/unsubscribe() aplikacji w trybie jednej drogi, wywołanie zwrotne MQTT.js, zegar terminu,
                generacja połączenia (_gen: disconnect() i każdy nowy connect() ją podbijają).
-     CO Z CZEGO WYNIKA: dotąd broker, który nie oddał SUBACK przy żywym połączeniu, zostawiał operację bez końca - apka
+     CO Z CZEGO WYNIKA: dotąd broker, który nie oddał SUBACK przy żywym połączeniu, zostawiał operację bez końca - aplikacja
                nie dostawała ani sukcesu, ani porażki (S17 naprawił to tylko w mariażu). Tryb jednej drogi to nie tylko
                dawny 'kolejno', ale KAŻDY serwer spoza QUIC_DROGI (np. broker zapasowy) - więc ta sama obietnica:
                  • najwyżej JEDNO wywołanie zwrotne na operację (spóźniony SUBACK po terminie nic nie woła);
                  • brak odpowiedzi w M_SUB_LIMIT_MS = jedno onFailure z przyczyną 'timeout' (jak w mariażu);
                  • po disconnect() / nowym connect() (inna generacja) - zero wywołań: prawdziwe MQTT.js end(false) czeka na
                    SUBACK i oddawało onSuccess już PO rozłączeniu (to samo zjawisko co R9 mariażu);
-                 • termin, który upłynął przy zerwanym połączeniu, nie woła nic - zerwanie apka dostała w onConnectionLost
+                 • termin, który upłynął przy zerwanym połączeniu, nie woła nic - zerwanie aplikacja dostała w onConnectionLost
                    (jak Paho; wynik transportu od biblioteki, jeśli przyszedł wcześniej, zostaje jak dotąd).
      WYJŚCIA:  funkcja koniec(ok, wynik) - pierwsze wołanie rozstrzyga, kolejne są puste; koniec.anuluj() - bez wywołań
-               (wyjątek synchroniczny biblioteki idzie do apki jak dotąd, termin już nic nie dołoży). */
+               (wyjątek synchroniczny biblioteki idzie do aplikacji jak dotąd, termin już nic nie dołoży). */
   Client.prototype._jednaOperacja = function (o, rodzaj) {
     var ja = this, gen = this._gen, k = this._k, zrobione = false;
     var zegar = setTimeout(function () {
       if (zrobione) return;
-      if (!ja._polaczony || ja._k !== k) { zrobione = true; return; }   /* połączenie już nie to - apka wie z onConnectionLost */
+      if (!ja._polaczony || ja._k !== k) { zrobione = true; return; }   /* połączenie już nie to - aplikacja wie z onConnectionLost */
       koniec(false, rodzaj === 'sub'
         ? { errorCode: 0, errorMessage: mSubTekst('timeout', null), przyczyna: { klasa: 'timeout', rc: null } }
         : { errorCode: 0, errorMessage: 'UNSUBACK - brak odpowiedzi brokera w ' + Math.round(M_SUB_LIMIT_MS / SEK) + ' s' });
@@ -623,63 +623,63 @@
      ------------------------------------------------------------------------------------------
      PO CO: pomiar 01.10 (docs/36 §9): Wi-Fi → GSM — QUIC nie zrywa (ale opóźnia do 6 s i gubi), TLS zrywa
      i wraca w ~2 s; po braku zasięgu QUIC wraca wolniej (Chrome wstrzymuje QUIC). Obie drogi razem nigdy nie
-     były gorsze od lepszej z nich. Miejsce użycia apki to hala, spa, wieś, góry - Wi-Fi na granicy zasięgu.
-     WEJŚCIA:  tryb drogi (drogaTryb), serwer z QUIC_DROGI, WebTransport w przeglądarce, opcje connect() apki.
+     były gorsze od lepszej z nich. Miejsce użycia aplikacji to hala, spa, wieś, góry - Wi-Fi na granicy zasięgu.
+     WEJŚCIA:  tryb drogi (drogaTryb), serwer z QUIC_DROGI, WebTransport w przeglądarce, opcje connect() aplikacji.
      CO Z CZEGO WYNIKA:
-       • connect() otwiera RÓWNOLEGLE dwie drogi do TEGO SAMEGO brokera v5: QUIC (WebTransport przez bramkę
+       • connect() otwiera RÓWNOLEGLE dwie drogi do TEGO SAMEGO brokera v5: QUIC (WebTransport przez gateway
          aquareact_quic, port z QUIC_DROGI) i TLS (wss). Każda ma PEŁNY termin z opcji (limit 4 s dla QUIC
          dotyczy tylko trybu 'kolejno'). Identyfikatory RÓŻNE: TLS = clientId, QUIC = clientId + 'q' - przy
          tym samym broker przejmowałby sesję i wyrzucał drugą drogę, czyli pętla zerwań.
-       • apka widzi JEDNO połączenie: onSuccess i onConnected przy pierwszym CONNACK; onFailure dopiero, gdy
+       • aplikacja widzi JEDNO połączenie: onSuccess i onConnected przy pierwszym CONNACK; onFailure dopiero, gdy
          padły obie (wyjątek: odmowa LOGOWANIA z którejkolwiek - ten sam broker, druga droga powie to samo);
          onConnectionLost dopiero po zerwaniu OSTATNIEJ drogi. Zgubienie jednej drogi to linia w dzienniku
          łącza (onDroga) i ciche ponowienie - zielony pasek zostaje („kółko zamiast błędu").
        • ODBIÓR (_mOdbior): sterownik nadaje raz, broker oddaje wiadomość OBU sesjom - pierwsza wygrywa, kopia
          z drugiej drogi jest odrzucana (parowanie po treści w oknie 30 s, opis przy funkcji).
-       • WYSYŁKA (_mWyslij): rozkazy `komenda` (z id - sterownik odsiewa powtórkę, 20a4 _siec_kom_powtorka) i
+       • WYSYŁKA (_mWyslij): commandy `komenda` (z id - sterownik odsiewa powtórkę, 20a4 _siec_kom_powtorka) i
          odnowienie podglądu `zadanie` z liczbą (bez skutków ubocznych) idą OBIEMA drogami; reszta JEDNĄ - pełny
-         blok, dziennik, karta SD, historia, rezerwa, dziennik apki wykonałyby się w sterowniku dwa razy
+         blok, dziennik, karta SD, historia, rezerwa, dziennik aplikacji wykonałyby się w sterowniku dwa razy
          (`zadanie` odsiewa tylko powtórkę OSTATNIEGO w 3 s, a QUIC potrafi przyjść 6 s później).
-         ⚠ Zasada „nieznane = JEDNA drogą": nowa prośba dopisana kiedyś do apki nie pojedzie podwójnie po cichu.
+         ⚠ Zasada „nieznane = JEDNA drogą": nowa prośba dopisana kiedyś do aplikacji nie pojedzie podwójnie po cichu.
        • drogę, która padła, nakładka przywraca sama: TLS po 1, 2, 5, 10, 30 s; QUIC raz po 1 s, a po nieudanej
          próbie po QUIC_PRZERWA_MIN albo przy zmianie sieci (raz na przerwę); przy powrocie na ekran TLS od razu,
          QUIC tylko gdy pozwala czyWolnoProbowacQUIC [zadanie 12 - jeden warunek dla każdej próby WebTransport]. Dotyczy
-         też drogi, która padła PRZED pierwszym CONNACK - ponowienie liczy się od niego (bramka QUIC wyłączona =
+         też drogi, która padła PRZED pierwszym CONNACK - ponowienie liczy się od niego (gateway QUIC wyłączona =
          QUIC znowu po 10 min; TLS urwany w trakcie łączenia = TLS po 1 s) [sceptyk 01.10, W1/W2]. Drogę, której
          broker ODMÓWIŁ LOGOWANIA w trwającej sesji, próbujemy co QUIC_PRZERWA_MIN (zmiana sieci i powrót na ekran
          - od razu), z jednym zdaniem w dzienniku łącza na sesję [sceptyk 01.10, W3].
          Karta w tle - nie ponawiamy (Android i tak mrozi gniazda, D-310).
-     WYJŚCIA:  API Paho jak wyżej + onDroga(tekst) + Paho.droga (przełącznik z serwisu apki).
+     WYJŚCIA:  API Paho jak wyżej + onDroga(tekst) + Paho.droga (przełącznik z serwisu aplikacji).
      ⚠ Bramka QUIC wyłączona w HA albo UDP zablokowane = QUIC pada przy próbie, zostaje sam TLS - bez onFailure
-       i bez komunikatu błędu (wyłącznik globalny bez apki, wymaganie Tomasza 01.10).
+       i bez komunikatu błędu (wyłącznik globalny bez aplikacji, wymaganie Tomasza 01.10).
      ========================================================================================== */
   var M_OKNO_MS = 30 * SEK;       /* okno parowania kopii: dużo ponad zmierzone 6 s opóźnienia QUIC (docs/36 §9) */
   var M_OKNO_MAX = 2000;          /* najwyżej tyle kluczy w pamięci (podgląd to ~1-2 wiadomości/s - zapas kilkunastokrotny) */
-  var M_DOSLIJ_MS = 6 * SEK;      /* rozkaz bez PUBACK na drodze, młodszy niż tyle, jedzie nią ponownie po jej powrocie */
+  var M_DOSLIJ_MS = 6 * SEK;      /* command bez PUBACK na drodze, młodszy niż tyle, jedzie nią ponownie po jej powrocie */
   var M_SWIEZA_MS = 3 * SEK;      /* TLS „żywy" do wysyłki jedną drogą: odebrał coś w tym czasie */
-  var M_CISZA_MS = 20 * SEK;      /* strażnik drogi: tyle ciszy jednej drogi… */
+  var M_CISZA_MS = 20 * SEK;      /* guard drogi: tyle ciszy jednej drogi… */
   var M_CISZA_INNA = 5;           /* …przy co najmniej tylu wiadomościach drugą = droga martwa, choć „połączona" */
-  var M_STRAZ_MS = 5 * SEK;       /* co tyle patrzy strażnik drogi */
-  var M_TLS_ODSTEPY = [1, 2, 5, 10, 30];   /* s - ponowienie zgubionej drogi TLS, apka nic o tym nie wie */
+  var M_STRAZ_MS = 5 * SEK;       /* co tyle patrzy guard drogi */
+  var M_TLS_ODSTEPY = [1, 2, 5, 10, 30];   /* s - ponowienie zgubionej drogi TLS, aplikacja nic o tym nie wie */
   var M_QUIC_PO_ZERWANIU_S = 1;   /* zerwany QUIC, który DZIAŁAŁ: jedna szybka próba; jej porażka = pamięć porażki */
   var M_RZADKO_MS = QUIC_PRZERWA_MIN * 60 * SEK;   /* droga, która NIE WSTAJE: tyle między próbami (= pamięć porażki QUIC) */
-  var M_ROZKAZY_MAX = 50;         /* bezpiecznik listy rozkazów do dosłania (i tak żyją 6 s) */
-  var M_SUB_LIMIT_MS = 10 * SEK;  /* [Sol S17] JEDEN termin publicznej operacji SUBSCRIBE/UNSUBSCRIBE (= limit connect() apki);
+  var M_ROZKAZY_MAX = 50;         /* bezpiecznik listy commandów do dosłania (i tak żyją 6 s) */
+  var M_SUB_LIMIT_MS = 10 * SEK;  /* [Sol S17] JEDEN termin publicznej operacji SUBSCRIBE/UNSUBSCRIBE (= limit connect() aplikacji);
                                      ponowne połączenie drogi go NIE przedłuża - liczy się od wywołania subscribe()/unsubscribe() */
   /* tematy STANU: ostatnia wartość ma znaczenie, nie liczba wiadomości - wyjątek w parowaniu (_mOdbior) */
   var M_TEMATY_STANU = /\/(status|stan|serwery|nazwy)$/;
   /* [Sol S20] ODPOWIEDZI KARTY (pliki, plik, okres) BEZ PAROWANIA TREŚCI: dwie ODRĘBNE odpowiedzi o tej samej treści
      wyglądały jak kopia (np. ta sama strona na nową prośbę w oknie 30 s, gdy druga droga dopiero się zapisała) i jedna
-     przepadała. Przechodzi KAŻDA kopia z obu dróg; tożsamość rozstrzyga MOST: rid/part (nowy sterownik) albo dawne
+     przepadała. Przechodzi KAŻDA kopia z obu dróg; tożsamość rozstrzyga BRIDGE: rid/part (nowy sterownik) albo dawne
      bramki kategorii/nazwy/pozycji (stary). Liczniki ruchu dróg - jak dla każdej wiadomości. */
   var M_TEMATY_RPC = /\/(pliki|plik|okres)$/;
   var NAZWA = { tls: 'TLS', quic: 'QUIC' };
 
   /* TRYB DROGI - skąd się bierze, od najmocniejszego:
-       1. przełącznik w serwisie apki w TEJ karcie (Paho.droga.ustaw) - działa także, gdy pamięć telefonu zawodzi;
+       1. przełącznik w serwisie aplikacji w TEJ karcie (Paho.droga.ustaw) - działa także, gdy pamięć telefonu zawodzi;
        2. ?droga=mariaz|tls|kolejno w adresie - do prób, pamiętane w KARCIE (sessionStorage), żeby przeżyło
           przejście logowanie -> HMI;
-       3. przełącznik zapamiętany w telefonie (localStorage, klucz z przedrostkiem apki - T2/T3 osobno);
+       3. przełącznik zapamiętany w telefonie (localStorage, klucz z przedrostkiem aplikacji - T2/T3 osobno);
        4. window.APKA_DROGA z budowania (zbuduj_pwa.py --apka3: 'mariaz');
        5. 'kolejno' - dawne zachowanie. */
   var TRYBY = { mariaz: 1, tls: 1, kolejno: 1 };
@@ -731,9 +731,9 @@
       return { nazwa: nazwa, uri: uri, budowniczy: bud, cid: cid, k: null, stan: 'stop', gen: 0, zegar: null, ponow: null,
                ponowNr: 0, ostOdbior: 0, licz: 0, innyPrzyOst: 0, blad: null, zerwanaOd: 0, bylaOk: false,
                odmowy: 0,     /* odmowy logowania tej drogi w trwającej sesji (od ostatniego CONNACK) - _mPorazka */
-               liczWsp: 0, innyPrzyOstWsp: 0,   /* [Sol S19] wiadomości tematów gotowych na OBU drogach (strażnik) */
+               liczWsp: 0, innyPrzyOstWsp: 0,   /* [Sol S19] wiadomości tematów gotowych na OBU drogach (guard) */
                prob: 0,       /* [Sol S22] próby połączenia tej drogi w sesji (diagnostyka serwisu) */
-               pub: null, pubStraz: null, ostPuback: 0,   /* [zadanie 11] oczekujące PUBACK połączenia, strażnik (QUIC) */
+               pub: null, pubStraz: null, ostPuback: 0,   /* [zadanie 11] oczekujące PUBACK połączenia, guard (QUIC) */
                sub: new Map() };   /* [Sol S18] filtr -> ostatnia próba SUBSCRIBE tej drogi {rev, gen, k, stan, rc} */
     };
     var st = { o: o, tryb: tryb, polaczony: false, martwa: false, limit: (o.timeout || 30) * SEK,
@@ -819,10 +819,10 @@
       if (zamkniety || !zywa() || D.k !== k) { zamkniety = true; try { k.end(true); } catch (e) {} return; }   /* spóźniona */
       clearTimeout(D.zegar); udane = true;
       DIAG.drogi[D.nazwa].polaczenia++; zdarzenie(g, 'MQTT_CONNACK', D.nazwa);
-      /* [zadanie 11, audyt WT 02.10 K7] STRAŻNIK ZASTOJU PUBACK - TYLKO DROGA QUIC: brak PUBACK przez WT_PUBACK_LIMIT_S
+      /* [zadanie 11, audyt WT 02.10 K7] GUARD ZASTOJU PUBACK - TYLKO DROGA QUIC: brak PUBACK przez WT_PUBACK_LIMIT_S
          (czas widocznej karty) = droga QUIC martwa, choć „połączona”. Zamykamy SAMĄ ją (dalej jak każde zerwanie drogi:
-         _mUtrata - TLS niesie = apka nic nie wie, ponowienie po pamięci porażki; TLS też leży = jedno onConnectionLost).
-         Sprawnego TLS strażnik nie dotyka [zadanie 1 Astry]. */
+         _mUtrata - TLS niesie = aplikacja nic nie wie, ponowienie po pamięci porażki; TLS też leży = jedno onConnectionLost).
+         Sprawnego TLS guard nie dotyka [zadanie 1 Astry]. */
       if (D === st.quic) {
         D.pubStraz = setInterval(function () {
           if (!zywa() || D.k !== k || D.pub !== mapa) { clearInterval(D.pubStraz); D.pubStraz = null; return; }
@@ -850,7 +850,7 @@
       if (/keepalive/i.test(String(e && e.message))) bladKeepalive = true; else bladGniazda = e;
     });
     k.on('disconnect', function (p) { if (p && p.reasonCode) powodV5 = p.reasonCode; });
-    /* zamknięcie drogi: zdarzenie close biblioteki ALBO strażnik PUBACK (od razu) - drugi raz nic nie robi (D.k !== k) */
+    /* zamknięcie drogi: zdarzenie close biblioteki ALBO guard PUBACK (od razu) - drugi raz nic nie robi (D.k !== k) */
     var naZamkniecie = function () {
       if (!zywa() || D.k !== k) return;
       if (!udane) { if (!zamkniety) porazka(7, 'AMQJS0007E Socket error:' + (bladGniazda ? (bladGniazda.message || bladGniazda) : 'polaczenie zamkniete przed CONNACK') + '.'); return; }
@@ -861,15 +861,15 @@
                         : bladGniazda ? { errorCode: 7, errorMessage: 'AMQJS0007E Socket error:' + (bladGniazda.message || bladGniazda) + '.' }
                         : { errorCode: 8, errorMessage: 'AMQJS0008I Socket closed.' + (powodV5 ? ' (MQTT 5 DISCONNECT ' + hex(powodV5) + ')' : '') });
       /* [Sol S17] próby SUBSCRIBE/UNSUBSCRIBE tej drogi skończyły się transportem; druga droga może jeszcze dać wynik.
-         Gdy padła cała sesja, _mUtrata już anulował operacje - apka dostaje samo onConnectionLost, jak w Paho. */
+         Gdy padła cała sesja, _mUtrata już anulował operacje - aplikacja dostaje samo onConnectionLost, jak w Paho. */
       if (ja._m === st && !st.martwa) ja._mProbyDrogiPadly(st, D, k);
     };
     k.on('close', naZamkniecie);
   };
 
-  /* DROGA WSTAŁA. Pierwsza w sesji = połączenie dla apki. Kolejna (druga dołącza albo zgubiona wraca) = ta sama
-     lista tematów i rozkazy bez PUBACK z ostatnich 6 s, w kolejności, PRZED nowymi - sterownik weźmie je za
-     powtórkę (to samo id), a kolejność rozkazów na tej drodze zostaje zachowana (ryzyko R2 projektu). */
+  /* DROGA WSTAŁA. Pierwsza w sesji = połączenie dla aplikacji. Kolejna (druga dołącza albo zgubiona wraca) = ta sama
+     lista tematów i commandy bez PUBACK z ostatnich 6 s, w kolejności, PRZED nowymi - sterownik weźmie je za
+     powtórkę (to samo id), a kolejność commandów na tej drodze zostaje zachowana (ryzyko R2 projektu). */
   Client.prototype._mPolaczona = function (st, D) {
     var E = inna(st, D), teraz = Date.now();
     var przerwa = D.zerwanaOd ? Math.round((teraz - D.zerwanaOd) / SEK) : null;
@@ -889,8 +889,8 @@
          (st.ozywCzeka) - obsługujemy ją teraz, inaczej przepadała (Wi-Fi -> GSM w trakcie łączenia) */
       if (st.ozywCzeka) { var pw = st.ozywCzeka; st.ozywCzeka = null; this._mOzyw(pw + ' w trakcie łączenia'); }
       /* [sceptyk 01.10, W1/W2] DRUGA DROGA PADŁA PRZED TYM CONNACK (_mPorazka: „czekam na …") - dotąd nikt jej nie
-         ponawiał i leżała do końca sesji: bramka QUIC wyłączona = sam TLS na zawsze (wbrew obietnicy „QUIC wraca
-         po 10 min"), TLS urwany przy przejściu Wi-Fi -> GSM = sam QUIC i strażnik drogi ślepy (patrzy tylko przy
+         ponawiał i leżała do końca sesji: gateway QUIC wyłączona = sam TLS na zawsze (wbrew obietnicy „QUIC wraca
+         po 10 min"), TLS urwany przy przejściu Wi-Fi -> GSM = sam QUIC i guard drogi ślepy (patrzy tylko przy
          obu „ok"). Teraz zwykłe ponowienie: QUIC po pamięci porażki (10 min) albo przy zmianie sieci, TLS po 1 s. */
       if (E.blad && !E.k && !E.ponow && E.stan !== 'ok') {
         var za = this._mPonow(st, E);
@@ -899,7 +899,7 @@
     } else {
       var ja = this;
       /* [Sol S18] te same żądane filtry przez dispatcher: próba z wywołaniem zwrotnym - jej grant może skończyć
-         operację apki, która jeszcze czeka (QUIC pierwszy, TLS dołącza, QUIC gubi SUBACK) */
+         operację aplikacji, która jeszcze czeka (QUIC pierwszy, TLS dołącza, QUIC gubi SUBACK) */
       st.sub.forEach(function (wpis, temat) { if (wpis.chce) ja._mSubNaDrodze(st, D, temat, wpis); });
       var ile = this._mDoslij(st, D);
       this._mLog(NAZWA[D.nazwa] + (D.bylaOk ? ' wróciła' + (przerwa != null ? ' po ' + przerwa + ' s' : '') : ' dołączyła')
@@ -962,7 +962,7 @@
     var rc = /return code:\s*(\d)/.exec((r && r.errorMessage) || ''); rc = rc ? +rc[1] : null;
     var logowanie = r.errorCode === 6 && (rc === 4 || rc === 5);
     /* pamięć porażki QUIC: każda nieudana próba, a odmowa logowania tylko w TRWAJĄCEJ sesji (przed pierwszym
-       połączeniem odmowa kończy całą próbę onFailure - apka i tak nie połączy się tym kontem żadną drogą) */
+       połączeniem odmowa kończy całą próbę onFailure - aplikacja i tak nie połączy się tym kontem żadną drogą) */
     if (D === st.quic && (!logowanie || st.polaczony)) quicZapamietaj(st.ep, r.errorMessage);
     if (!st.polaczony) {
       if (logowanie) { this._mLog(NAZWA[D.nazwa] + ': broker odrzucił logowanie - koniec próby'); this._mKoniec(st, 'porazka', r); return; }
@@ -973,8 +973,8 @@
     /* [sceptyk 01.10, W3] ODMOWA LOGOWANIA W TRWAJĄCEJ SESJI (hasło zmienione w Managerze, a druga droga jedzie
        jeszcze na starym logowaniu; konto bez prawa do identyfikatora „…q"): dawniej QUIC co ~1 s bez końca
        (25 prób i 25 linii dziennika w 30 s), TLS co 1/2/5/10/30 s. Teraz ta droga próbuje rzadko (M_RZADKO_MS,
-       zmiana sieci i powrót na ekran - od razu), a zdanie do dziennika łącza idzie RAZ na sesję; apka nic nie
-       wie, dopóki druga droga niesie (gdy i ona padnie, apka łączy od nowa i dostaje odmowę jak zawsze, kod 6). */
+       zmiana sieci i powrót na ekran - od razu), a zdanie do dziennika łącza idzie RAZ na sesję; aplikacja nic nie
+       wie, dopóki druga droga niesie (gdy i ona padnie, aplikacja łączy od nowa i dostaje odmowę jak zawsze, kod 6). */
     if (logowanie) {
       D.odmowy++;
       var za = this._mPonow(st, D);
@@ -987,13 +987,13 @@
     this._mPonow(st, D);
   };
 
-  /* DROGA ZERWANA (po CONNACK). Druga stoi = apka nic nie wie, ponawiamy w tle. Ostatnia = jedno onConnectionLost
-     (apka sama łączy ponownie, D-310) - próby drugiej drogi w toku są przerywane, connect() zacznie od zera.
+  /* DROGA ZERWANA (po CONNACK). Druga stoi = aplikacja nic nie wie, ponawiamy w tle. Ostatnia = jedno onConnectionLost
+     (aplikacja sama łączy ponownie, D-310) - próby drugiej drogi w toku są przerywane, connect() zacznie od zera.
      ⚠ ROZWAŻONE I ODRZUCONE [sceptyk 01.10, pkt 4]: przy drugiej drodze W TRAKCIE próby (np. QUIC wstaje 1 s po
        swoim zerwaniu) czekać z onConnectionLost do końca tej próby, żeby nie mignęło „zerwane". To okno „połączona
-       bez łącza" do limitu connect() (10 s) - ta sama klasa błędu co X3: send() rzuca (most_js wysyła rozkaz
-       w Promise bez try - rozkaz wisi bez odpowiedzi), subscribe nie ma kim odpowiedzieć na SUBACK (zakres konta,
-       D-484), pasek zielony bez danych. Apka i tak łączy OD RAZU (polaczTeraz 'zerwane') nową sesją z obiema
+       bez łącza" do limitu connect() (10 s) - ta sama klasa błędu co X3: send() rzuca (most_js wysyła command
+       w Promise bez try - command wisi bez odpowiedzi), subscribe nie ma kim odpowiedzieć na SUBACK (zakres konta,
+       D-484), pasek zielony bez danych. Aplikacja i tak łączy OD RAZU (polaczTeraz 'zerwane') nową sesją z obiema
        drogami, więc koszt to krótkie, uczciwe „zerwane" (zasada 10) - jak przed mariażem przy samym TLS (test W5). */
   Client.prototype._mUtrata = function (st, D, r) {
     var E = inna(st, D);
@@ -1046,10 +1046,10 @@
      warunek czyWolnoProbowacQUIC [zadanie 12; dowód 5 Astry: dawniej QUIC „mimo pamięci porażki”, czyli przy migającym
      zasięgu każde `online` i każdy powrót na ekran dokładał próbę WebTransport do kolejki przeglądarki]. Zmiana sieci
      dostaje drugą szansę przez quicZapomnij (raz na przerwę) ZANIM tu wejdzie. Wstrzymany QUIC = zdanie raz na
-     przyczynę (zasada 10). Dotyczy trwającego połączenia; zerwane całe łączy apka.
+     przyczynę (zasada 10). Dotyczy trwającego połączenia; zerwane całe łączy aplikacja.
      ⚠ PRZED PIERWSZYM CONNACK tylko zapamiętujemy (st.ozywCzeka) i _mPolaczona obsługuje to zaraz po nim
        [sceptyk 01.10, W2: dawniej zdarzenie przepadało - TLS urwany przy przejściu Wi-Fi -> GSM w trakcie łączenia
-       nie wracał wcale]. Drogi w toku próby zostawiamy: skończą się w terminie connect() apki. */
+       nie wracał wcale]. Drogi w toku próby zostawiamy: skończą się w terminie connect() aplikacji. */
   Client.prototype._mOzyw = function (powod) {
     var st = this._m;
     if (!st || st.martwa) return;
@@ -1075,9 +1075,9 @@
                  + (wstrz ? (ruszone.length ? '; ' : ' - ') + 'QUIC wstrzymany (' + wstrz.powod + ') - spróbuję ' + kiedyPonow(wstrz.za_ms) : ''));
   };
 
-  /* STRAŻNIK DROGI: obie drogi niosą TEN SAM strumień, więc droga milcząca 20 s, kiedy druga w tym czasie przyniosła
+  /* GUARD DROGI: obie drogi niosą TEN SAM strumień, więc droga milcząca 20 s, kiedy druga w tym czasie przyniosła
      co najmniej 5 wiadomości, jest martwa, choć biblioteka twierdzi „połączona" (gniazdo TCP po zmianie Wi-Fi na GSM
-     potrafi wisieć do końca keepalive). Budujemy ją od nowa - apka nic nie zauważa. Tylko przy widocznej karcie. */
+     potrafi wisieć do końca keepalive). Budujemy ją od nowa - aplikacja nic nie zauważa. Tylko przy widocznej karcie. */
   Client.prototype._mStraz = function (st) {
     if (st.martwa || ukryta()) return;
     var ja = this, teraz = Date.now();
@@ -1103,7 +1103,7 @@
        • droga, która nie stoi, „widzi" to, co przyniosła druga (licznik wyrównany) - przecież tej wiadomości już
          nie dostanie, a bez tego jej późniejsza prawdziwa powtórka wyglądałaby na kopię;
        • ZASTANA (retained) równa ostatniej przekazanej dla tematu = kopia (droga, która wróciła, dostaje zastane
-         jeszcze raz - apka już je ma);
+         jeszcze raz - aplikacja już je ma);
        • `dup` z tej samej drogi, która już ten klucz dała = powtórka QoS 1 - odpada;
        • WYJĄTEK dla tematów stanu (status, stan, serwery, nazwy): „kopia" przechodzi, gdy ostatnią wartość tematu
          ustawiła TA SAMA droga - w obrębie jednej drogi kolejność jest pewna, więc jej nowsza wiadomość przywraca
@@ -1137,7 +1137,7 @@
     st.pierwsze[ja]++;
     this._mOddaj(temat, dane, pakiet);
   };
-  /* wiadomość dla apki: QoS, retained i dup zachowane (jedno miejsce - odbiór zwykły i odpowiedzi karty, S20) */
+  /* wiadomość dla aplikacji: QoS, retained i dup zachowane (jedno miejsce - odbiór zwykły i odpowiedzi karty, S20) */
   Client.prototype._mOddaj = function (temat, dane, pakiet) {
     if (!this.onMessageArrived) return;
     var m = new Message(dane); m.destinationName = temat; m.qos = pakiet.qos || 0; m.retained = !!pakiet.retain; m.duplicate = !!pakiet.dup;
@@ -1147,22 +1147,22 @@
   /* WYSYŁKA - obiema albo jedną (obiemaDrogami). Jedna = TLS, gdy stoi i coś odebrał w ostatnich 3 s (przy
      stabilnym łączu niższe p95: dom 143 ms wobec 232 ms QUIC, D-530; QUIC przy migracji: PUBACK p95 6 s i gubi,
      docs/36 §9); inaczej ta, która odebrała najświeżej. Ciężkiej prośbie zależy na doręczeniu, nie na
-     milisekundach - gdy zginie, apka ponawia po swoich limitach (8-15 s). */
+     milisekundach - gdy zginie, aplikacja ponawia po swoich limitach (8-15 s). */
   Client.prototype._mWyslij = function (m) {
     var st = this._m, ja = this, teraz = Date.now();
     var dane = m._tekst != null ? m._tekst : m._bajty, tekst = m._tekst != null ? m._tekst : utf8.decode(m._bajty);
     var opcje = { qos: m.qos || 0, retain: !!m.retained };
     if (obiemaDrogami(m.destinationName, tekst)) {
       var r = null;
-      if (/\/komenda$/.test(m.destinationName)) {     /* rozkaz pamiętamy 6 s - do dosłania drogą, która wróci */
+      if (/\/komenda$/.test(m.destinationName)) {     /* command pamiętamy 6 s - do dosłania drogą, która wróci */
         r = { temat: m.destinationName, dane: dane, opcje: opcje, kiedy: teraz, potw: {} };
         st.rozkazy = st.rozkazy.filter(function (x) { return teraz - x.kiedy < M_DOSLIJ_MS; });
         st.rozkazy.push(r); if (st.rozkazy.length > M_ROZKAZY_MAX) st.rozkazy.shift();
       }
       /* [zadanie 13] KAŻDA DROGA OSOBNO: wyjątek jednej nie zatrzymuje drugiej sprawnej (dawniej forEach przerywał się na
-         pierwszym wyjątku - QUIC rzucił, TLS nie dostał rozkazu, apka dostawała wyjątek). Ta sama treść z tym samym id
+         pierwszym wyjątku - QUIC rzucił, TLS nie dostał commandu, aplikacja dostawała wyjątek). Ta sama treść z tym samym id
          na obu - sterownik odsiewa kopię. Co najmniej jedna droga wysłała = sukces wysyłki (droga z wyjątkiem: zdanie
-         w dzienniku łącza; rozkaz zostaje do dosłania, gdy ta droga wróci). Wszystkie rzuciły = wyjątek NIEPEWNY. */
+         w dzienniku łącza; command zostaje do dosłania, gdy ta droga wróci). Wszystkie rzuciły = wyjątek NIEPEWNY. */
       var ile = 0, bledy = [], zle = [];
       [st.quic, st.tls].forEach(function (D) {
         if (!(D.stan === 'ok' && D.k)) return;
@@ -1185,8 +1185,8 @@
     if (tOk && (!qOk || teraz - t.ostOdbior < M_SWIEZA_MS || t.ostOdbior >= q.ostOdbior)) return t;
     return qOk ? q : null;
   };
-  /* PUBACK (wywołanie zwrotne MQTT.js przy QoS 1) = broker ma rozkaz tą drogą - nie dosyłamy. To FAKT O BROKERZE, więc
-     liczy się także PUBACK starego połączenia drogi (broker rozkaz dostał). [zadanie 11] Klient, generacja i mapa drogi
+  /* PUBACK (wywołanie zwrotne MQTT.js przy QoS 1) = broker ma command tą drogą - nie dosyłamy. To FAKT O BROKERZE, więc
+     liczy się także PUBACK starego połączenia drogi (broker command dostał). [zadanie 11] Klient, generacja i mapa drogi
      przechwycone TERAZ: wpis oczekiwania kończy się w mapie tego połączenia, stan nowego połączenia bez zmian. */
   Client.prototype._mPublikuj = function (D, temat, dane, opcje, r) {
     var k = D.k, g = D.gen, mapa = D.pub || null;
@@ -1195,14 +1195,14 @@
   };
 
   /* SUBSKRYPCJA: lista temat -> QoS zapamiętana (droga, która dołącza, zapisuje się na całą). Wywołanie zwrotne
-     apki RAZ, po pierwszym SUBACK z kodem - na nim apka liczy zakres konta (ocenZakres, D-484). Błąd transportu
+     aplikacji RAZ, po pierwszym SUBACK z kodem - na nim aplikacja liczy zakres konta (ocenZakres, D-484). Błąd transportu
      jednej drogi (bez kodu) = czekamy na drugą; dopiero gdy wszystkie tak skończyły - onFailure. */
   /* CZAS ŻYCIA OPERACJI SUBSCRIBE/UNSUBSCRIBE  [Sol S17, 01.10.2026]
-     WEJŚCIA:  wywołanie subscribe()/unsubscribe() apki, wywołania zwrotne MQTT.js KAŻDEJ próby (droga + generacja
+     WEJŚCIA:  wywołanie subscribe()/unsubscribe() aplikacji, wywołania zwrotne MQTT.js KAŻDEJ próby (droga + generacja
                + konkretny klient), zamknięcie drogi, koniec sesji, zegar terminu.
      CO Z CZEGO WYNIKA:
        • jedna operacja publiczna = wpis w st.ops z JEDNYM terminem (M_SUB_LIMIT_MS, nie przedłuża go żadne ponowne
-         połączenie) i znacznikiem `koniec` - wywołanie zwrotne apki najwyżej RAZ (_mOperacjaKoniec);
+         połączenie) i markerem `koniec` - wywołanie zwrotne aplikacji najwyżej RAZ (_mOperacjaKoniec);
        • próba = {droga, generacja, klient}; jej wynik liczy się tylko, gdy to wciąż TA SAMA droga, ta sama generacja
          i ten sam klient (_mProbaZywa) - SUBACK starej sesji albo starej próby drogi (QUIC zbudowany od nowa) nie
          rusza już niczego (dawniej odmowa spóźnionego QUIC kończyła operację, choć TLS dał grant);
@@ -1210,7 +1210,7 @@
        • koniec sesji (disconnect, utrata obu dróg) ANULUJE operacje bez wywołań zwrotnych, zanim zamknie klientów -
          biblioteka potrafi oddać „Connection closed” w trakcie end() albo później;
        • brak SUBACK do terminu = jedno onFailure (dawniej cisza bez końca).
-     WYJŚCIA:  onSuccess/onFailure apki najwyżej raz na operację; pusty rejestr i zatrzymane zegary po końcu.
+     WYJŚCIA:  onSuccess/onFailure aplikacji najwyżej raz na operację; pusty rejestr i zatrzymane zegary po końcu.
      ⚠ Polityka sukcesu bez zmian w tej karcie (pierwszy SUBACK z kodem rozstrzyga) - przebudowuje ją S18. */
   Client.prototype._mProbaZywa = function (st, D, gen, k) {
     return this._m === st && !st.martwa && D.gen === gen && D.k === k;
@@ -1246,7 +1246,7 @@
     this._mOperacjaKoniec(st, op, { ok: false, paho: { errorCode: 0, errorMessage: mSubTekst(klasa, rc, klasa === 'transport' ? bl : null),
                                                         przyczyna: { klasa: klasa, rc: rc }, drogi: d } });
   };
-  /* koniec operacji: znacznik PRZED wywołaniem apki (apka może w nim wołać disconnect/subscribe), zegar stop, wpis
+  /* koniec operacji: marker PRZED wywołaniem aplikacji (aplikacja może w nim wołać disconnect/subscribe), zegar stop, wpis
      z rejestru; `anuluj` = bez wywołania (koniec sesji) */
   Client.prototype._mOperacjaKoniec = function (st, op, wynik, anuluj) {
     if (op.koniec) return false;
@@ -1292,7 +1292,7 @@
     if (rc >= 0x80) return { stan: 'broker', rc: rc };
     return { stan: 'nieprawidlowy', rc: rc };
   };
-  /* [Sol S19] errorMessage w stylu Paho (zaczyna się od „SUBACK”), ale z prawdziwą przyczyną - apka nie parsuje tej
+  /* [Sol S19] errorMessage w stylu Paho (zaczyna się od „SUBACK”), ale z prawdziwą przyczyną - aplikacja nie parsuje tej
      treści (kontrakt to pole `przyczyna`), czyta ją człowiek w dzienniku łącza */
   var mSubTekst = function (klasa, rc, blad) {
     var b = blad ? ' (' + String(blad.message || blad) + ')' : '';
@@ -1317,7 +1317,7 @@
          rewizji, w aktualnej generacji i u aktualnego klienta (_mGotowyFiltr);
        • KAŻDE subscribe/unsubscribe podnosi rewizję filtra; unsubscribe zostawia nagrobek (chce: false), więc SUBACK
          wcześniejszego zapisu nie przywraca gotowości;
-       • jeden dispatcher (_mSubNaDrodze) obsługuje zapis z apki i odtworzenie na drodze, która dołącza/wraca; próba
+       • jeden dispatcher (_mSubNaDrodze) obsługuje zapis z aplikacji i odtworzenie na drodze, która dołącza/wraca; próba
          dołączającej drogi dopina się do operacji tej samej rewizji, która jeszcze czeka - jej grant ją kończy;
        • POLITYKA (propozycja Sola, do zatwierdzenia przez Tomasza): grant dowolnej aktualnej drogi = jeden sukces
          Paho; odmowa jednej drogi NIE kończy operacji, dopóki inna droga (połączona albo właśnie się łącząca) może
@@ -1325,7 +1325,7 @@
          końcu operacji aktualizuje już tylko gotowość drogi;
        • wyjątek synchroniczny subscribe() jednego filtra = wynik 'transport' tej próby, reszta odtwarza się dalej.
      WYJŚCIA:  stan filtra na drodze (czeka/grant/acl/broker/transport/nieprawidlowy), _mGotowyTemat(st, D, temat),
-               onSuccess/onFailure apki raz.
+               onSuccess/onFailure aplikacji raz.
      ⚠ Gotowość NIE daje gwarancji deduplikacji odbioru: dwie odrębne publikacje o tej samej treści rozróżni tylko
        tożsamość producenta/żądania (S20), nie gotowość tematów. */
   Client.prototype._mGotowyFiltr = function (st, D, f) {
@@ -1425,10 +1425,10 @@
   };
 
   /* ZAMKNIĘCIA. _mZamknij - jedna droga, bez zdarzeń (generacja drogi w górę). _mZamknijWszystko - koniec sesji.
-     _mKoniec - koniec sesji + JEDNO zdarzenie dla apki. _mRozlacz - disconnect() apki. _mStop - wycofanie bez słowa. */
+     _mKoniec - koniec sesji + JEDNO zdarzenie dla aplikacji. _mRozlacz - disconnect() aplikacji. _mStop - wycofanie bez słowa. */
   /* [zadanie 12 (e)] `kara` = porzucone uzgodnienie WebTransport tej drogi liczy się jak porażka QUIC (zombie w kolejce
      przeglądarki, docs/36 §11 K1b): koniec sesji bez połączenia (nowe connect() w trakcie, disconnect() w trakcie próby)
-     i utrata obu dróg. BEZ kary: apka zamknęła sesję, która działała drugą drogą (np. logowanie po sukcesie TLS - wtedy
+     i utrata obu dróg. BEZ kary: aplikacja zamknęła sesję, która działała drugą drogą (np. logowanie po sukcesie TLS - wtedy
      dzierżawa w gnieździe trzyma punkt do terminu, a HMI nie dokłada próby), przełącznik serwisu, odmowa logowania. */
   Client.prototype._mZamknij = function (st, D, grzecznie, kara) {
     if (D === st.quic && D.k && D.stan === 'laczy' && !D.wtGotowe) {
@@ -1444,7 +1444,7 @@
   };
   Client.prototype._mZamknijWszystko = function (st, grzecznie, kara) {
     st.martwa = true; clearInterval(st.straz); clearTimeout(st.przejmijZegar);
-    /* [Sol S17] NAJPIERW anulować operacje (bez wywołań apki, zegary stop), DOPIERO POTEM end() klientów */
+    /* [Sol S17] NAJPIERW anulować operacje (bez wywołań aplikacji, zegary stop), DOPIERO POTEM end() klientów */
     var ja = this;
     Array.from(st.ops.values()).forEach(function (op) { ja._mOperacjaKoniec(st, op, null, true); });
     this._mZamknij(st, st.quic, grzecznie, kara); this._mZamknij(st, st.tls, grzecznie);
@@ -1465,12 +1465,12 @@
   };
   Client.prototype._mStop = function () { if (this._m) this._mZamknijWszystko(this._m, false, true); };   /* nowe connect() w trakcie */
 
-  /* PRZEŁĄCZNIK OD RĘKI (serwis apki): sam TLS - QUIC zamykany, gdy TLS stoi (inaczej zaraz po jego wstaniu);
+  /* PRZEŁĄCZNIK OD RĘKI (serwis aplikacji): sam TLS - QUIC zamykany, gdy TLS stoi (inaczej zaraz po jego wstaniu);
      mariaż - QUIC dołącza od razu, ale przez wspólny warunek [zadanie 12]: przełącznik to wybaczenie pamięci porażki
      w TYM SAMYM budżecie co zmiana sieci (raz na przerwę), a dzierżawa innej karty obowiązuje - inaczej przełącznik
      „tam i z powrotem” byłby furtką do serii prób WebTransport. Wstrzymany QUIC = zdanie `uwaga` dla serwisu.
-     ⛔ QUIC NIE JEST ZAMYKANY, GDY JEST JEDYNĄ ŻYWĄ DROGĄ [sceptyk 01.10, X3]: apka zostałaby „połączona" bez
-       łącza - send() rzuca wyjątek, a onConnectionLost nie przychodzi (apka nie łączy od nowa). Zamiast tego:
+     ⛔ QUIC NIE JEST ZAMYKANY, GDY JEST JEDYNĄ ŻYWĄ DROGĄ [sceptyk 01.10, X3]: aplikacja zostałaby „połączona" bez
+       łącza - send() rzuca wyjątek, a onConnectionLost nie przychodzi (aplikacja nie łączy od nowa). Zamiast tego:
        TLS próbuje od razu, QUIC zamyka _mPolaczona, gdy TLS wstanie. Zwraca zdanie dla serwisu (zasada 10) albo nic. */
   Client.prototype._mTryb = function (t) {
     var st = this._m;
@@ -1526,7 +1526,7 @@
              pamiec: (function () { var o = {}; pamPunkty().forEach(function (ep) { o[ep] = pamStanJawny(ep); }); return o; })() };
   };
   /* [zadanie 12] stan pamięci porażki i dzierżawy punktu połączenia - do diagnostyki i prób offline; wyczysc() TYLKO
-     dla prób (_test_*.html: czysty start scenariusza). Bez haseł i kont. NIE do logiki apki. */
+     dla prób (_test_*.html: czysty start scenariusza). Bez haseł i kont. NIE do logiki aplikacji. */
   var pamStanJawny = function (ep) {
     var r = pamCzytaj(ep), m = mono();
     return { zostalo_ms: pamZostalo(ep), porazka_temu_ms: r.porazka === null ? null : Math.round(m - r.porazka),
@@ -1542,8 +1542,8 @@
               if (k && (k.indexOf(KL_PAM) === 0 || k.indexOf(KL_DZ) === 0)) localStorage.removeItem(k); } } catch (e) {}
     },
   };
-  /* [B.0z-78] PRZEŁĄCZNIK „QUIC + TLS naraz / sam TLS" dla serwisu apki (panel4_serwis.html - wiersz tylko w apce
-     z tą nakładką). Zapamiętany w telefonie (localStorage z przedrostkiem apki); działa OD RĘKI na żywych klientach
+  /* [B.0z-78] PRZEŁĄCZNIK „QUIC + TLS naraz / sam TLS" dla serwisu aplikacji (panel4_serwis.html - wiersz tylko w aplikacji
+     z tą nakładką). Zapamiętany w telefonie (localStorage z przedrostkiem aplikacji); działa OD RĘKI na żywych klientach
      dwóch dróg (_mTryb), a na pozostałych przy następnym connect(). Odpowiedź zawsze z opisem (zasada 10);
      `uwaga` = zdanie, gdy „sam TLS" nie mógł od ręki zamknąć QUIC, bo ten był jedyną żywą drogą (X3). */
   window.Paho.droga = {

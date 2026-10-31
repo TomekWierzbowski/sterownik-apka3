@@ -1,8 +1,8 @@
 /* ============================================================
- *  most_js.js - MOST W PRZEGLADARCE [D-221, 2026-09-06]
+ *  most_js.js - BRIDGE W PRZEGLADARCE [D-221, 2026-09-06]
  * ============================================================
  *  SPIS TRESCI
- *   [1] po co: strona na AP sterownika 1:1 z mostem
+ *   [1] po co: strona na AP sterownika 1:1 z bridge'em
  *   [2] tabele kontraktu (te same, co most.py): nastawy MN, wylaczniki,
  *       kody zaciskow, sposoby akcesoriow
  *   [3] dekodowanie: blok panelu + linia MN + rejestry -> pakiet "swiat"
@@ -11,21 +11,21 @@
  *       nastawa_na_rejestr, akc, wycisz-alarmy, ustaw-czas)
  *   [5] klient AP: /blok.txt co 1 s, /rej co 10 s, /cmd?adr=;
  *       podaje pakiety makiecie i przechwytuje fetch('/cmd?co=...')
- *   [5a] trwa edycja: wspolny znacznik otwartych edytorow makiet -> M.zajety()
- *       (przeladowanie apki po aktualizacji czeka, karta Astry 15)
+ *   [5a] trwa edycja: wspolny marker otwartych edytorow makiet -> M.zajety()
+ *       (przeladowanie aplikacji po aktualizacji czeka, karta Astry 15)
  *
  *  [1] PO CO [Tomasz 2026-09-06: „strona na AP - da sie zrobic 1:1 jak
- *  wyglada i dziala most sadzawki?" - „pelne"]. Most (most.py) liczy
+ *  wyglada i dziala bridge sadzawki?" - „pelne"]. Bridge (most.py) liczy
  *  pakiet stanu (74 pola) z trzech surowych rzeczy: bloku panelu (72
  *  slowa, ten sam, ktory idzie do Tab5), linii nastaw MN (128 pol)
  *  i kilku rejestrow. Sterownik na AP NIE liczy tego w C (bylaby to
  *  druga kopia 74 pol - zrodlo rozjazdow, patrz D-217), tylko wystawia
  *  surowe linie MB;/MN; jak po USB, a liczy TEN plik - ta sama makieta
- *  pod mostem na PC i pod AP na telefonie. Docelowo most.py zostaje
+ *  pod bridge'em na PC i pod AP na telefonie. Docelowo most.py zostaje
  *  samym transportem po USB, a jedyny zapis dekodowania jest tutaj.
  *
  *  ⚠ PRZEJSCIOWO DWA ZAPISY (Python w most.py i JS tutaj) - spina je
- *  sonda parytetu (makieta pod mostem liczy swiat z /blok.txt mostu
+ *  probe parytetu (makieta pod bridge'em liczy swiat z /blok.txt bridge'a
  *  i porownuje z /stan.json pole po polu). Rozjazd = blad w porcie.
  * ============================================================ */
 (function () {
@@ -92,7 +92,7 @@
     }
     return null;
   }
-  /* [D-533] linia `KT;<nr>;<zdanie>` z /blok.txt strony - zdanie odmowy komendy o numerze `nr` (to samo, co apka
+  /* [D-533] linia `KT;<nr>;<zdanie>` z /blok.txt strony - zdanie odmowy komendy o numerze `nr` (to samo, co aplikacja
      dostaje w `wynik`). Inny numer albo brak linii = '' (stary sterownik, albo wynik nalezy do innej komendy). */
   function zdanieOdmowyKT(txt, nr) {
     if (!txt) return '';
@@ -155,9 +155,12 @@
     }
     return out;
   }
+  /* [31.10] tryb cichy: b8/b9 = wylacznik serwisowy (1 = w ruchu), b15 = sterownik go zna; bez znacznika null
+     (starszy firmware - menu nie pokazuje wiersza, ekran traktuje tryb jak wlaczony) */
   function funkcjeZMn(w, o, uvZapas) {
-    if (w === null || w === undefined) return { uv: uvZapas, grz: null, dol: null, pluk: null };
-    return { grz: bit(w, 0 + o), dol: bit(w, 2 + o), pluk: bit(w, 4 + o), uv: bit(w, 6 + o) };
+    if (w === null || w === undefined) return { uv: uvZapas, grz: null, dol: null, pluk: null, cichy: null };
+    return { grz: bit(w, 0 + o), dol: bit(w, 2 + o), pluk: bit(w, 4 + o), uv: bit(w, 6 + o),
+             cichy: (w & 0x8000) ? bit(w, 8 + o) : null };
   }
   function profilZSlow(slowa) {
     if (!slowa || slowa.every(s => s === null)) return null;
@@ -225,11 +228,11 @@
   }
   /* TRYB CICHY [D-495, 2026-09-26] - port cichy_z_rejestrow z most.py, 1:1
      WEJSCIA:  rejestry z 06b_tryb_cichy.h [7]: 3328+o stan (bity), 3330+o minuty do konca,
-               5120+o*10 +1 sposob / +2 czas. Apka ma je z lustra (paczki `zm`, zakresy SIEC_ZM_R),
-               strona na AP i most - z odczytu /rej.
+               5120+o*10 +1 sposob / +2 czas. Aplikacja ma je z lustra (paczki `zm`, zakresy SIEC_ZM_R),
+               strona na AP i bridge - z odczytu /rej.
      CO Z CZEGO WYNIKA: bit 0 „funkcja jest" (przelew + zawor przypisany) rozstrzyga o wszystkim -
                bez niego nie ma kafla, bloczka ani sekcji serwisu („nie pokazuj, czego nie ma").
-               Lustro apki niesie 0 tam, gdzie rejestru nie da sie odczytac - 0 to tez „nie ma".
+               Lustro aplikacji niesie 0 tam, gdzie rejestru nie da sie odczytac - 0 to tez „nie ma".
      WYJSCIA:  plaskie pola `cichy_*` swiata - te same klucze co w most.py (sonda parytetu). */
   const CICHY_HARM = 5000, CICHY_HARM_KROK = 60, CICHY_NAST = 5120, CICHY_NAST_KROK = 10,
         CICHY_STAN = 3328, CICHY_POZOST = 3330;
@@ -294,7 +297,7 @@
       awRtcOdczyt: almBit(39),                            /* [D-505] zegar nie odpowiada */
       awWejscia: almBit(40),                              /* [D-506] wejścia nieczytelne - pompy stoją */
       awNastawyFabr: almBit(41),                          /* [D-507] nastawy fabryczne po odrzuconym zapisie */
-      awPiesPetli: almBit(42),                            /* [D-538] pętla bez psa zadań */
+      awPiesPetli: almBit(42),                            /* [D-538] pętla bez watchdoga zadań */
       awsonda: alm(2), awmano: alm(4), awtemp: alm(6), awtempBrak: alm(28),
       /* [D-241] alarmy kwitowalne bez klucza - jak most.py */
       awDolew: alm(0), awBwNiesk: alm(12), awZuzycie: alm(19), awPrefill: almBit(o === 0 ? 21 : 32), awWyciek: alm(26),
@@ -373,7 +376,7 @@
     if (out.cichy_jest) { nast.cichy_sposob = out.cichy_sposob; nast.cichy_czas = out.cichy_czas; }
     return out;
   }
-  /* obieg z bloku: pierwszy, ktory istnieje (most dostaje --obieg; na AP wynika z bloku) */
+  /* obieg z bloku: pierwszy, ktory istnieje (bridge dostaje --obieg; na AP wynika z bloku) */
   function obiegZBloku(b) {
     if (b && b.length > 10 && (b[10] & 1)) return 0;
     if (b && b.length > 40 && (b[40] & 1)) return 1;
@@ -399,6 +402,8 @@
     /* TRYB CICHY [D-495]: poza tabela MN - 5120 + obieg*10 (+1 sposob, +2 czas [min]) */
     if (klucz === 'cichy_sposob') return [CICHY_NAST + o * CICHY_NAST_KROK + 1, Math.round(parseFloat(wart)) & 0xFFFF];
     if (klucz === 'cichy_czas')   return [CICHY_NAST + o * CICHY_NAST_KROK + 2, Math.round(parseFloat(wart)) & 0xFFFF];
+    /* [31.10] wylacznik serwisowy trybu cichego: 1 = w ruchu (wraca bitem MN b8/b9) */
+    if (klucz === 'cichy_wl')     return [CICHY_NAST + o * CICHY_NAST_KROK + 3, ['1', 'true', 'tak', 'on'].includes(s) ? 1 : 0];
     for (const [i, k, skala, rodzaj] of MN_NASTAWY) {
       if (k !== klucz) continue;
       const [baza, rel] = MN_UKLAD[i];
@@ -449,7 +454,7 @@
       return { zapisy: [0, 1, 2, 3].map(i => [4058 + i, Number((m >> BigInt(16 * i)) & 0xFFFFn)]) };
     }
     if (co === 'ustaw-czas') {
-      /* most: unix = timegm(localtime) - sterownik chodzi na czasie lokalnym */
+      /* bridge: unix = timegm(localtime) - sterownik chodzi na czasie lokalnym */
       const unix = /^\d+$/.test(w) ? parseInt(w, 10) : Math.floor(Date.now() / 1000 - new Date().getTimezoneOffset() * 60);
       return { zapisy: [[4034, (unix >> 16) & 0xFFFF], [4035, unix & 0xFFFF]] };
     }
@@ -464,7 +469,7 @@
     tryb: null,            /* null = nieaktywny, 'ap' = strona ze sterownika */
     obieg: 0,
     ost: { mb: null, mn: null, t: null, k: null, rej: {} },
-    /* liczy pakiet z surowych danych (uzywa tez sonda parytetu pod mostem) */
+    /* liczy pakiet z surowych danych (uzywa tez probe parytetu pod bridge'em) */
     swiatZ(mbTxt, mnTxt, rej, o) {
       const mb = Array.isArray(mbTxt) ? mbTxt : parsujLinie(mbTxt, 'MB;');
       const mn = Array.isArray(mnTxt) ? mnTxt : parsujLinie(mnTxt, 'MN;');
@@ -477,7 +482,7 @@
     komendaNaZapisy, nastawaNaRejestr, nastawyZMn, harmZRejestrow, cichyZRejestrow, swiatZBloku, parsujLinie, dodatki, obiegZBloku,
     MN_NASTAWY, MN_UKLAD, WYLACZNIKI,
 
-    /* pobierz rejestry /rej po 16 (jak most po USB) do M.ost.rej */
+    /* pobierz rejestry /rej po 16 (jak bridge po USB) do M.ost.rej */
     async rejestry(o) {
       const zakresy = [[4300 + o * 60, 56], [4500 + o * 10, 7], [4560 + o * 20 + 1, 1], [4024, 28], [3061 + 2 * o, 2],
                        /* TRYB CICHY [D-495]: stan (oba obiegi), zadanie/sposob/czas, harmonogram */
@@ -535,14 +540,14 @@
             if (k && k[0] >= nr) { wynik = k; zdanie = zdanieOdmowyKT(txt, nr); break; }
           } catch (e) { break; }
         }
-        /* [D-533] ZDANIE STEROWNIKA do odmowy (linia KT;) - to samo, co apka dostaje w `wynik`; starszy sterownik
+        /* [D-533] ZDANIE STEROWNIKA do odmowy (linia KT;) - to samo, co aplikacja dostaje w `wynik`; starszy sterownik
            linii KT; nie wysyla - wtedy jak dawniej sam kod */
         if (wynik && wynik[0] === nr && wynik[3] !== 0)
           return { ok: false, opis: 'sterownik ODMOWIL zapisu ' + adr + '=' + val + (zdanie ? ': ' + zdanie : '') + ' (kod ' + wynik[3] + ')' };
         /*  BRAK POTWIERDZENIA TO NIE JEST SUKCES [D-318, audyt etapu 3 pkt 6; zasada 10].
             Czekamy dwie sekundy na linię `K;` z numerem NASZEJ komendy. Gdy nie przyjdzie - albo
             przyjdzie numer dalszy, czyli nasz wynik już przepadł - sterownik mógł wykonać i mógł
-            odmówić, a apka nie wie która. Dawniej wracało wtedy „ok" i użytkownik widział
+            odmówić, a aplikacja nie wie która. Dawniej wracało wtedy „ok" i użytkownik widział
             „zrobione" nad rzeczą, która się nie stała. Teraz mówimy prawdę i odsyłamy do ekranu. */
         if (!wynik || wynik[0] !== nr)
           return { ok: false, nieznany: true, opis: 'sterownik nie potwierdził zapisu ' + adr + '=' + val + ' - sprawdź na ekranie' };
@@ -557,7 +562,7 @@
     start(podaj) {
       if (M.tryb) return;
       M.tryb = 'ap';
-      /* przechwycenie fetch('/cmd?co=...') - makieta ma 9 miejsc, ktore wolaja most tak,
+      /* przechwycenie fetch('/cmd?co=...') - makieta ma 9 miejsc, ktore wolaja bridge tak,
          jak most.html; tu tlumaczymy na rejestry i odpowiadamy tym samym JSON-em */
       const f0 = window.fetch.bind(window);
       window.fetch = function (u, opt) {
@@ -601,7 +606,7 @@
                dotknięcia i klawisze w dokumencie = ostatnia czynność człowieka.
      CO Z CZEGO WYNIKA: edycja TRWA, gdy którekolwiek źródło odpowiada „otwarty" I od ostatniej
                czynności człowieka minęło mniej niż EDYCJA_WYGASA_MS.
-     WYJŚCIA:  `M.trwaEdycja()` - prawda / fałsz; `M.edycjeOtwarte()` - nazwy otwartych (sondy, testy);
+     WYJŚCIA:  `M.trwaEdycja()` - prawda / fałsz; `M.edycjeOtwarte()` - nazwy otwartych (probe'y, testy);
                `M.zajety()` = trwa edycja ALBO komenda czeka na wynik. O `zajety()` pyta nagłówek
                hmi.html (zbuduj_pwa.py), zanim przeładuje stronę po aktualizacji service workera -
                przy „zajęty" ponawia za 10 s.
@@ -612,7 +617,7 @@
        hasło z menedżera, zdjęcie tabliczki) - i wraca na ekran główny, bez swojej zmiany.
 
      ⚠ ŹRÓDŁO JEST PYTANE, A NIE ZGŁASZA SIĘ SAMO. Stan edytora żyje w makiecie (S.ekran, H.edy,
-       wpisane pola) i tylko ona wie, co znaczy „otwarty". Pytamy w chwili decyzji, więc znacznik nie
+       wpisane pola) i tylko ona wie, co znaczy „otwarty". Pytamy w chwili decyzji, więc marker nie
        może się rozjechać z ekranem (np. zostać „otwarty" po wyjściu drogą, która zapomniała go zdjąć).
      ⚠ WYGASANIE PO BEZCZYNNOŚCI, NIE OD OTWARCIA - I ODNAWIA JE TYLKO CZŁOWIEK. Ekran przerysowuje się
        z każdą paczką ze sterownika (kilka razy na sekundę, także w tle), więc gdyby „jestem otwarty"
@@ -644,7 +649,7 @@
     return out;
   };
   /*  [30.09, przegląd k15] Zegar ścienny może się COFNĄĆ (telefon poprawia czas z sieci) - różnica wychodzi wtedy
-      ujemna i bez `dt >= 0` edycja „trwałaby” do czasu, aż zegar dogoni dawny znacznik. Ujemna = wygasła. */
+      ujemna i bez `dt >= 0` edycja „trwałaby” do czasu, aż zegar dogoni dawny timestamp. Ujemna = wygasła. */
   M.trwaEdycja = () => { const dt = Date.now() - edycjaOstCzynnosc;
     return dt >= 0 && dt < EDYCJA_WYGASA_MS && M.edycjeOtwarte().length > 0; };
   M.EDYCJA_WYGASA_MS = EDYCJA_WYGASA_MS;     /* do wglądu dla testów i sond, nie do zmiany */
@@ -654,12 +659,12 @@
     ['pointerdown', 'keydown', 'input'].forEach(z =>
       document.addEventListener(z, () => { edycjaOstCzynnosc = Date.now(); }, true));
   /*  Komendy czekające na wynik zna tylko klient chmury [6] - podmienia tę funkcję przy starcie.
-      Na AP i pod mostem nie ma service workera, więc zostaje sam znacznik edycji. */
+      Na AP i pod bridge'em nie ma service workera, więc zostaje sam marker edycji. */
   let komendyCzekaja = () => false;
   M.zajety = () => M.trwaEdycja() || komendyCzekaja();
 
   /* ---------------------------------------------------------- [5b] HISTORIA POMIARÓW [D-511]
-     [Tomasz 30.09.2026: „apka buduje wykres powoli, chciałbym, żeby pobrała i trzymała dane ze sterownika KOMPLETNE
+     [Tomasz 30.09.2026: „aplikacja buduje wykres powoli, chciałbym, żeby pobrała i trzymała dane ze sterownika KOMPLETNE
       z całej historii pomiaru”]
      WEJŚCIA:  bajty tematu `<prefiks>/historia` (nagłówek „#H;…\n” + bloki formatu z 21b_historia_pomiarow.h [1]).
      CO Z CZEGO WYNIKA: HI = CZYSTE FUNKCJE (bez przeglądarki - test offline narzedzia_hmi/test_historia_apka.js):
@@ -670,19 +675,19 @@
      WYJŚCIA:  M.HI, M.HiBaza; pobieranie (impure) siedzi w kliencie chmury [6] jako M.historia.
      ⚠ FORMAT JEST TRZECIM ZAPISEM TEGO SAMEGO UKŁADU (firmware 21b, Python historia_format.py, tu) - złota próbka
        z nagłówka firmware spina wszystkie trzy (static_assert, test_historia_format.py, test_historia_apka.js).
-     ⚠ Most (PC) i strona na AP tego nie używają - funkcje tylko leżą; IndexedDB otwiera się dopiero na prośbę. */
+     ⚠ Bridge (PC) i strona na AP tego nie używają - funkcje tylko leżą; IndexedDB otwiera się dopiero na prośbę. */
   const HI = (function () {
     const MAGIA0 = 0x48, MAGIA1 = 0x49, WERSJA = 1, NAGL_B = 16, WSP_B = 6, OB_B = 9, OBIEGOW = 2, BLOK_MAX = 255;
     const BRAK = -32768, DOBA = 86400, MIN_S = 60, BEZ_KONCA = 0xFFFFFFFF;
     const B_POMPA = 1, B_GRZANIE = 2, B_PLUKANIE = 4, B_DOLEWANIE = 8, B_OBEJ_SONDY = 16, B_OBEJ_MANO = 32, F_ALARM = 1;
-    /*  KODY ODMÓW (21b [6] HI_T_ODMOWA_*): 3 zajęte, 5 obca wersja (nadaje APKA, nie sterownik), 6 trwa aktualizacja
+    /*  KODY ODMÓW (21b [6] HI_T_ODMOWA_*): 3 zajęte, 5 obca wersja (nadaje APLIKACJA, nie sterownik), 6 trwa aktualizacja
         [przegląd historii 1, S5] - test_historia_format.py sprawdza, że firmware ma te same liczby. */
     const ODM_ZAJETE = 3, ODM_WERSJA = 5, ODM_AKTUALIZACJA = 6;
     /*  3332 b8 (21b HI_R_KARTA_WSTRZYMANA) [przegląd historii 1, S4]: karta zamontowana, ale chwilowo wstrzymana (aktualizacja
         panelu) - `od_dost` w nagłówku `start` nie jest wtedy prawdziwym początkiem danych sterownika. */
     const R_KARTA_WSTRZYMANA = 0x100;
     /*  3332 b6 / b9 [przegląd historii 2, S3] - dwie RÓŻNE rzeczy: b6 = historia ODCIĘTA po powtarzających się awariach
-        (serwis: konsola ODCIECIE), b9 = WYŁĄCZONA W OBRAZIE sterownika (ENABLE_HISTORIA=0 - świadomie, nie awaria). */
+        (serwis: konsola ODCIECIE), b9 = WYŁĄCZONA W FIRMWARZE sterownika (ENABLE_HISTORIA=0 - świadomie, nie awaria). */
     const R_ODCIETA = 0x40, R_WYL_W_OBRAZIE = 0x200;
     /* serie wykresu (wykres_temp.js SERIE): zapis = round(wartość × skala) + przesunięcie, w 0..46655 */
     const SERIE_DOM = { temp: { skala: 100, przes: 0 }, cis: { skala: 100, przes: 0 }, poz: { skala: 1, przes: 5000 } };
@@ -767,12 +772,12 @@
     }
 
     /*  ODBIÓR STRUMIENIA - stan jednej prośby. `przyjmij` zwraca, co zrobić:
-          obcy   - inna prośba / śmieć (spóźniony kawałek zastąpionej prośby, druga apka) - nic;
+          obcy   - inna prośba / śmieć (spóźniony kawałek zastąpionej prośby, druga aplikacja) - nic;
           dubel  - kawałek o numerze, który już był (druga droga, powtórka) - nic;
           start  - nagłówek (początek danych na nośnikach, zegar, wersja formatu);
           dane   - próbki z [od, do] (bloki idą w całości, filtrujemy tu);
           luka   - brakuje kawałka (także na końcu: `koniec` mówi, ile ich było) - wznowić od `od`;
-          koniec - komplet; odmowa - kod + tekst sterownika (zasada 10: apka pokazuje go wprost); stop. */
+          koniec - komplet; odmowa - kod + tekst sterownika (zasada 10: aplikacja pokazuje go wprost); stop. */
     const odbior = (id, od, dokad) => ({ id, od: od || 0, dokad: dokad || 0, nr: 0, probek: 0, ost: 0, start: null, koniec: false, uszkodzonych: 0 });
     const wznowOd = s => (s.ost ? s.ost + 1 : s.od);
     function przyjmij(s, u8) {
@@ -785,7 +790,7 @@
       if (id !== s.id) return { co: 'obcy' };
       if (rodzaj === 'start') {
         s.start = { od: +h.pola[2], do: +h.pola[3], od_dost: +h.pola[4], teraz: +h.pola[5], wersja: +h.pola[6], rej: +h.pola[7] };
-        /* `lokalna` = odmawia apka, sterownik nadaje dalej - klient wysyła `stop` */
+        /* `lokalna` = odmawia aplikacja, sterownik nadaje dalej - klient wysyła `stop` */
         if (s.start.wersja !== WERSJA)
           return { co: 'odmowa', kod: ODM_WERSJA, lokalna: true, tekst: 'sterownik nadaje historię w formacie ' + s.start.wersja + ', a apka zna ' + WERSJA + ' - zaktualizuj apkę' };
         /*  [przegląd historii 1, S4] karta sterownika chwilowo wstrzymana, a prośba sięga PRZED to, co sterownik teraz widzi:
@@ -803,7 +808,7 @@
         /*  [przegląd historii 2, W1] pole 8 (pola[7]) = bajty uszkodzonego zapisu w plikach dni, dotyczącego prośby, którego
             sterownik NIE uzupełnił z drugiego nośnika (21b [1b] HiSmiec, zgłasza _hi_dzien_koniec) - tych próbek sterownik nie ma. Starszy
             sterownik pola nie wysyła = 0 (jak dotąd). Dziura, którą da się uzupełnić, uzupełnia SAM sterownik (dzień czytany
-            drugi raz z drugiego nośnika) - także dla apki sprzed tej poprawki. */
+            drugi raz z drugiego nośnika) - także dla aplikacji sprzed tej poprawki. */
         s.uszkodzonych = Math.max(0, +h.pola[7] || 0);
         return { co: 'koniec', probek: s.probek, uszkodzonych: s.uszkodzonych };
       }
@@ -873,7 +878,8 @@
       return out;
     }
     /*  SERIE WYKRESU dla obiegu `ob`: [minuta, zapis, zadana ×10 (-1 = brak), flagi (b0 grzanie, b1 pompa)] - ten sam
-        zapis, co wykres_temp.js zbiera sam z `swiat`. Brak pomiaru i obejście czujnika = bez punktu (nie zero). */
+        zapis, co wykres_temp.js zbiera sam z `swiat`. Brak pomiaru i obejście czujnika = bez punktu (nie zero).
+        [31.10] POZIOM ma własne flagi: b0 dolewanie, b1 płukanie (pasy wykresu poziomu; wykres_temp.js SERIE). */
     function naSerie(probki, ob, SERIE) {
       const S = SERIE || SERIE_DOM, wy = { temp: [], cis: [], poz: [] };
       const zap = (v, s) => Math.max(0, Math.min(ZAPIS_MAX, Math.round(v * s.skala) + s.przes));
@@ -882,7 +888,8 @@
         const m = Math.floor(p.czas / MIN_S), f = ((h.b & B_GRZANIE) ? 1 : 0) | ((h.b & B_POMPA) ? 2 : 0);
         if (h.t !== BRAK) wy.temp.push([m, zap(h.t / 100, S.temp), h.z === BRAK ? -1 : h.z, f]);
         if (h.c !== BRAK && !(h.b & B_OBEJ_MANO)) wy.cis.push([m, zap(h.c / 100, S.cis), -1, f]);
-        if (h.p !== BRAK && !(h.b & B_OBEJ_SONDY)) wy.poz.push([m, zap(h.p, S.poz), -1, f]);
+        if (h.p !== BRAK && !(h.b & B_OBEJ_SONDY))
+          wy.poz.push([m, zap(h.p, S.poz), -1, ((h.b & B_DOLEWANIE) ? 1 : 0) | ((h.b & B_PLUKANIE) ? 2 : 0)]);
       }
       return wy;
     }
@@ -894,14 +901,14 @@
           od_pelne - od tej chwili do `ost` telefon ma WSZYSTKO, co sterownik miał (null = faza 1 jeszcze nie domknięta);
           od_dost  - początek danych na nośnikach sterownika (z nagłówka start); f2_ost - postęp fazy 2 (wznowienie).
         Faza 1 = od ostatniej próbki (albo ostatnie `naStartS` sekund) do teraz: wykres ma świeże dni od razu.
-        Faza 2 = to, co starsze od granicy - w tle, wznawialna między uruchomieniami apki. */
-    /*  NAJWIĘKSZE COFNIĘCIE ZEGARA TELEFONU, KTÓRE APKA JESZCZE TRAKTUJE JAK „ZEGAR STEROWNIKA W PRZÓD” [D-519 pkt 2, N1]
+        Faza 2 = to, co starsze od granicy - w tle, wznawialna między uruchomieniami aplikacji. */
+    /*  NAJWIĘKSZE COFNIĘCIE ZEGARA TELEFONU, KTÓRE APLIKACJA JESZCZE TRAKTUJE JAK „ZEGAR STEROWNIKA W PRZÓD” [D-519 pkt 2, N1]
         = najdłuższa powtórka ponownego pobrania historii przy cofniętym zegarze telefonu. JEDNO miejsce: granicaOst() i planuj()
         (test: narzedzia_hmi/test_historia_apka.js [11]). */
     const TEL_WSTECZ_MAX_S = DOBA;
     function planuj(meta, terazUtc, naStartS) {
       if (!meta || !meta.ost) return { faza: 1, od: Math.max(1, terazUtc - naStartS), do: 0 };
-      /* [przegląd historii 1, W1] `ost` nie dalej niż zegar telefonu - zapisane przez starszą apkę mogło leżeć
+      /* [przegląd historii 1, W1] `ost` nie dalej niż zegar telefonu - zapisane przez starszą aplikację mogło leżeć
          w przyszłości (zegar sterownika w przód), a prośba od przyszłości zwraca 0 próbek i kończy się „kompletem”.
          [D-519 pkt 2, N1] ...ale `ost` dalej niż TEL_WSTECZ_MAX_S przed zegarem telefonu = to TELEFON jest cofnięty
          (granicaOst wpuściła je zegarem sterownika) - prosimy od `ost`, nie od zegara telefonu, inaczej każde otwarcie
@@ -941,7 +948,7 @@
     }
     /*  STAN ZAPISU W STEROWNIKU (rejestr 3332 z nagłówka `start`, 21b [7]) -> zdanie dla człowieka, gdy sterownik
         historii NIE ZAPISUJE [zasada 10]: pobieranie kończy się „ok”, a wykres i tak rósłby tylko z telefonu - bez tego
-        zdania dziury wyglądałyby na awarię apki. '' = zapisuje normalnie. */
+        zdania dziury wyglądałyby na awarię aplikacji. '' = zapisuje normalnie. */
     function uwagaRej(rej) {
       if (rej == null || !isFinite(rej)) return '';
       /* [przegląd historii 2, S3] b9 przed b6: obraz bez historii to NIE awaria - nie odsyłamy serwisu do ODCIECIE */
@@ -955,7 +962,7 @@
     }
     /*  [przegląd historii 2, W1] USZKODZONY ZAPIS, KTÓREGO STEROWNIK NIE MIAŁ CZYM UZUPEŁNIĆ (pole 8 `koniec`, bajty) -> zdanie
         na pasek wykresu [zasada 10]: dziura na wykresie w tym miejscu jest w STEROWNIKU (uszkodzony zapis bez drugiej kopii),
-        nie w apce i nie w łączu - ponowne pobranie jej nie zapełni. '' = nic nie przepadło. Zakres pobrania domyka się normalnie
+        nie w aplikacji i nie w łączu - ponowne pobranie jej nie zapełni. '' = nic nie przepadło. Zakres pobrania domyka się normalnie
         (od_pelne = „wszystko, co sterownik MA”); gdyby się nie domykał, każde otwarcie ściągałoby ten sam zakres od nowa.
         [przegląd historii 3, N2] „w pamięci (karta lub flash)”, nie „na karcie”: sterownik bez karty czyta sam flash, więc
         uszkodzony bywa też flash - pole 8 nie mówi, który nośnik. */
@@ -1022,7 +1029,7 @@
                   granica() - funkcja [W1]: zegar telefonu i nagłówek `start` znane dopiero w trakcie.
         CO Z CZEGO WYNIKA: kawałki zapisują się PO KOLEI, każdy w JEDNEJ transakcji z meta (`ost`, `f2_ost`), więc
                   nieudana transakcja nie przesuwa niczego. Pierwszy błąd (QuotaExceededError przy małym przydziale,
-                  transakcja przerwana zamknięciem innej karty apki) ZATRZYMUJE kolejkę: następne kawałki NIE są zapisywane,
+                  transakcja przerwana zamknięciem innej karty aplikacji) ZATRZYMUJE kolejkę: następne kawałki NIE są zapisywane,
                   `koniec` NIE domyka zakresu (`od_pelne`), a `poBledzie` woła się raz - klient kończy pobieranie `stop`-em.
                   Dawniej `.catch` tylko zapamiętywał błąd i łańcuch płynął dalej: późniejsze kawałki (mniejsze albo po
                   zwolnieniu miejsca) przesuwały `ost` ponad dziurę, `koniec` ustawiał `od_pelne` - dziura zostawała na zawsze,
@@ -1054,7 +1061,7 @@
 
   /*  BAZA W TELEFONIE (IndexedDB) - pełna kopia historii, niezależna od localStorage wykresu (7 dni, 5 MB na całą
       stronę - tam logowanie ma pierwszeństwo). Magazyny: `dni` (klucz „prefiks|dzień”, rekord naRekord) i `meta`
-      (klucz prefiks). Przedrostek apki (APKA_KLUCZ) w nazwie bazy - apka klienta i TEST3 na jednym origin się nie mieszają.
+      (klucz prefiks). Przedrostek aplikacji (APKA_KLUCZ) w nazwie bazy - aplikacja klienta i TEST3 na jednym origin się nie mieszają.
       ⚠ Każde wywołanie może się nie udać (tryb prywatny, brak miejsca) - wtedy wykres żyje z tego, co zbiera telefon,
         a pasek historii mówi, dlaczego (zasada 10). */
   const HiBaza = (function () {
@@ -1127,14 +1134,14 @@
   M.HiBaza = HiBaza;
 
   /* ---------------------------------------------------------- [6] KLIENT CHMURY (MQTT)
-     [Tomasz 2026-09-08: „a gdyby apka budowała się na podstawie MQTT jak HMI?"]
+     [Tomasz 2026-09-08: „a gdyby aplikacja budowała się na podstawie MQTT jak HMI?"]
      WEJŚCIA:  broker po WebSocket TLS (HiveMQ 8884), temat `basen/+/+/blok` -
                sterownik publikuje tam DOKŁADNIE to, co daje pod /blok.txt.
      CO Z CZEGO WYNIKA: ten sam swiatZ() co dla strony na AP; obiekt wybiera
                parametr ?obiekt= albo pierwszy, który się odezwie. Świeżość
                liczymy od ODBIORU pakietu, nie z linii T; (ta mówi o wieku
                bloku w sterowniku, nie o drodze przez chmurę).
-     WYJŚCIA:  podaj({polaczony, swiat, wiek_s, obiekty}) - jak z mostu i z AP.
+     WYJŚCIA:  podaj({polaczony, swiat, wiek_s, obiekty}) - jak z bridge'a i z AP.
      ⛔ NIC NIE PUBLIKUJEMY. Każde fetch('/cmd?…') dostaje odmowę z powodem
         „podgląd przez chmurę - sterowanie z panelu w szafie" [D-47]. Kafle
         wyglądają 1:1, ale są martwe - i mówią dlaczego. */
@@ -1147,7 +1154,7 @@
         sadzawki albo basenu"]. Użytkownik brokera = slug nazwy sterownika („Gliczarów wanna" → gliczarow-wanna);
         temat obiektu = 'basen/' + slug z PIERWSZYM myślnikiem zamienionym na '/' → 'basen/gliczarow/wanna' - taki sam
         prefiks wpisuje się w sterowniku (serwis → sieć). Konto bez myślnika (serwisowe: „sterownik") widzi wszystko.
-        To filtr po stronie apki; twarde odcięcie tematów per konto da dopiero ACL na własnym Mosquitto. */
+        To filtr po stronie aplikacji; twarde odcięcie tematów per konto da dopiero ACL na własnym Mosquitto. */
     /*  KTO WIDZI CO [D-312]: `serwis` przychodzi z logowania (ptaszek „konto serwisowe"). Gdy go nie ma - zapis
         sprzed 11.09 - zostaje stara zasada (login bez myślnika = serwisowy), żeby zapamiętane logowanie nie padło.
         ⚠ Sama zasada była dziurawa: klient o jednoczłonowej nazwie („Sadzawka") dostawał widok na wszystkie obiekty. */
@@ -1161,7 +1168,7 @@
 
         ⚠ OBA NARAZ, BO FLOTA PRZECHODZI POJEDYNCZO. Sterownik dostaje nowy prefiks przy wizycie
           na obiekcie, wiec przez jakis czas czesc obiektow nadaje pod `basen/`, a czesc pod
-          `obiekt/`. Gdyby apka znala tylko jedna postac, wpiecie jednego obiektu odcinaloby
+          `obiekt/`. Gdyby aplikacja znala tylko jedna postac, wpiecie jednego obiektu odcinaloby
           serwisowi widok na pozostale.
         ⚠ Stara postac ZNIKNIE, gdy ostatni sterownik przejdzie - wtedy zostaje sama pierwsza
           pozycja listy (DOZROBIENIA: migracja prefiksu). */
@@ -1184,7 +1191,7 @@
     if (!o.tematy) o.tematy = [o.temat];
     M.zakres = o.temat;   /* [D-312] widoczne dla sond i diagnostyki: co to konto ogląda */
     M.zakresy = o.tematy;
-    /*  KOMENDY PRZEZ BROKER [D-267, Tomasz: „apka nie musi mieć uprawnień, bo
+    /*  KOMENDY PRZEZ BROKER [D-267, Tomasz: „aplikacja nie musi mieć uprawnień, bo
         serwis za PIN-em, a reszta dla klienta"]. fetch('/cmd?co=…') z makiety
         tłumaczymy jak dla AP (komendaNaZapisy → lista zapisów rejestrów) i
         publikujemy na `<prefiks>/komenda` w formacie sterownika:
@@ -1198,18 +1205,18 @@
         i pierwsza dostawała „nie potwierdził w 5 s". Każda komenda niesie `id=`, sterownik odsyła je
         w `wynik` (i odsiewa powtórki - druga droga/dup QoS1 nie przestawia kanału dwa razy). Mapa
         oczekujących po id; `czekaWynik` zostaje dla starego firmware (wynik bez id).
-        POMIAR W APCE (C6): czas komenda→wynik i komenda→pierwsza paczka zmian po nim idą do dziennika
+        POMIAR W APLIKACJI (C6): czas komenda→wynik i komenda→pierwsza paczka zmian po nim idą do dziennika
         („PRZEZ CHMURĘ" na pasku) i do M.pomiar - żeby wiedzieć, jak jest NA TELEFONIE, nie na PC. */
     const oczekuja = new Map(); let idLicz = Math.floor(Math.random() * 9e5) * 1000;
-    /* [Astra 15] czy apka czeka na wynik komendy - wtedy przeładowanie po aktualizacji (nagłówek hmi.html) czeka.
+    /* [Astra 15] czy aplikacja czeka na wynik komendy - wtedy przeładowanie po aktualizacji (nagłówek hmi.html) czeka.
        [30.09, luka 9.1-d] Druga połowa `M.zajety()` - otwarte edytory - siedzi w [5a]; tu tylko komendy. */
     komendyCzekaja = () => oczekuja.size > 0 || czekaWynik !== null;
     const nowyId = () => ++idLicz;
     /*  WYNIK NIEZNANY ZAMIAST „NIE WYKONANO”  [Sol S23, 01.10.2026; D-531 pkt 2 - cztery fakty polecenia]
-        WEJŚCIA:  rozkaz bez `wynik` w 5 s; późniejszy `wynik` z tym samym id i od tego samego sterownika.
-        CO Z CZEGO WYNIKA: PUBACK znaczy tylko „broker przyjął” - sterownik mógł rozkaz WYKONAĆ (kopia drugą drogą
+        WEJŚCIA:  command bez `wynik` w 5 s; późniejszy `wynik` z tym samym id i od tego samego sterownika.
+        CO Z CZEGO WYNIKA: PUBACK znaczy tylko „broker przyjął” - sterownik mógł command WYKONAĆ (kopia drugą drogą
                   dochodzi do 6 s później, poczekalnia sterownika bywa zajęta), więc brak wyniku w terminie to „wynik
-                  nieznany”, nie odmowa; apka nie ponawia sama. Id po terminie pamiętamy przez POZNE_MS (= pamięć id
+                  nieznany”, nie odmowa; aplikacja nie ponawia sama. Id po terminie pamiętamy przez POZNE_MS (= pamięć id
                   sterownika, 180 s) - spóźniony wynik daje JEDNĄ linię w dzienniku łącza z kodem (zasada 10).
         WYJŚCIA:  {ok: false, nieznany: true, opis} dla ekranu; linia „spóźniony wynik …”. Teksty = szkic. */
     const POZNE_MS = 180000, POZNE_MAX = 50;
@@ -1218,7 +1225,7 @@
       for (const [k, v] of pozne) if (t - v.kiedy > POZNE_MS || pozne.size >= POZNE_MAX) pozne.delete(k); else break;
       pozne.set(id, Object.assign(z, { kiedy: t })); };
     /*  JEDNA OPERACJA KOMENDY - JEDEN KONIEC  [zadanie 13 Astry, 02.10.2026]
-        WEJŚCIA:  id rozkazu, co (do dziennika), sterownik, do którego rozkaz idzie (pref - PRZECHWYCONY przy wysyłce),
+        WEJŚCIA:  id commandu, co (do dziennika), sterownik, do którego command idzie (pref - PRZECHWYCONY przy wysyłce),
                   koniec obietnicy (res), termin [ms], wyniki zastępcze {termin, nieWyslano, bladWysylki}.
         CO Z CZEGO WYNIKA:
           • wpis w `oczekuja` i zegar terminu powstają RAZEM, PRZED wysyłką (dawniej zegar zakładany PO kk.send(): wyjątek
@@ -1226,10 +1233,10 @@
             sprawdzPin dodatkowo wpisywał oczekiwanie przed sprawdzeniem połączenia);
           • zakoncz(wynik) usuwa wpis i zegar, zdejmuje czekaWynik i kończy obietnicę - NAJWYŻEJ RAZ (wynik sterownika,
             termin, błąd wysyłki: który pierwszy); wynik bez id ze starego firmware też kończy przez nie (sprząta wpis);
-          • błąd wysyłki: wyjątek „not connected” sprzed wysyłki (AMQJS0011E bez znacznika `niepewne`) = NA PEWNO nie
-            wysłano; każdy inny wyjątek albo znacznik `niepewne` nakładki (biblioteka wywołana - publikacja mogła wyjść
+          • błąd wysyłki: wyjątek „not connected” sprzed wysyłki (AMQJS0011E bez markera `niepewne`) = NA PEWNO nie
+            wysłano; każdy inny wyjątek albo marker `niepewne` nakładki (biblioteka wywołana - publikacja mogła wyjść
             którąś drogą) = WYNIK NIEZNANY jak po terminie: id trafia do `pozne` (spóźniony wynik będzie odnotowany),
-            apka NIE ponawia sama i nie nadaje nowego id;
+            aplikacja NIE ponawia sama i nie nadaje nowego id;
           • `pozne` dostaje sterownik z chwili WYSYŁKI - zmiana obiektu w czasie czekania nie przenosi korelacji na inny.
         WYJŚCIA:  { wyslij(kk, msg) } - wysyłka w try/catch; wynik przez res. */
     const operacjaKomendy = (id, co, pref, res, terminMs, wyniki) => {
@@ -1308,7 +1315,7 @@
         WEJŚCIA:  czas sterownika z trzech źródeł: `stan.czas`, `zm.t`, linia Z; pełnego bloku.
         CO Z CZEGO WYNIKA: z zegara liczymy `t=` każdej komendy (wyslij, sprawdzPin). `zm` i `blok` mają numer
                   (seq + u), `stan` NIE - a przy dwóch drogach `stan` z QUIC potrafi przyjść 6 s po świeższym
-                  `zm.t` z TLS (docs/36 §9). Przyjęty bez sprawdzenia cofał `t=`, a następny rozkaz na ten sam
+                  `zm.t` z TLS (docs/36 §9). Przyjęty bez sprawdzenia cofał `t=`, a następny command na ten sam
                   rejestr dostawał w sterowniku „nowsza wygrywa” (kod 8, luz 5 s). Próbkę przyjmujemy, gdy:
                     • nie jest starsza od naszego szacunku o więcej niż ZEGAR_LUZ_S (sekundy całkowite + rozrzut drogi);
                     • albo cofa o więcej niż ZEGAR_SKOK_S - to przestawiony zegar sterownika (D-505), nie kopia;
@@ -1316,34 +1323,34 @@
                       cofnął się o mniej niż 2 min (korekta z NTP), a świeżej próbki, która by go potwierdziła, nie ma.
                       Bez tej furtki szacunek zostałby na zawsze przed sterownikiem.
         WYJŚCIA:  zegar[pref] albo nic (próbka odrzucona).
-        ⚠ Działa tak samo w apce klienta (Paho) - tam spóźniona próbka przychodzi z drugiego brokera albo jako
+        ⚠ Działa tak samo w aplikacji klienta (Paho) - tam spóźniona próbka przychodzi z drugiego brokera albo jako
           retained blok sprzed minuty; też nie powinna cofać `t=`.
         ⚠ Firmware (po sobocie, opcja): `seq` i `u` w JSON `stan` (20a4) jak w `zm` - wtedy kolejność z numeru,
           nie z szacunku (DOZROBIENIA B.0z-78). */
     const ZEGAR_LUZ_S = 1, ZEGAR_SKOK_S = 120, ZEGAR_UPOR_MS = 15000;
-    /*  REWIZJA MIGAWKI `stan`  [Sol S21, 01.10.2026 - firmware sol/c-firmware: pola u, boot, stan_seq]
-        WEJŚCIA:  JSON `stan`: `boot` (losowy znacznik uruchomienia), `stan_seq` (numer migawki - ten sam na obu drogach),
+    /*  REWIZJA SNAPSHOTU `stan`  [Sol S21, 01.10.2026 - firmware sol/c-firmware: pola u, boot, stan_seq]
+        WEJŚCIA:  JSON `stan`: `boot` (losowy marker uruchomienia), `stan_seq` (numer snapshotu - ten sam na obu drogach),
                   `u` (numer uruchomienia, jak w `zm`/`blok`). Stary sterownik ich nie ma.
         CO Z CZEGO WYNIKA:
-          • ten sam boot: przechodzi tylko migawka o WYŻSZYM numerze - kopia z drugiej drogi albo spóźniona (niższy lub
+          • ten sam boot: przechodzi tylko snapshot o WYŻSZYM numerze - kopia z drugiej drogi albo spóźniona (niższy lub
             równy numer) nie dochodzi do zegara NIGDY (dawniej „upór” przyjmował ją po 15 s - ryzyko R9, B.0z-78);
-          • inny boot: boot już ZASTĄPIONY (stary) albo niższe `u` = migawka poprzedniego uruchomienia - pomijamy;
+          • inny boot: boot już ZASTĄPIONY (stary) albo niższe `u` = snapshot poprzedniego uruchomienia - pomijamy;
             inaczej to nowe uruchomienie - przyjmujemy, stary boot trafia na listę zastąpionych;
           • boot porównujemy WYŁĄCZNIE równością (losowy - nie ma porządku); brak pól = jak dotąd (zegarUstaw z uporem).
-        WYJŚCIA:  true = migawkę wolno użyć. ⚠ Prawdziwa korekta zegara sterownika w świeżych migawkach dalej idzie przez
+        WYJŚCIA:  true = snapshot wolno użyć. ⚠ Prawdziwa korekta zegara sterownika w świeżych snapshotach dalej idzie przez
                   upór zegarUstaw (R8 bez zmian - opisane w DOZROBIENIA B.0z-78, nie deklarujemy jego naprawy). */
     const licznikU = x => Number.isInteger(x) && x >= 0 && x <= 65535;
     /*  TOŻSAMOŚĆ ODPOWIEDZI KARTY (rid/part)  [Sol S20, 01.10.2026 - firmware sol/c-firmware, 20a3f_siec_rpc.h]
-        WEJŚCIA:  echo sondy `cap` w ŻYWYM (nie retained) `stan` sterownika, prośby /pliki /okres /plik ekranów.
+        WEJŚCIA:  echo probe'a `cap` w ŻYWYM (nie retained) `stan` sterownika, prośby /pliki /okres /plik ekranów.
         CO Z CZEGO WYNIKA:
-          • sonda: do ZWYKŁEGO odnowienia podglądu (to samo tempo, nic nie włącza samo) dopisujemy `;cap=<32 hex>`
+          • probe: do ZWYKŁEGO odnowienia podglądu (to samo tempo, nic nie włącza samo) dopisujemy `;cap=<32 hex>`
             - stary sterownik czyta liczbę i `niesie=` jak dotąd; nowy odsyła nonce w `stan` (pole cap.n);
           • dopiero echo TEJ sondy (ten sam prefiks, w czasie RPC_SONDA_WAZNA_MS, nie retained, z `boot`) włącza rid:
             prośby karty dostają `;rid=<32 hex>;part=<n>`, a odpowiedź liczy się tylko z tym samym rid i częścią -
             kopia drugą drogą albo odpowiedź na inną (starą, cudzą) prośbę nie kończy bieżącej;
           • inny boot w `stan` (nowe uruchomienie), `stan` BEZ boot (powrót na stary firmware - sceptyk C, W1) albo nowa
             sesja = możliwość skasowana, potwierdzamy od nowa;
-          • brak echa = tryb dawny, jawnie (bramki kategorii/nazwy/pozycji MOST jak dotąd - identyczna stara
+          • brak echa = tryb dawny, jawnie (bramki kategorii/nazwy/pozycji BRIDGE jak dotąd - identyczna stara
             odpowiedź może wtedy pasować do nowej prośby; tego tryb dawny nie rozróżni).
         WYJŚCIA:  rpcRid(pref) -> nowy rid albo null; ridZPol(pola) -> {rid, part} albo null. */
     const RPC_SONDA_PONOW_MS = 60000, RPC_SONDA_WAZNA_MS = 70000;
@@ -1367,23 +1374,23 @@
       return tresc + ';cap=' + nonce;
     };
     /*  NOWE URUCHOMIENIE Z NIŻSZYM `u`, DWA STEROWNIKI NA PREFIKSIE  [sceptyk C, S1 - 02.10.2026; runda 2: R1, R2, R3]
-        WEJŚCIA:  migawka `stan` z boot/stan_seq/u; lustro obiektu: w.u, w.seq, w.uBrok = {u, t} (kiedy blok albo `zm`
+        WEJŚCIA:  snapshot `stan` z boot/stan_seq/u; lustro obiektu: w.u, w.seq, w.uBrok = {u, t} (kiedy blok albo `zm`
                   z brokera przyniósł u lustra, także retained - liczy się tylko dla TEGO u); uZyw[pref][u] - ostatnia ŻYWA
                   (nie retained) paczka `zm` albo blok z danym u, także ODRZUCONA (drugi sterownik, stare uruchomienie:
                   odrzucona paczka to też dowód, że ktoś nadaje); zegar apki.
         CO Z CZEGO WYNIKA: `u` to licznik restartów w NVS - po skasowaniu pamięci, wymianie płyty albo przewinięciu
                   licznika NOWE uruchomienie ma `u` NIŻSZE niż zapamiętane. Dotąd taki boot był odrzucany NA ZAWSZE:
                   `stan` (u < r.u), `zm` i `blok` (u < w.u) szły do kosza, lustro stało na starych liczbach, zegar komend
-                  nie przyjmował czasu (próba sceptyka A2: 300 zamiast 350 po 3 min). Spóźniona migawka nieznanego
+                  nie przyjmował czasu (próba sceptyka A2: 300 zamiast 350 po 3 min). Spóźniony snapshot nieznanego
                   STARSZEGO boot (A3) w pierwszej chwili wygląda tak samo - rozstrzyga więc CZAS: kopia drugą drogą
                   spóźnia się najwyżej o sekundy (docs/36 §9: do 6 s), a martwe uruchomienie nowych numerów nie wyprodukuje.
-                    • nieznany boot z niższym u = KANDYDAT: jego migawki pomijamy (nie cofają zegara, nie ruszają lustra);
+                    • nieznany boot z niższym u = KANDYDAT: jego snapshoty pomijamy (nie cofają zegara, nie ruszają lustra);
                     • kandydat staje się bieżącym uruchomieniem, gdy jego `stan_seq` ROŚNIE dłużej niż STAN_NOWY_BOOT_MS
-                      od pierwszej migawki, a bieżące uruchomienie MILCZY od co najmniej STAN_NOWY_BOOT_MS: ani świeżej
-                      migawki, ani żywej paczki `zm`/bloku z jego u (heartbeat `zm` idzie co 5 s przy podglądzie - 20a6
+                      od pierwszego snapshotu, a bieżące uruchomienie MILCZY od co najmniej STAN_NOWY_BOOT_MS: ani świeżej
+                      snapshotu, ani żywej paczki `zm`/bloku z jego u (heartbeat `zm` idzie co 5 s przy podglądzie - 20a6
                       SIEC_ZM_HB_MS - więc 10 s ciszy to nie przerwa między paczkami);
                     • [R3] DWA STEROWNIKI NA JEDNYM PREFIKSIE: inny boot nadaje rosnące numery dłużej niż STAN_NOWY_BOOT_MS
-                      od pierwszej migawki (a boot ZASTĄPIONY - od swojego pierwszego NOWEGO numeru po zastąpieniu, runda 3
+                      od pierwszego snapshotu (a boot ZASTĄPIONY - od swojego pierwszego NOWEGO numeru po zastąpieniu, runda 3
                       niżej), a bieżące uruchomienie też daje znak życia później niż STAN_NOWY_BOOT_MS po tej chwili -
                       spóźniona kopia martwego boot tak nie potrafi.
                       Wtedy JEDNA linia w dzienniku łącza i zostajemy przy uruchomieniu, na którym stoi lustro (zwykle
@@ -1395,49 +1402,49 @@
                       blok z pamięci telefonu, retained sprzed restartu) - lustro od nowa: w.u = u bieżące, w.seq = null
                       (zasłona do pełnego bloku, D-318) i prośba o pełny blok od ręki; dalej `zm`/`blok` tego u idą zwykłą
                       drogą. [R1] ALE NIE, gdy blok albo `zm` z u lustra przyszedł z brokera w ostatnich STAN_NOWY_BOOT_MS:
-                      wtedy spóźniona jest MIGAWKA (ostatnia migawka starego boot dowieziona QUIC-iem po pełnym bloku
+                      wtedy spóźniony jest SNAPSHOT (ostatni snapshot starego boot dowieziona QUIC-iem po pełnym bloku
                       nowego uruchomienia, zwykły restart u 6 -> 7), a nie lustro - dawniej lustro wracało na u 6,
                       spóźniona `zm` u 6 nakładała starą temperaturę i szła zbędna prośba o pełny blok;
-                    • [R2] SONDA: `stan` idzie co 30 s (20a4 SIEC_MQTT_STAN_MIN_MS, D-320), więc druga migawka kandydata
-                      przychodziłaby po 30 s. STAN_NOWY_BOOT_MS + STAN_SONDA_ZAPAS_MS po pierwszej migawce kandydata apka
+                    • [R2] SONDA: `stan` idzie co 30 s (20a4 SIEC_MQTT_STAN_MIN_MS, D-320), więc drugi snapshot kandydata
+                      przychodziłaby po 30 s. STAN_NOWY_BOOT_MS + STAN_SONDA_ZAPAS_MS po pierwszym snapshocie kandydata aplikacja
                       wysyła zwykłe odnowienie podglądu z sondą `;cap=` (nowy nonce) - firmware odsyła wtedy najbliższe
                       `stan` od razu, najwyżej raz na 5 s (20a4 SIEC_CAP_WYMUS_MIN_MS). Żywe uruchomienie (oba, gdy są
                       dwa sterowniki) odpowiada nowym numerem, martwe milczy - rozstrzygnięcie po ~11 s zamiast ~30 s.
                     • [runda 3, Ś1] OKNO ZASTĄPIONEGO BOOT liczymy od jego PIERWSZEGO NOWEGO numeru po zastąpieniu (pole `od`
                       wpisujemy dopiero wtedy), nie od chwili zastąpienia. Zwykły restart (u 6 -> 7) przy drodze, która stała
-                      i oddała zaległe migawki starego boot naraz po 12-35 s: dawniej to był „drugi sterownik” (linia „dwa”,
+                      i oddała zaległe snapshoty starego boot naraz po 12-35 s: dawniej to był „drugi sterownik” (linia „dwa”,
                       a przy ciszy nowego - powrót martwego jako bieżącego; sceptyk: sweep 11/18 źle). Zaległość dowozi
-                      migawki w jednej chwili, a żywy sterownik nadaje nowe numery dłużej niż STAN_NOWY_BOOT_MS;
+                      snapshoty w jednej chwili, a żywy sterownik nadaje nowe numery dłużej niż STAN_NOWY_BOOT_MS;
                     • [runda 3, Ś3 - zasada 10] stan „dwa sterowniki” jest TRWAŁĄ flagą M.dwaSterowniki[prefiks] (linia
-                      w dzienniku wypada po 60 wpisach), zdejmowaną, gdy drugi nie daje migawki dłużej niż DWA_CISZA_MS;
-                      razem z nią gaśnie `r.dwa` - inaczej kolejny kandydat (skasowany NVS) nie dostałby sondy (D4);
-                    • [runda 3, S21.R3w] zegar komend NIE z migawki uruchomienia o NIŻSZYM u niż żywe lustro (pokazywany
+                      w dzienniku wypada po 60 wpisach), zdejmowaną, gdy drugi nie daje snapshotu dłużej niż DWA_CISZA_MS;
+                      razem z nią gaśnie `r.dwa` - inaczej kolejny kandydat (skasowany NVS) nie dostałby probe'a (D4);
+                    • [runda 3, S21.R3w] zegar komend NIE ze snapshotu uruchomienia o NIŻSZYM u niż żywe lustro (pokazywany
                       sterownik wrócił po ciszy, a rewizja `stan` jeszcze przy drugim) - przy obsłudze tematu `stan`;
-                    • [runda 3, D6] migawka RETAINED z rewizją nie wchodzi tu wcale (firmware nadaje `stan` bez retain;
-                      zastana migawka nie jest znakiem życia ani kandydatem).
-        WYJŚCIA:  stanNowszy() jak dotąd (true = migawkę wolno użyć) + reset lustra opisany wyżej.
-        ⚠ CZAS PRZEJŚCIA na nowe uruchomienie z niższym u: ~11 s od jego pierwszej migawki, gdy sonda doszła; bez odpowiedzi
-          na sondę - przy następnej zwykłej migawce, ~30 s od pierwszej (do ~40 s od restartu sterownika). Tyle samo czeka
-          zegar komend. Z wyższym u, jak dotąd, od pierwszej migawki. ⚠ [runda 3, D5 - NIE ruszane] ~30 s także wtedy, gdy
+                    • [runda 3, D6] snapshot RETAINED z rewizją nie wchodzi tu wcale (firmware nadaje `stan` bez retain;
+                      zastany snapshot nie jest znakiem życia ani kandydatem).
+        WYJŚCIA:  stanNowszy() jak dotąd (true = snapshot wolno użyć) + reset lustra opisany wyżej.
+        ⚠ CZAS PRZEJŚCIA na nowe uruchomienie z niższym u: ~11 s od jego pierwszego snapshotu, gdy sonda doszła; bez odpowiedzi
+          na sondę - przy następnym zwykłym snapshocie, ~30 s od pierwszej (do ~40 s od restartu sterownika). Tyle samo czeka
+          zegar komend. Z wyższym u, jak dotąd, od pierwszego snapshotu. ⚠ [runda 3, D5 - NIE ruszane] ~30 s także wtedy, gdy
           odpowiedź na sondę przyszła, ale stary jeszcze „żył” kopiami w oknie (szybki restart, RL1), albo gdy sonda trafiła
           w 5 s firmware po zwykłej sondzie nowej sesji (RP1) - druga sonda to nowy mechanizm (pytanie do Tomasza).
         ⚠ Dwa sterowniki z TYM SAMYM u: lustro ich nie rozdzieli (`zm` nie niesie boot) - zostaje linia w dzienniku.
         ⚠ Stary sterownik (bez boot/stan_seq): bez zmian - nie mamy czym odróżnić nowego uruchomienia od spóźnionej kopii.
         Tekst linii w dzienniku = szkic do korekty Tomasza. */
     const STAN_NOWY_BOOT_MS = 10000, STAN_SONDA_ZAPAS_MS = 500, STAN_INNE_MAX = 16;
-    /* [runda 3, Ś3] drugi sterownik zniknął = dwa okresy `stan` (20a4 SIEC_MQTT_STAN_MIN_MS = 30 s) bez jego nowej migawki */
-    const DWA_CISZA_MS = 3 * 30000;   /* [sceptyk 4, drobne 1] 3 okresy `stan`: jedna zgubiona migawka (QoS 0) drugiego nie gasi flagi
+    /* [runda 3, Ś3] drugi sterownik zniknął = dwa okresy `stan` (20a4 SIEC_MQTT_STAN_MIN_MS = 30 s) bez jego nowego snapshotu */
+    const DWA_CISZA_MS = 3 * 30000;   /* [sceptyk 4, drobne 1] 3 okresy `stan`: jeden zgubiony snapshot (QoS 0) drugiego nie gasi flagi
                                         i nie zdejmuje ochrony r.dwa przed jego `zm` (przeskok lustra 300 -> 999) */
     const stanRew = {};       // prefiks -> { boot, seq, u, od, seq0, kiedy, inne: Map(boot -> {seq, seq0, u, od, stary, sonda}), dwa }
     /*  TRWAŁA FLAGA „DWA STEROWNIKI”  [sceptyk C runda 3, Ś3 - zasada 10: każda blokada ma komunikat]
-        WEJŚCIA:  dwaSterowniki() (wykrycie), nowe migawki drugiego (odświeżają `kiedy`), tyknięcie co 1 s (dwaWygas).
-        CO Z CZEGO WYNIKA: rozkazy z apki trafiają do OBU sterowników na prefiksie, a apka pokazuje jeden - to stan, nie
+        WEJŚCIA:  dwaSterowniki() (wykrycie), nowe snapshoty drugiego (odświeżają `kiedy`), tyknięcie co 1 s (dwaWygas).
+        CO Z CZEGO WYNIKA: commandy z aplikacji trafiają do OBU sterowników na prefiksie, a aplikacja pokazuje jeden - to stan, nie
                   zdarzenie: linia w dzienniku łącza wypada po 60 wpisach. Flaga trwa, póki drugi nadaje; gaśnie, gdy jego
-                  migawki nie ma dłużej niż DWA_CISZA_MS (naprawiony prefiks, wyłączony sterownik) - z jedną linią w dzienniku.
+                  snapshotu nie ma dłużej niż DWA_CISZA_MS (naprawiony prefiks, wyłączony sterownik) - z jedną linią w dzienniku.
         WYJŚCIA:  M.dwaSterowniki[prefiks] = { boot, u, od, kiedy } (boot/u DRUGIEGO, od = pierwsze wykrycie) albo brak wpisu;
                   M.dwaNaPasek() = flaga WYBRANEGO obiektu albo null - wywołanie gotowe dla paska.
         [D-535 pkt 3, Tomasz 02.10.2026: „pasek widzi KLIENT i serwis”] M.dwaZdanie() = zdanie paska dla WYBRANEGO obiektu
-          ('' = brak flagi) - jedno źródło tekstu; hala (makiety/panel4_hala.html, #chmura-dwa) pokazuje je w pasku apki klienta
+          ('' = brak flagi) - jedno źródło tekstu; hala (makiety/panel4_hala.html, #chmura-dwa) pokazuje je w pasku aplikacji klienta
           i serwisu bez rozróżniania kont. ⚠ Tekst = SZKIC do korekty Tomasza. */
     M.dwaSterowniki = {};
     M.dwaNaPasek = () => (wybrany && M.dwaSterowniki[wybrany]) || null;
@@ -1453,17 +1460,17 @@
     };
     const uZyw = {};          // prefiks -> { u: Date.now() ostatniej żywej paczki zm/bloku z tym u }
     const odnotujU = (pref, u) => { (uZyw[pref] || (uZyw[pref] = {}))[u] = Date.now(); };
-    /* ostatni znak życia BIEŻĄCEGO uruchomienia: jego świeża migawka albo żywa paczka `zm` / blok z jego u */
+    /* ostatni znak życia BIEŻĄCEGO uruchomienia: jego świeży snapshot albo żywa paczka `zm` / blok z jego u */
     const zyjeOd = (pref, r) => Math.max(r.kiedy || 0, (r.u != null && uZyw[pref] && uZyw[pref][r.u]) || 0);
     const bootKrotko = b => String(b).slice(0, 8) + '…';
     /* bieżące uruchomienie odchodzi na listę innych - jako ZASTĄPIONE. [runda 3, Ś1] `od` (początek okna spóźnionych kopii)
-       wpisuje stanNowszy przy PIERWSZYM NOWYM numerze tego boot - dawniej `od: teraz` (chwila zastąpienia): zaległe migawki
+       wpisuje stanNowszy przy PIERWSZYM NOWYM numerze tego boot - dawniej `od: teraz` (chwila zastąpienia): zaległe snapshoty
        martwego boot dowiezione naraz po 12-35 s wyglądały jak drugi sterownik (sweep sceptyka rundy 3) */
     const odlozBoot = r => {
       r.inne.set(r.boot, { seq: r.seq, seq0: r.seq, u: r.u, od: null, stary: true, sonda: false });
       while (r.inne.size > STAN_INNE_MAX) r.inne.delete(r.inne.keys().next().value);
     };
-    /* [R2] sonda `;cap=` po STAN_NOWY_BOOT_MS od pierwszej migawki kandydata - tylko wybrany obiekt (do niego idzie `zadanie`) */
+    /* [R2] sonda `;cap=` po STAN_NOWY_BOOT_MS od pierwszego snapshotu kandydata - tylko wybrany obiekt (do niego idzie `zadanie`) */
     const sondaKandydata = (pref, boot, o) => {
       if (o.sonda) return; o.sonda = true;
       setTimeout(() => { const r = stanRew[pref];
@@ -1497,7 +1504,7 @@
       } else {
         const o = r.inne.get(s.boot);
         if (o) {                                /* znany inny boot: kandydat (niższe u) albo zastąpiony */
-          if (s.stan_seq <= o.seq) return false;                  /* kopia albo spóźniona migawka */
+          if (s.stan_seq <= o.seq) return false;                  /* kopia albo spóźniony snapshot */
           o.seq = s.stan_seq;
           if (o.od == null) o.od = teraz;                         /* [runda 3, Ś1] zastąpiony: okno od 1. NOWEGO numeru */
           { const d = M.dwaSterowniki[pref]; if (d && d.boot === s.boot) d.kiedy = teraz; }   /* [Ś3] drugi nadaje */
@@ -1536,7 +1543,7 @@
         }
       }
       /* [S1] lustro z wyższego u niż POTWIERDZONE bieżące uruchomienie (numer rośnie dłużej niż STAN_NOWY_BOOT_MS)
-         [R1] ... chyba że u lustra przyszło z brokera przed chwilą - wtedy spóźniona jest ta migawka, nie lustro */
+         [R1] ... chyba że u lustra przyszło z brokera przed chwilą - wtedy spóźniony jest ten snapshot, nie lustro */
       const w = obiekty[pref];
       if (u != null && w && licznikU(w.u) && u < w.u && r.seq > r.seq0 && teraz - r.od > STAN_NOWY_BOOT_MS
           && !(w.uBrok && w.uBrok.u === w.u && teraz - w.uBrok.t <= STAN_NOWY_BOOT_MS)) {
@@ -1583,7 +1590,7 @@
         for (let i = 0; i < ile; i++) { const v = (w && w.r) ? w.r[adr + i] : undefined; out.push(v === undefined ? null : v); if (HASLA_REJ(adr + i)) hasla = 0; }
         return Promise.resolve(new Response(JSON.stringify({ adr, ile, wartosci: out, hasla }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
       }
-      /*  KARTA SD PRZEZ BROKER [D-297]: /pliki?kat= i /plik?kat=&nazwa=[&json=1] - to samo, co daje most po USB,
+      /*  KARTA SD PRZEZ BROKER [D-297]: /pliki?kat= i /plik?kat=&nazwa=[&json=1] - to samo, co daje bridge po USB,
           tu przez `zadanie`=pliki:<kat> / plik:<kat>/<nazwa>:<od> i tematy `pliki`/`plik` (kawałki do końca). */
       if (s.startsWith('/pliki')) {
         const q = new URLSearchParams(s.slice(s.indexOf('?') + 1)); const kat = q.get('kat') || 'zdarzenia';
@@ -1667,7 +1674,7 @@
     const nazwyR = {};                  /* prefiks -> {adres: słowo} */
     const zdarzenia = {};               /* prefiks -> {ile, zgubione, wpisy[[czas,kat,kod,zr,ob,a,b,c]]} [D-295] */
     let czekaPliki = null, czekaPlik = null;                      /* prośby o listę / plik z karty SD [D-297] */
-    let czekaZapas = null;                                        /* [D-412] kto czeka na meldunek o rezerwie */
+    let czekaZapas = null;                                        /* [D-412] kto czeka na report o rezerwie */
     const _spisy = {};                            /* [D-429] obieg -> droga -> {s, kiedy, zastany} */
     /*  Ktoremu spisowi wierzyc, gdy drogi podaja rozne [D-429]:
         1. z drogi, ktora obiekt NADAJE - tylko ona jest z definicji swieza;
@@ -1706,7 +1713,7 @@
     const OKRES_MAX_STRON = 300;
     let prosZdOst = 0;
     /* prośba o pamięć zdarzeń (RAM sterownika); przed połączeniem NIE liczy się jako próba - inaczej wstępne wczytanie
-       ze startu apki (D-308) przepadało i dziennik czekał 15 s na kolejną */
+       ze startu aplikacji (D-308) przepadało i dziennik czekał 15 s na kolejną */
     M.prosZdarzenia = () => { if (!wybrany || !klGot(wybrany)) return; const t = Date.now(); if (t - prosZdOst < 15000) return; prosZdOst = t; oglos('zdarzenia'); };
     /*  HISTORIA POMIARÓW - POBIERANIE STRUMIENIEM [D-511, Tomasz 30.09: „pobrała i trzymała dane ze sterownika
         KOMPLETNE z całej historii pomiaru”]
@@ -1730,7 +1737,7 @@
     /*  ODMOWY, PO KTÓRYCH CZEKAMY I PONAWIAMY (obiekt, nie stałe - test w przeglądarce skraca czasy, M.historia._czekaj):
         • zajete (kod 3) - sterownik wysyła innemu odbiorcy: 6 × 15 s = 90 s - miesiąc dwóch obiegów (1,1 MB) przez chmurę
           to wg oszacowania w 21b [6] 30-75 s; także nasz własny strumień sprzed przeładowania strony (nowe id, bez `wznow`);
-        • aktual (kod 6) [przegląd historii 1, S5] - trwa aktualizacja sterownika albo panelu (cisza radiowa D-458):
+        • aktual (kod 6) [przegląd historii 1, S5] - trwa aktualizacja sterownika albo panelu (radio silence D-458):
           20 × 30 s = 10 min - aktualizacja panelu to ~7 min, sterownika ~2-3 min z restartem; potem błąd z tekstem sterownika. */
     const HI_CZEKAJ = { zajeteMs: 15000, zajeteMax: 6, aktualMs: 30000, aktualMax: 20 };
     const hist = { b: null, trwa: null, sluch: new Set(), ost: null };
@@ -1811,7 +1818,7 @@
         return;
       }
       if (w.co === 'odmowa') {
-        /*  Odmowa „lokalna” (apka sama odrzuciła nagłówek `start`: obca wersja formatu, karta sterownika wstrzymana [S4]) =
+        /*  Odmowa „lokalna” (aplikacja sama odrzuciła nagłówek `start`: obca wersja formatu, karta sterownika wstrzymana [S4]) =
             sterownik NADAJE dalej - najpierw `stop`, żeby nie słał reszty w próżnię i nie odmawiał „zajęte” następnej prośbie. */
         if (w.lokalna && b.s) hiWyslij(b.pref, 'historia:stop;id=' + b.s.id);
         /*  Zajęty innym odbiorcą (3) albo AKTUALIZACJA (6) [przegląd historii 1, S5]: czekamy i ponawiamy od ostatniej DOBREJ
@@ -1861,7 +1868,7 @@
       if (!hiProsba(b)) { hist.b = null;
         res({ blad: hiZegar(pref) ? 'brak połączenia z brokerem' : 'nie znam jeszcze zegara sterownika (czekam na pierwszy stan)' }); return; }
       hiEmit({ typ: 'start', pref, faza, postep: 0, tekst: hiOpisFazy(b) + '…' });
-      /* STRAŻNIK CISZY: brak odpowiedzi = wznowienie (sterownik mógł zgubić prośbę albo stracić brokera);
+      /* GUARD CISZY: brak odpowiedzi = wznowienie (sterownik mógł zgubić prośbę albo stracić brokera);
          prośby bez ŻADNEJ odpowiedzi = starsze oprogramowanie sterownika - kończymy z tekstem, bez męczenia łącza */
       b.straz = setInterval(() => {
         if (hist.b !== b || !b.s || b.s.koniec) return;       /* koniec przyszedł - czekamy tylko na zapis do bazy */
@@ -1923,7 +1930,7 @@
       przerwij: hiPrzerwij,
       _czekaj: HI_CZEKAJ                                  /* tylko dla testu offline (_test_historia.html skraca czasy ponowień) */
     };
-    /*  STAN BROKERA I WYDAWCÓW NA PASKU [Tomasz 2026-09-09: „apka powinna mieć na górze
+    /*  STAN BROKERA I WYDAWCÓW NA PASKU [Tomasz 2026-09-09: „aplikacja powinna mieć na górze
         status połączenia z brokerem i status wydawców"]. Trzy rzeczy, trzy źródła:
         - broker: zdarzenia własnego klienta (łączę / połączony / odmowa / zerwane);
         - wydawca (sterownik): temat `status` z flagą retained - „online" pisze sterownik
@@ -1934,7 +1941,7 @@
         żeby pasek nie musiał składać stanu z kilku różnych wywołań. */
     /*  DZIENNIK ZDARZEŃ KLIENTA [D-278, Tomasz 2026-09-09: „musimy śledzić, co się dzieje, logami"]:
         ostatnie 60 zdarzeń (połączenia, zerwania, żądania, pełne bloki, luki seq) - pasek pokazuje
-        je po dotknięciu „PRZEZ CHMURĘ". Do tego znaczniki czasu ostatnich zdarzeń, bo „pakiet N s
+        je po dotknięciu „PRZEZ CHMURĘ". Do tego timestampy ostatnich zdarzeń, bo „pakiet N s
         temu" nie mówi, CZEGO brak: bloku, paczki czy odpowiedzi na żądanie. */
     M.dziennik = [];
     const ost = { zm: 0, blok: 0, zadanie: 0 };
@@ -1950,7 +1957,7 @@
       /* [D-314] podglad dla sond i diagnostyki: kto niesie wybrany obiekt i w jakim stanie sa brokery */
       M.ostBrokery = POL.map(c => ({ nr: c.nr, host: c.host, stan: c.stan.stan, opis: c.stan.opis, niesie: klDla(wybrany) === c }));
       return ({ obiekty: Object.keys(obiekty), obiekt: wybrany, broker: broker,
-                             /*  [D-366] KTO PATRZY: konto serwisowe czy klient. Apka chowa przed klientem
+                             /*  [D-366] KTO PATRZY: konto serwisowe czy klient. Aplikacja chowa przed klientem
                                  dziennik lacza, czasy i liste serwerow - jemu ma wystarczyc „sterownik jest,
                                  broker jest". Zrodlo to ten sam ptaszek z logowania, ktory wyznacza zakres
                                  tematow [D-312], wiec nie ma drugiej prawdy o tym, kim jest patrzacy. */
@@ -1962,11 +1969,11 @@
                              wydawcy: wydawcy(), ost: ost, dziennik: M.dziennik, wersja: window.APKA_WERSJA || '',
                              lacze: czekamPoPowrocie || broker.stan !== 'ok',
                              blad: (broker.stan === 'ok' || broker.stan === 'laczy') ? null : broker.opis }); };
-    /* ostatnio wybrany obiekt pamietany w telefonie - przy dwu obiektach apka otwiera ten, na ktory patrzono */
-    /*  KLUCZE PAMIĘCI TELEFONU Z PRZEDROSTKIEM APKI [izolacja TEST2, 23.09]: apka klienta i TEST2 siedzą
+    /* ostatnio wybrany obiekt pamietany w telefonie - przy dwu obiektach aplikacja otwiera ten, na ktory patrzono */
+    /*  KLUCZE PAMIĘCI TELEFONU Z PRZEDROSTKIEM APLIKACJI [izolacja TEST2, 23.09]: aplikacja klienta i TEST2 siedzą
         pod jednym origin (GitHub Pages), a localStorage jest per origin - bez przedrostka logowanie
         w TEST2 nadpisywało konto klienta, a „ostatni obiekt" i bloki na zimny start były wspólne.
-        `window.APKA_KLUCZ` ustawia zbuduj_pwa.py ('' klient, 'test2:' TEST2); most i strona na AP go nie
+        `window.APKA_KLUCZ` ustawia zbuduj_pwa.py ('' klient, 'test2:' TEST2); bridge i strona na AP go nie
         mają - tam przedrostek jest pusty i nic się nie zmienia. */
     const KL = k => ((typeof window !== 'undefined' && window.APKA_KLUCZ) || '') + k;
     const pamiec = k => { try { return localStorage.getItem(KL(k)); } catch (e) { return null; } };
@@ -1975,7 +1982,7 @@
         czy nasz - automatyczny. Tylko ten drugi wolno nam zmienic, gdy obiekt okaze sie martwy. */
     let wybranyRecznie = !!wybrany;
     /*  ZMIANA OBIEKTU - JEDNO MIEJSCE [2026-09-26, Tomasz: „alarmy w sadzawce sa takie same wraz z godzinami
-        jak w basen warsztat" - dane z apki PWA]
+        jak w basen warsztat" - dane z aplikacji PWA]
         ------------------------------------------------------------
         WEJSCIA:  nowy prefiks (lista na pasku, pierwszy obiekt, automat przy martwym obiekcie).
         CO Z CZEGO WYNIKA: prosby o okres/pliki/plik czekajace na POPRZEDNI sterownik konczymy od razu
@@ -2010,10 +2017,10 @@
     } catch (e) {}
     /*  DWA BROKERY NARAZ [D-313, Tomasz 2026-09-11: „no i co z obsługą 2 brokerów na raz?"].
         Sterownik ma serwer GŁÓWNY i AWARYJNY (rejestr 3225 mówi, którym nadaje) i komendy przyjmuje z obu.
-        Apka trzyma teraz po jednym kliencie na broker: JEDNO lustro obiektów, osobne łączenie i osobne
+        Aplikacja trzyma teraz po jednym kliencie na broker: JEDNO lustro obiektów, osobne łączenie i osobne
         ponawianie na każdy, a `zadanie` i komendy idą do tego brokera, którym dany obiekt PRZYSZEDŁ
         (`obiekty[pref].kl`). Dzięki temu przełączenie sterownika na awaryjny jest dla patrzącego niewidoczne,
-        a konto serwisowe widzi w jednej apce obiekty z HiveMQ i z własnego brokera naraz. */
+        a konto serwisowe widzi w jednej aplikacji obiekty z HiveMQ i z własnego brokera naraz. */
     /*  PORT W ADRESIE [D-314, Tomasz 2026-09-11: „drugi na EMQX"]: brokery nie zgadzają się co do portu WebSocketu -
         HiveMQ Cloud słucha na 8884, EMQX Cloud na 8084. Dlatego adres wolno podać jako `host:port`; bez portu
         bierzemy 8884 (HiveMQ), a dla adresów EMQX (`*.emqxsl.com`) 8084, żeby nie trzeba było pamiętać liczby.
@@ -2034,21 +2041,21 @@
 
         ⛔ CO BYLO ZLE: warunek brzmial `o.host2 && o.user2`, a ekran logowania zapisuje `user2` PUSTE,
         dopoki czlowiek nie wpisze go recznie. Wyliczenie „user + 2" istnialo WYLACZNIE w chwili proby
-        logowania (index.html), nie w zapisie i nie tutaj. Skutek: apka NIGDY nie tworzyla drugiego
+        logowania (index.html), nie w zapisie i nie tutaj. Skutek: aplikacja NIGDY nie tworzyla drugiego
         polaczenia - cicho, bez zadnego komunikatu.
         ⚠ DLACZEGO BOLALO DOPIERO TERAZ: dopoki oba sterowniki trzymaly sie brokera glownego, drugiego
         nikt nie potrzebowal. Sadzawka stracila HiveMQ (134 nieudane proby powrotu) i przeszla na brokera
         AWARYJNEGO - nadaje „tematy tylko serwerem 2". Droga zapasowa w sterowniku zadzialala, ale po
-        stronie apki nie bylo jej czym odebrac. Awaryjnosc, ktorej nikt nigdy nie sprawdzil na calej drodze,
+        stronie aplikacji nie bylo jej czym odebrac. Awaryjnosc, ktorej nikt nigdy nie sprawdzil na calej drodze,
         jest warta tyle, co jej brak.
         ⚠ Zakres tematow nadal z PIERWSZEGO konta [D-316] - patrz nizej. */
     /*  ⛔ ADRES DRUGIEGO SERWERA TEZ MA SIE WYLICZYC [D-351, 2026-09-13]
         Poprawka D-350 dolozyla wyliczanie KONTA, ale warunek nadal wymagal `o.host2` - a zapis
         logowania zrobiony PRZED wprowadzeniem drugiego serwera [D-314] w ogole tego pola nie ma.
-        Zmierzone na telefonie Tomasza (dziennik lacza apki 04bd5b7f91): JEDNA linia „start klienta
+        Zmierzone na telefonie Tomasza (dziennik lacza aplikacji 04bd5b7f91): JEDNA linia „start klienta
         -> hivemq.cloud", zero drugiego polaczenia - przy sadzawce nadajacej wylacznie na EMQX
         (sprawdzone wlasnym klientem na brokerze zapasowym: paczki status/blok/opis/awaria docieraly).
-        Efekt na ekranie: „sterownik offline (broker dostal testament)" - bo apka czytala status
+        Efekt na ekranie: „sterownik offline (broker dostal testament)" - bo aplikacja czytala status
         ze STAREGO brokera, gdzie lezy testament sadzawki, zamiast z tego, ktorym ona nadaje.
         ⚠ SPROSTOWANIE [D-373, 2026-09-16]: do 16.09 pusty napis w `host2` znaczyl tu „swiadomy wybor
         jednego serwera" i byl szanowany. TO ROZROZNIENIE BYLO FALSZYWE. Miedzy D-313 (11.09 09:05)
@@ -2056,20 +2063,20 @@
         wtedy domyslnie PUSTE - wiec kazdy zapis z tego okna WYGLADA na swiadomy wybor, a nim nie jest.
         Telefon Tomasza mial dokladnie taki zapis: po zdjeciu sterownikow z HiveMQ (D-369) przestal je
         widziec, a PC (zapis pozniejszy) widzial dalej.
-        ⚠ CZEMU APKA SAMA SIE NIE URATOWALA: HiveMQ ZYJE i wpuszcza - nie ma na nim tylko zadnego
-        sterownika. Zadna galaz awaryjna (zerwanie lacza, straznik ciszy, powrot sieci) nie patrzy na
-        „broker odpowiada, ale jest pusty", wiec apka siedziala na zywym, pustym brokerze bez slowa.
+        ⚠ CZEMU APLIKACJA SAMA SIE NIE URATOWALA: HiveMQ ZYJE i wpuszcza - nie ma na nim tylko zadnego
+        sterownika. Zadna galaz awaryjna (zerwanie lacza, guard ciszy, powrot sieci) nie patrzy na
+        „broker odpowiada, ale jest pusty", wiec aplikacja siedziala na zywym, pustym brokerze bez slowa.
         TERAZ: pusty napis znaczy to samo co brak pola - wstawiamy adres wbudowany. Kto naprawde chce
         jednego serwera, po prostu nie dostanie na drugim konta: proba konczy sie odmowa CONNACK,
         pierwszy broker dziala dalej, a w dzienniku lacza widac dlaczego. To jest tansze niz cisza. */
     /*  ⚠ SPROSTOWANIE DO SPROSTOWANIA [D-410, 17.09] — ADRES WBUDOWANY USUNIĘTY.
         D-373 (wyżej) kazało podstawiać wbudowany adres, bo pusty napis nie dawał się odróżnić od
-        „nigdy nie ustawione", a apka siedziała cicho na ŻYWYM, ale PUSTYM brokerze. Powód był dobry,
+        „nigdy nie ustawione", a aplikacja siedziała cicho na ŻYWYM, ale PUSTYM brokerze. Powód był dobry,
         ale lekarstwo okazało się gorsze: 17.09 telefon Tomasza wskazywał brokera, na którym NIE MA
-        KONTA apki — i apka co dwie sekundy budowała klienta od nowa, przy okazji zrywając połączenie,
+        KONTA aplikacji — i aplikacja co dwie sekundy budowała klienta od nowa, przy okazji zrywając połączenie,
         które DZIAŁAŁO („serwer 1: połączony ponownie, przerwa 4 s"), a obiegi znikały z ekranu.
         ⚠ Rozstrzygnięcie nie brzmi „zgadywać czy nie zgadywać": REZERWA MA POCHODZIĆ ZE STEROWNIKA,
-        a nie ze stałej w kodzie apki. Brak rezerwy = brak rezerwy, ale POWIEDZIANY wprost
+        a nie ze stałej w kodzie aplikacji. Brak rezerwy = brak rezerwy, ale POWIEDZIANY wprost
         (`rezerwaBrak` niżej), a nie zastąpiony zgadywanką ani przemilczany. To godzi obie lekcje:
         nie ma cichego siedzenia na pustym brokerze i nie ma burzy ponowień na cudzym.
         ⚠ Ponawianie i tak jest dziś odporne [D-407]: odstęp rośnie, a martwa droga nie każe
@@ -2079,13 +2086,13 @@
             nasz broker   `Master`   `wanna-gliczarow`      (bez cyfry = serwer glowny)
             HiveMQ        `Master2`  `wanna-gliczarow2`     (zapas)
             EMQX          `Master3`  `wanna-gliczarow3`     (rezerwa)
-        Haslo jest TO SAMO na wszystkich trzech brokerach danego odbiorcy, wiec apka nie musi
+        Haslo jest TO SAMO na wszystkich trzech brokerach danego odbiorcy, wiec aplikacja nie musi
         go liczyc - bierze haslo glowne, gdy rubryka zapasu zostala pusta.
 
         ⛔ BYLA TU PRZEZ POL GODZINY ZASADA „Z ZEREM" (`Master0` -> `Master`, `Master2`) i zostala
         cofnieta, bo WYMAGALA MYSLENIA: trzeba bylo wiedziec, ze zero znaczy „glowny", ze rdzen
         powstaje przez odciecie zera i ze serwis liczy sie inaczej niz klient. Tu nie ma czego
-        wiedziec - jedna zasada dla wszystkich, ta sama w apce, w konsoli dostawcy i na kartce.
+        wiedziec - jedna zasada dla wszystkich, ta sama w aplikacji, w konsoli dostawcy i na kartce.
         Numeracja zgadza sie przy tym ze slotami sterownika: 1 glowny, 2 zapas, 3 rezerwa.
         ⚠ Wpisane recznie pole zawsze wygrywa z wyliczeniem - konwencja to udogodnienie, nie przymus. */
     const _kontoZap = nr => (o.user ? o.user + nr : '');
@@ -2100,7 +2107,7 @@
           dowolna; `temat2` zostaje furtką, gdyby kiedyś prefiks naprawdę się różnił. */
       POL.push({ nr: 2, host: a2.host, port: a2.port, user: _user2, pass: _pass2,
                  temat: o.temat2 || o.temat, tematy: o.temat2 ? [o.temat2] : o.tematy }); }
-    /*  [D-410] DRUGA REZERWA — sterownik wybiera JEDNĄ z dwóch kandydatek [D-383] i apka nie wie,
+    /*  [D-410] DRUGA REZERWA — sterownik wybiera JEDNĄ z dwóch kandydatek [D-383] i aplikacja nie wie,
         którą akurat wziął. Dlatego słucha obu: obiekt pokaże się niezależnie od tego, przez którą
         nadaje. Konto i hasło jak przy pierwszej rezerwie; zakres tematów ZAWSZE z konta głównego
         (ta sama zasada co w D-316 — to ten sam obiekt, różnią się tylko konta u dostawców). */
@@ -2123,9 +2130,9 @@
                             c.stan = { stan: 'laczy', opis: 'łączę z brokerem…' }; });
     /*  ILE BROKEROW NAPRAWDE MAMY - WPROST W DZIENNIKU [D-353, 2026-09-13]
         Wpis „start klienta ... -> host" jest JEDEN, niezaleznie od liczby brokerow (wyzej, przy `o.host`).
-        Przez to ze zrzutu ekranu nie dalo sie odczytac, czy drugi serwer w ogole powstal - a wlasnie o to
+        Przez to ze screenshota nie dalo sie odczytac, czy drugi serwer w ogole powstal - a wlasnie o to
         pytanie rozbila sie diagnostyka znikajacej sadzawki: obiekt nadawal brokerem zapasowym, a z dziennika
-        nie wynikalo, czy apka ten broker ma. Teraz kazdy broker ma wlasna linie z numerem, adresem i kontem.
+        nie wynikalo, czy aplikacja ten broker ma. Teraz kazdy broker ma wlasna linie z numerem, adresem i kontem.
         ⚠ HASLA TU NIE MA I BYC NIE MOZE - dziennik ogląda sie na ekranie i wysyla na zrzutach. */
     zapisz('brokerow na liscie: ' + POL.length);
     POL.forEach(c => zapisz('  serwer ' + c.nr + ': ' + c.host + ':' + c.port + ' jako ' + (c.user || '(bez konta)')));
@@ -2144,7 +2151,7 @@
           logowanie zabiera je razem. Trzy osobne „broker odmowil" kaza szukac trzech usterek;
           prawda jest jedna i da sie ja naprawic w dziesiec sekund - trzeba tylko ja napisac.
           ⚠ To NIE jest to samo, co „zaden broker nie odpowiada" (brak zasiegu): tam ponawianie
-            ma sens, tutaj konta nie przybedzie samo, wiec apka prosi czlowieka, a nie czeka. */
+            ma sens, tutaj konta nie przybedzie samo, wiec aplikacja prosi czlowieka, a nie czeka. */
       if (!ok.length && POL.length && POL.every(x => x.odmowaKonta)) {
         return { stan: 'blad', opis: 'żaden serwer nie zna konta „' + (o.user || '') + '" - '
                  + 'to nie awaria łącza, tylko logowanie. Otwórz „Zmień sterownik / hasło" '
@@ -2176,21 +2183,21 @@
         w jakim tempie (ms); po zamknięciu karty milczy sam po 60 s. Przy
         zamykaniu strony wysyłamy 0 = „przestaję patrzeć", żeby nie czekał. */
     const tempo = o.tempo_ms || 1000;
-    /*  KTÓRĄ DROGĄ CIĘŻKIE TEMATY [D-321, Tomasz: „to robi apka - pełna zgoda"]: sterownik nadawał
+    /*  KTÓRĄ DROGĄ CIĘŻKIE TEMATY [D-321, Tomasz: „to robi aplikacja - pełna zgoda"]: sterownik nadawał
         każdą paczkę na oba brokery, więc jego łącze i limity brokerów płaciły dwa razy. Kto niesie
-        obiekt, wie tylko apka - z tego, którym połączeniem paczki naprawdę przychodzą (`w.kl`).
+        obiekt, wie tylko aplikacja - z tego, którym połączeniem paczki naprawdę przychodzą (`w.kl`).
         Mówimy to przy każdym odnowieniu żądania: `1000;niesie=1`. Zero = „nadawaj równolegle" i tak samo
         rozumie to starszy sterownik, który tego dopisku w ogóle nie zna (czyta samą liczbę). */
     /*  ⛔ NUMER MUSI BYC Z JEZYKA STEROWNIKA, NIE Z NASZEGO [D-411, zmierzone 17.09 sonda
-        `_sonda_pwa_spis`]. Apka numeruje polaczenia po swojemu (1 = pierwsze na liscie), a sterownik
+        `_sonda_pwa_spis`]. Aplikacja numeruje polaczenia po swojemu (1 = pierwsze na liscie), a sterownik
         czyta `niesie=N` jako SWOJ slot N. W wariancie A te numery sie rozjechaly: nasz broker jest
-        u sterownika slotem 2, wiec „niesie=1" kierowalo ciezkie tematy na brokera, ktorego apka
-        w ogole nie sluchala. Objaw: obraz zywy, ale rwacy sie co kilka sekund - apka po 8 s ciszy
+        u sterownika slotem 2, wiec „niesie=1" kierowalo ciezkie tematy na brokera, ktorego aplikacja
+        w ogole nie sluchala. Objaw: obraz zywy, ale rwacy sie co kilka sekund - aplikacja po 8 s ciszy
         prosila „nadawaj równolegle", dostawala dane, znowu wskazywala „serwer 1" i tak w kolko.
         Teraz kazde polaczenie wie, ktorym slotem sterownika jest (`c.slot` z tematu `serwery`,
         pole `ja` - przychodzi TA SAMA droga, ktorej dotyczy, wiec nazwy adresow nie musza pasowac).
-        ⚠ STEROWNIK BEZ TEGO POLA (starsze wgranie) daje `slot` pusty - wtedy 0, czyli „nadawaj
-        równolegle". Podwojny ruch zamiast rwacego obrazu; naprawia sie samo po wgraniu firmware. */
+        ⚠ STEROWNIK BEZ TEGO POLA (starszy flash) daje `slot` pusty - wtedy 0, czyli „nadawaj
+        równolegle". Podwojny ruch zamiast rwacego obrazu; naprawia sie samo po flashu firmware. */
     const niesieNr = () => {
       if (POL.length < 2) return 0;
       const w = wybrany && obiekty[wybrany];
@@ -2201,10 +2208,10 @@
       /*  ⛔ NIE PROSIMY O DROGE, NA KTOREJ STEROWNIKA NIE MA [D-428]. Zastany `status` z brokera,
           z ktorego sterownik juz odszedl, potrafi zapisac te droge jako „niosaca". Wtedy prosimy
           o ciezkie tematy WLASNIE TAM, sterownik przestaje nadawac gdziekolwiek indziej i nie
-          wysyla nic (bo go tam nie ma), a skoro nic nie przychodzi - apka nie ma jak zmienic
+          wysyla nic (bo go tam nie ma), a skoro nic nie przychodzi - aplikacja nie ma jak zmienic
           zdania. Pat podtrzymywal sie sam: „sterownik online", zaslona „pobieram stan" bez konca
           i w dzienniku w kolko ta sama prosba.
-          ⚠ Sprawdzamy to POLEM `pol` ze spisu [D-425] - wczesniej apka nie miala tego czym
+          ⚠ Sprawdzamy to POLEM `pol` ze spisu [D-425] - wczesniej aplikacja nie miala tego czym
             stwierdzic. Gdy `pol` nie ma (starsze firmware), nie zgadujemy: prosimy wszystkimi. */
       const sp = M.ostSpisSerwerow;
       const w2 = sp && (nr === 1 ? sp.glowny : nr === 2 ? sp.zapas1 : null);
@@ -2217,7 +2224,7 @@
       if (typeof v === 'number') {                     /* dopisek tylko przy tempie, nie przy „pelny"/„okres:" */
         const nr = (niesie === undefined) ? niesieNr() : niesie;
         /*  ⛔ PROSBA `niesie=N` JEST OBIETNICA, ZE NA TEJ DRODZE SLUCHAMY  [D-424, trop Tomasza]
-            Apka odpina ciezkie tematy od drogi nadmiarowej [D-315]. Gdy obiekt pozniej „przejdzie"
+            Aplikacja odpina ciezkie tematy od drogi nadmiarowej [D-315]. Gdy obiekt pozniej „przejdzie"
             na te wlasnie droge, prosilismy sterownik, zeby nadawal ciezkie WLASNIE TAM - a tam
             mielismy je odpiete. Sterownik slucha i przestaje wysylac gdziekolwiek indziej, wiec
             nikt nie dostaje ani bloku, ani zmian. `status` i `stan` sa lekkie i ida dalej, wiec
@@ -2247,7 +2254,7 @@
     /* `zadanie`=0 przy pagehide ZDJĘTE [D-287]: jeden schodzący do tła podglądacz gasił strumień pozostałym; sterownik gaśnie sam 60 s po ostatnim odnowieniu */
     /*  WZNOWIENIE PODGLĄDU BEZ CZEKANIA [2026-09-09, Tomasz: „jak nie dostanie pakietu na czas,
         to brak połączenia"]. Telefon w tle dławi zegary JS: `zadanie` nie odnawia się, sterownik
-        po 60 s milknie, a po powrocie apki najbliższe odnowienie było dopiero za ≤ 20 s -
+        po 60 s milknie, a po powrocie aplikacji najbliższe odnowienie było dopiero za ≤ 20 s -
         tyle trwało „nie nadaje". Teraz: powrót karty na ekran = `zadanie` od razu; a gdy
         broker jest, a blok wybranego obiektu spóźnia się > 4 s - też od razu (nie częściej
         niż co 4 s). */
@@ -2269,12 +2276,12 @@
         /* [D-354] czlowiek wrocil i czeka - jesli poprzednie proby padly, nie reanimujemy, tylko budujemy od zera */
         if (c.stan.stan === 'blad' || c.byloZerwane) odnowKlienta(c);
         c.stan = { stan: 'laczy', opis: 'łączę ponownie…' }; c.odstepNr = 0; c.polaczTeraz('powrót na ekran'); }); oddaj(); }
-      /*  ⚠ POŁĄCZENIE, KTÓRE TWIERDZI, ŻE ŻYJE, A MILCZY — NIE CZEKAJ NA STRAŻNIKA [D-409,
+      /*  ⚠ POŁĄCZENIE, KTÓRE TWIERDZI, ŻE ŻYJE, A MILCZY — NIE CZEKAJ NA GUARDA [D-409,
           Tomasz 17.09: „wraca po zmianie okna już dłużej niż się uruchomił"].
           Powyższa pętla naprawia tylko te drogi, które SAME przyznają się, że padły. Gniazdo
-          zamrożone razem z kartą nadal zgłasza gotowość, więc trafiało pod strażnika ciszy —
+          zamrożone razem z kartą nadal zgłasza gotowość, więc trafiało pod guarda ciszy —
           a ten czeka 75 s. Efekt był absurdalny: powrót na ekran trwał dłużej niż uruchomienie
-          apki od zera (~3 s), bo świeży start buduje klienta od razu.
+          aplikacji od zera (~3 s), bo świeży start buduje klienta od razu.
           75 s zostaje dla PRACY W TLE (nie dobijamy brokera, gdy nikt nie patrzy), ale gdy człowiek
           wrócił i patrzy — 8 s ciszy wystarczy za dowód. Sterownik nadaje co 5 s, więc ośmiu sekund
           nie da się pomylić z normalną pracą. */
@@ -2300,7 +2307,7 @@
     M.niesieReset = () => { if (niesieOst !== 0 && POL.some(c => c.kl.isConnected())) oglos(tempo, 0); };
     /*  PRÓBA BRZEGOWA [D-322]: sonda musi umieć zerwać JEDNĄ drogę, żeby zmierzyć, po ilu sekundach
         obraz wraca drugą. Zamykamy gniazdo dokładnie tak, jak robi to sieć - reszta dzieje się sama
-        (Paho zgłasza zerwanie, apka prosi sterownik o nadawanie równoległe). Nie wystawiamy tu kont ani
+        (Paho zgłasza zerwanie, aplikacja prosi sterownik o nadawanie równoległe). Nie wystawiamy tu kont ani
         haseł - tylko tę jedną czynność. */
     M._zerwij = nr => { const c = POL.find(x => x.nr === nr); if (!c || !c.gniazdo) return false;
       try { c.gniazdo.close(); zapisz('próba brzegowa: zerwano serwer ' + nr); return true; } catch (e) { return false; } };
@@ -2348,13 +2355,13 @@
       if (rodzaj === 'stan') {
         let s = null; try { s = JSON.parse(m.payloadString); } catch (e) {}
         const prefS = cz.slice(0, -1).join('/');
-        if (s && !stanNowszy(prefS, s, m.retained)) return;         /* [Sol S21] spóźniona kopia migawki - bez skutku */
+        if (s && !stanNowszy(prefS, s, m.retained)) return;         /* [Sol S21] spóźniona kopia snapshotu - bez skutku */
         { /* [Sol S20] echo sondy rid: tylko żywy stan, ten prefiks, ta sonda w terminie, z boot; inny boot kasuje */
           /* [sceptyk C, W1 - 02.10.2026] BRAK `boot` TEŻ KASUJE: sterownik wrócił na STARY firmware (OTA wstecz, rollback
              bootloadera, wymiana płyty) - jego `stan` nie ma pola boot. Dawny warunek kasował tylko przy INNYM boot, więc
-             apka dokładała `;rid=` godzinami: stary sterownik odrzuca `pliki:<kat>;rid=…` (_sd_kat_ok), a odpowiedzi
+             aplikacja dokładała `;rid=` godzinami: stary sterownik odrzuca `pliki:<kat>;rid=…` (_sd_kat_ok), a odpowiedzi
              `okres`/`plik` bez rid nie przechodzą ridPasuje - ekran „brak karty” / „nie odesłał w 10 s” bez prawdziwego
-             powodu (próba sceptyka A1, test S20.M7). Każda migawka nie z TEGO boot = korelację potwierdzamy od nowa. */
+             powodu (próba sceptyka A1, test S20.M7). Każdy snapshot nie z TEGO boot = korelację potwierdzamy od nowa. */
           const c = rpcCap[prefS];
           if (s && c && c.stan === 'jest' && s.boot !== c.boot) {
             delete rpcCap[prefS];
@@ -2365,11 +2372,11 @@
             c.stan = 'jest'; c.boot = s.boot; zapisz('sterownik zna identyfikator odpowiedzi karty (rid) - odczyty karty z korelacją');
           }
         }
-        /* [sceptyk C runda 3, S21.R3w] ZEGAR KOMEND TYLKO Z URUCHOMIENIA LUSTRA: migawka z NIŻSZYM u niż lustro, na którym
+        /* [sceptyk C runda 3, S21.R3w] ZEGAR KOMEND TYLKO Z URUCHOMIENIA LUSTRA: snapshot z NIŻSZYM u niż lustro, na którym
            właśnie płyną żywe paczki (zm/blok w STAN_NOWY_BOOT_MS), jest z drugiego sterownika na prefiksie - pokazywany wrócił
-           po ciszy, lustro już przy nim (wyższe u), a rewizja `stan` jeszcze przy drugim, póki pokazywany nie nada migawek
-           przez STAN_NOWY_BOOT_MS (okno Ś1). Bez tego warunku zegar przeskakiwał na drugiego przy każdej jego migawce i wracał
-           przy paczce pokazywanego - rozkaz w tej chwili niósł `t=` z cudzego zegara. Lustro bez żywych paczek (zasiew,
+           po ciszy, lustro już przy nim (wyższe u), a rewizja `stan` jeszcze przy drugim, póki pokazywany nie nada snapshotów
+           przez STAN_NOWY_BOOT_MS (okno Ś1). Bez tego warunku zegar przeskakiwał na drugiego przy każdym jego snapshocie i wracał
+           przy paczce pokazywanego - command w tej chwili niósł `t=` z cudzego zegara. Lustro bez żywych paczek (zasiew,
            retained, przejście na nowe uruchomienie z niższym u - S21.R2r) - zegar jak dotąd. */
         const wS = obiekty[prefS], uS = s && licznikU(s.u) ? s.u : null;
         const zInnego = uS != null && wS && licznikU(wS.u) && uS < wS.u
@@ -2378,15 +2385,15 @@
         return;
       }
       if (rodzaj === 'serwery') { spisSerwerow(m.payloadString, cz.slice(0, -1).join('/'), m.retained); return; }   /* [D-411] */
-      if (rodzaj === 'zapas') {                     /* [D-412] meldunek sterownika o rezerwie */
+      if (rodzaj === 'zapas') {                     /* [D-412] report sterownika o rezerwie */
         const pref = cz.slice(0, -1).join('/');
         const txt = m.payloadString || '';
         /*  ⛔ TYLKO WYBRANY OBIEKT [poprawka po przegladzie]: `czekaZapas` to JEDNA zmienna, a konto
             serwisowe oglada kilka sterownikow naraz. Bez tego warunku nocna zamiana w sadzawce
             rozwiazywalaby obietnice kliknieta na basenie i czlowiek zobaczylby cudze zdanie jako
-            odpowiedz na swoj rozkaz. Ten sam blad naprawialismy w D-348 przy prosbach o okres. */
+            odpowiedz na swoj command. Ten sam blad naprawialismy w D-348 przy prosbach o okres. */
         if (pref !== wybrany) return;
-        /*  ⚠ RETAINED TO MELDUNEK ZASTANY, NIE ODPOWIEDZ NA NASZ ROZKAZ. Leci od razu po
+        /*  ⚠ RETAINED TO REPORT ZASTANY, NIE ODPOWIEDZ NA NASZ COMMAND. Leci od razu po
             subskrypcji i potrafi byc sprzed tygodnia - gdyby liczyl sie jako odpowiedz, ekran
             pokazywalby „zrobione" zanim sterownik cokolwiek przeczytal. */
         /*  ⚠ TA SAMA TRESC DRUGA DROGA [D-315]: `zapas` jest tematem lekkim, wiec przy dwoch
@@ -2432,8 +2439,8 @@
             WYJSCIA:  kolejna prosba albo rozwiazana obietnica.
             ⛔ DLACZEGO: dawniej `c.nastepny()` szlo takze po odpowiedzi, ktora nie pasowala - kazdy duplikat
             dokladal prosbe o strone, ktora juz byla w drodze, i liczba prosb PODWAJALA SIE co strone.
-            28.09 21:35 trzy apki wyslaly po 256 = 2^8 prosb w minute, a sterownik warsztatu dwa razy
-            zatrzymal strażnik rdzenia 0 (dowody/2026-09-28, paczka 02). */
+            28.09 21:35 trzy aplikacje wyslaly po 256 = 2^8 prosb w minute, a sterownik warsztatu dwa razy
+            zatrzymal supervisor rdzenia 0 (dowody/2026-09-28, paczka 02). */
         if (+nag[1] !== c.od || +nag[2] !== c.dok || +nag[3] !== c.poz) return;
         if (!ridPasuje(c, ridZPol(nag.slice(7)), c.part)) return;    /* [Sol S20] ta prośba i TA część - przed zegarem i danymi */
         clearTimeout(c.t);
@@ -2502,7 +2509,7 @@
         if (w.id != null) {
           const p = oczekuja.get(w.id);
           if (!p || p.pref !== prefW) {                    /* cudza komenda, inny sterownik albo powtórka wyniku (dwie drogi) */
-            const z = pozne.get(w.id);                     /* [Sol S23] spóźniony wynik rozkazu, który dostał „wynik nieznany” */
+            const z = pozne.get(w.id);                     /* [Sol S23] spóźniony wynik commandu, który dostał „wynik nieznany” */
             if (z && z.pref === prefW) { pozne.delete(w.id);
               zapisz('spóźniony wynik ' + z.co + ' po ' + (Date.now() - z.t0) + ' ms: ' + (w.kod === 0 ? 'wykonano' : 'odmowa kod ' + w.kod + (w.opis ? ' (' + w.opis + ')' : '')));
               oddaj(); }
@@ -2524,14 +2531,14 @@
         /*  NUMER URUCHOMIENIA `u` [D-481, audyt Astry 20.09 „spójność po restarcie" P1]. Sterownik dokłada
             do każdej paczki licznik restartów (ten sam, co w `awaria`), a do bloku trzecie pole linii Z;.
             Dotąd restart zgadywaliśmy ze skoku numeru o ≥1000 — i myliło się w OBIE strony: mały prawdziwy
-            skok wstecz po restarcie (250 → 1) odrzucany jako „spóźniona kopia" (apka trzymała stare 28 °C,
+            skok wstecz po restarcie (250 → 1) odrzucany jako „spóźniona kopia" (aplikacja trzymała stare 28 °C,
             choć sterownik nadawał 31), a duży fałszywy (stary retained z zapasu) przyjmowany jako restart.
               • u < nasze  → paczka ze STAREGO uruchomienia (spóźniona, z drugiej drogi) — pomijamy;
               • u > nasze  → NOWE uruchomienie: lustro jest z poprzedniego życia, więc prosimy o pełny blok
                              i do jego przyjścia trzymamy zasłonę (luka); nowe wartości NAKŁADAMY — są
                              prawdziwsze niż to, co mamy;
               • u == nasze → zwykła numeracja niżej; spóźniona kopia = KAŻDY numer nie nowszy (bez progu 1000).
-            Bez `u` (stary wsad sterownika) zostaje dawna heurystyka skoku 1000. */
+            Bez `u` (stary release sterownika) zostaje dawna heurystyka skoku 1000. */
         /*  [Sol S21] PACZKA Z NUMEREM URUCHOMIENIA MUSI MIEĆ KOMPLET: u w zakresie licznika (uint16 z NVS) i seq.
             Dawniej `zm` z u, ale bez seq ustawiało nowe u i zerowało seq lustra - potem spóźniony pełny blok
             starego uruchomienia przechodził bramkę bloku (patrzyła na u tylko przy znanym seq). */
@@ -2555,7 +2562,7 @@
         }
         if (typeof d.seq === 'number') {
           /*  TA SAMA PACZKA DRUGĄ DROGĄ [D-313]: przy dwóch brokerach (i przy powtórce QoS 1) ten sam `seq`
-              potrafi przyjść dwa razy. Bez tego wyglądało to jak dziura w numeracji i apka prosiła o pełny
+              potrafi przyjść dwa razy. Bez tego wyglądało to jak dziura w numeracji i aplikacja prosiła o pełny
               blok w kółko. Powtórkę po prostu pomijamy - lustro już ją ma. */
           /*  SPÓŹNIONA KOPIA TO TEŻ NIE LUKA [D-316]: przy dwóch brokerach ta sama paczka bywa dostarczona
               w innej kolejności (zmierzone: „luka seq 6213→6212"), a starą już mamy nałożoną. Odsiewamy każdy
@@ -2586,7 +2593,7 @@
       /*  SPÓŹNIONY PEŁNY BLOK TO TEŻ NIE PRAWDA [D-338]. `zm` odsiewa spóźnione kopie od D-316,
           a `blok` nie odsiewał nic — a bierze numer z tego samego licznika. Blok o numerze niższym
           niż nasze lustro wołał `zastosujPelny`, które cofało `w.seq` i podmieniało mb/mn/r STARSZĄ
-          migawką: świeżo zapalone światło gasło na telefonie, a następna zmiana wyglądała jak luka
+          snapshotem: świeżo zapalone światło gasło na telefonie, a następna zmiana wyglądała jak luka
           i wymuszała kolejną prośbę o pełny blok. Przy dwóch brokerach blok i zmiana idą równolegle dwiema
           drogami i potrafią się wyminąć w drodze, więc sam porządek po stronie sterownika nie wystarcza.
           Duży skok w dół zostaje przyjęty — to restart sterownika albo przewinięcie licznika. */
@@ -2630,20 +2637,20 @@
           `kl` mowi, ktora droga obiekt NADAJE - stad ida zadania i komendy. Ustawialismy go przy
           KAZDYM pelnym bloku, takze `retained`. A retained lezy na brokerze i po zmianie ukladu
           potrafi byc sprzed godzin: na EMQX (dzis REZERWA, wiec sterownik tam nic nie nadaje)
-          lezal caly stary komplet `blok`/`opis`/`status`. Apka brala go za biezacy stan i kierowala
+          lezal caly stary komplet `blok`/`opis`/`status`. Aplikacja brala go za biezacy stan i kierowala
           zadania w martwa droge - ekran mial liczby, ale nieruchome, jak demo.
           ⚠ Zasada: SWIEZE WYGRYWA NAD ZASTANYM. Zastany blok wolno przyjac jako zasiew lustra
             (to robi `zastosujPelny` nizej), ale nie wolno mu przestawiac drogi. */
       const _byl = obiekty[pref] && obiekty[pref].kl;
       obiekty[pref] = Object.assign(obiekty[pref] || {}, { kiedy: Date.now() },
                                     (m.retained && _byl) ? {} : { kl: _zrodlo });   // `kl` = broker, którym przyszedł [D-313]
-      /* [R1] blok z brokera z numerem uruchomienia: u lustra przyszło przed chwilą (retained też - spóźniona migawka starego
+      /* [R1] blok z brokera z numerem uruchomienia: u lustra przyszło przed chwilą (retained też - spóźniony snapshot starego
          boot nie cofnie lustra; znak ŻYCIA dla stanNowszy daje tylko żywy - odnotujU wyżej). Zasiew z pamięci telefonu - nie. */
       if (zastosujPelny(pref, obiekty[pref], m.payloadString)) obiekty[pref].uBrok = { u: obiekty[pref].u, t: Date.now() };
       /*  RETAINED = ZASIEW, NIE ŚWIEŻY STAN [D-280]: blok z flagą retained ma od 0 do 60 s. Zasiewa
           lustro (rejestry, seq), ale nie zdejmuje planszy - świeży pełny blok przychodzi po `zadanie`
           w ~0,5 s. Bez tego dotknięcie w pierwszej sekundzie po otwarciu szło na starym stanie
-          (sonda: dwa kliknięcia = jedno przełączenie, ekran odwrotnie niż sterownik). */
+          (probe: dwa kliknięcia = jedno przełączenie, ekran odwrotnie niż sterownik). */
       if (m.retained) { obiekty[pref].kiedy = Date.now() - 100000; obiekty[pref].zasiew = true; zapisz('retained blok ' + pref.split('/').slice(1).join('/') + ' - czekam na świeży'); }
       else { obiekty[pref].zasiew = false; obiekty[pref].luka = false; try { localStorage.setItem(KL('blok_' + pref), m.payloadString); } catch (e) {}   /* pamięć na zimny start [C4] */
              if (pref === wybrany) { ost.blok = Date.now(); czekamPoPowrocie = false; odnotujZmiane(); } }
@@ -2670,7 +2677,7 @@
         Dlaczego: z `reconnect:true` biblioteka po zamrożeniu karty zostaje ze stanem „łączę ponownie"
         i martwym gniazdem, z którego nie ma wyjścia jej własnym API (connect rzuca „already connected",
         zamknięcie gniazda jest wtedy ignorowane, a disconnect wywala się na pustym zegarze) - czekało się
-        na jej limit czasu i odstęp, czyli kilkanaście sekund po każdym powrocie do apki.
+        na jej limit czasu i odstęp, czyli kilkanaście sekund po każdym powrocie do aplikacji.
         Teraz: każdy powód (zerwane, nieudana próba, powrót na ekran, odmrożenie) prowadzi do jednej
         drogi - `polaczTeraz`. Odstępy 1, 2, 5, 10, 20, 30, 60 s; powrót na ekran zeruje je i próbuje od razu.
         [D-313] KAŻDY BROKER MA SWÓJ komplet: stan, odstęp, zegar i gniazdo siedzą w jego wpisie `c` z POL;
@@ -2680,11 +2687,11 @@
         ------------------------------------------------------------
         OBJAW: „na PC polaczona i widze, a na telefonie caly czas lacze ponownie" - i dalej:
         „musze zrestartowac i dziala". To nie bylo zerwane polaczenie, tylko ZABLOKOWANE PONAWIANIE:
-        po kilku nieudanych probach odstep dochodzi do 60 s, wiec apka probuje raz na minute.
+        po kilku nieudanych probach odstep dochodzi do 60 s, wiec aplikacja probuje raz na minute.
         Restart zerowal licznik, wiec laczyla od razu - stad zludzenie, ze pomaga tylko restart.
-        Odstep zerowal sie przy POWROCIE NA EKRAN i po odmrozeniu karty, ale kto trzyma apke
+        Odstep zerowal sie przy POWROCIE NA EKRAN i po odmrozeniu karty, ale kto trzyma aplikacje
         otwarta i patrzy, ten zadnego z tych momentow nie wywoluje.
-        ⛔ ROZDZIELAMY DWIE SYTUACJE: gdy apka jest WIDOCZNA, czlowiek czeka i musi widziec proby -
+        ⛔ ROZDZIELAMY DWIE SYTUACJE: gdy aplikacja jest WIDOCZNA, czlowiek czeka i musi widziec proby -
         odstep nie ma prawa urosnac ponad kilka sekund. Gdy jest w tle, nikt nie patrzy i liczy sie
         oszczedzanie baterii oraz niedobijanie brokera - tam zostaja stare odstepy.
         ⚠ Brokera i tak nie dobijemy: `polaczTeraz` pilnuje 1,5 s miedzy probami niezaleznie od tego. */
@@ -2692,14 +2699,14 @@
     /*  ⛔ ODMOWA KONTA TO NIE ZERWANE LACZE [21.09.2026, objaw z Gliczarowa].
         ------------------------------------------------------------
         OBJAW: „przeladowuje sie co sekunde, pokazuje OK, rozlacza sie i tak w kolko" - przy czym
-        dwa pozostale serwery dzialaly. Dziennik apki: „serwery: 1:ok 2:zerwane 3:ok".
-        PRZYCZYNA: po odmowie KONTA apka ponawiala z `ODSTEPY_PATRZY`, czyli co 5 s bez konca.
+        dwa pozostale serwery dzialaly. Dziennik aplikacji: „serwery: 1:ok 2:zerwane 3:ok".
+        PRZYCZYNA: po odmowie KONTA aplikacja ponawiala z `ODSTEPY_PATRZY`, czyli co 5 s bez konca.
         ⚠ Tamta tabela powstala dla zerwanego lacza i tam jest sluszna - lacze wraca samo, wiec
           warto probowac czesto. **Konto, ktorego broker nie zna, nie pojawi sie od probowania.**
           Moze je stworzyc tylko czlowiek, a do tego potrzebuje spokojnego ekranu i komunikatu,
           nie migotania co piec sekund.
-        ⚠ Znacznik `odmowaKonta` zdejmuje sie przy pierwszym udanym polaczeniu [D-422], wiec po
-          poprawieniu konta apka wraca do normalnego rytmu sama - bez restartu. */
+        ⚠ Marker `odmowaKonta` zdejmuje sie przy pierwszym udanym polaczeniu [D-422], wiec po
+          poprawieniu konta aplikacja wraca do normalnego rytmu sama - bez restartu. */
     const ODSTEPY_KONTO = [5, 15, 30, 60, 120, 300];
     /*  [D-427a] JEDNA NAZWA DROGI dla dziennika i dla ekranu. `slot` to numer slotu STEROWNIKA
         (z tematu `serwery`), a gdy go jeszcze nie znamy - pozycja na naszej liscie polaczen.
@@ -2715,13 +2722,13 @@
                     ['serwery', 0], ['zapas', 0], ['nazwy', 1],   /* [D-493] nazwy kanałów, retained */
                     ['historia', 1]];   /* [D-511] strumień historii - tylko na prośbę i tylko drogą prośby (lekki, nie CIEZKIE) */
     /*  [D-411] `serwery` = spis brokerow prosto ze sterownika (retained, przyjdzie od razu).
-        [D-412] `zapas`  = MELDUNKI O REZERWIE, po polsku, pisane przez sterownik. To jedyna droga,
-        ktora mowi, co sie stalo z rozkazem `zapas:...` - odpowiedzi NIE MA w temacie `wynik`
-        (sprawdzone na sprzecie 17.09: rozkaz z blednym PIN-em odpowiedzial „zmiana rezerwy wymaga
-        PIN" wylacznie tematem `zapas`). Bez tej subskrypcji ekran serwisu wysylalby rozkaz w cisze.
+        [D-412] `zapas`  = REPORTY O REZERWIE, po polsku, pisane przez sterownik. To jedyna droga,
+        ktora mowi, co sie stalo z commandem `zapas:...` - odpowiedzi NIE MA w temacie `wynik`
+        (sprawdzone na sprzecie 17.09: command z blednym PIN-em odpowiedzial „zmiana rezerwy wymaga
+        PIN" wylacznie tematem `zapas`). Bez tej subskrypcji ekran serwisu wysylalby command w cisze.
         ⚠ TEN KOMENTARZ MUSI SIE DOMYKAC. Przez pol dnia nie mial znaku konca i sklejal sie
         z nastepnym - kod dzialal przypadkiem, a kazda linia dopisana tutaj zostalaby po cichu
-        zjedzona. Tak wygladala awaria z 17.09 rano: apka pokazywala demo i nie otwierala ustawien.
+        zjedzona. Tak wygladala awaria z 17.09 rano: aplikacja pokazywala demo i nie otwierala ustawien.
         ⚠ I JESZCZE JEDNO, ZMIERZONE NA WLASNEJ SKORZE minute pozniej: samo OSTRZEZENIE tez nie
         moze zawierac znaku konca komentarza w cudzyslowie - zamyka go w polowie zdania, a reszta
         zdania staje sie kodem. `sprawdz_apke.ps1` zlapal to numerem linii. */
@@ -2734,7 +2741,7 @@
     /*  ZAPISANIE SIE NA TEMAT, KTORE PRZEZYWA ODMOWE  [D-439]
         ─────────────────────────────────────────────────────────────────────────────────────
         WEJSCIA:   polaczenie · pelny temat ze wzorcem · jakosc uslugi
-        CO Z CZEGO WYNIKA: od 18.09 apka zapisuje sie na DWIE postaci nazw (`obiekt/...` i stara
+        CO Z CZEGO WYNIKA: od 18.09 aplikacja zapisuje sie na DWIE postaci nazw (`obiekt/...` i stara
                    `basen/...`), bo flota przechodzi na nowy prefiks pojedynczo. Uprawnienia na
                    brokerze porownuja WZORZEC, nie tematy - wiec konto majace regule tylko na
                    jedna postac dostanie ODMOWE na druga. To jest normalne i ma przejsc bez
@@ -2746,7 +2753,7 @@
            ktorego i tak nie potrzebujemy, uciszalaby cale polaczenie.
         ⚠ Odmowy NIE pokazujemy jako bledu uzytkownikowi: to nie usterka, tylko skutek tego, ze
           konto ma prawa do jednej postaci nazw. W dzienniku zostaje, bo serwis ma widziec, czym
-          apka naprawde sie zapisala. */
+          aplikacja naprawde sie zapisala. */
     /*  [Sol S17] WYNIK TYLKO DLA TEJ PARTII ZAPISÓW: wywołanie zwrotne liczy się wyłącznie, gdy `c.kl` to wciąż ten sam
         klient i `c.zakresPartia` ta sama, co przy wysłaniu - SUBACK poprzedniego połączenia (albo starego klienta po
         odnowKlienta) nie dopisuje się do liczników nowej partii. */
@@ -2820,7 +2827,7 @@
       const koniec = () => { c.zakresKoniec = (c.zakresKoniec || 0) + 1; if (c.zakresCzeka && c.zakresKoniec >= (c.zakresWyslane || 0)) { c.zakresCzeka = false; ocenZakres(c); } };
       try {
         /*  [D-511] `historia` zapamiętujemy osobno: rola klienta na brokerze v5 sprzed dopisania tematu (kontrakt_rol_v5.py)
-            odrzuca subskrypcję, a sterownik i tak nadałby cały strumień w ciszę - apka ma to POWIEDZIEĆ (zasada 10),
+            odrzuca subskrypcję, a sterownik i tak nadałby cały strumień w ciszę - aplikacja ma to POWIEDZIEĆ (zasada 10),
             a nie prosić o historię, której nie odbierze.
             [INTEGRACJA-2a, Sol Z1/Z2] wynik zapisuje się PER FILTR w mapie bieżącej partii (histUstaw / histStan wyżej):
             odmowa tylko przy klasie acl / odmowa311; łącze / brak odpowiedzi = osobny stan, nie odmowa roli. */
@@ -2842,7 +2849,7 @@
                             koniec(); } });
       } catch (e) { c.zakresWyslane--; zapisz(etyk(c) + 'nie udało się zapisać na ' + temat);
         /*  [Sol INTEGRACJA-2a-P3] wyjątek z subscribe() = SUBSCRIBE w ogóle nie wyszło: filtr historii nie może zostać
-            w `czeka` (apka mówiłaby „broker jeszcze nie potwierdził” bez końca) - dostaje `lacze`, czyli zdanie o łączu */
+            w `czeka` (aplikacja mówiłaby „broker jeszcze nie potwierdził” bez końca) - dostaje `lacze`, czyli zdanie o łączu */
         if (/\/historia$/.test(temat) && biezaca()) histUstaw(c, kl, nr, temat, 'lacze'); }
     };
     /*  JEDNO ZDANIE ZAMIAST LITANII [D-484, B.0z-38, zmierzone na PC Tomasza 19.09]. Konto KLIENCKIE
@@ -2913,15 +2920,15 @@
           rozłączenie starego wołało jego `onConnectionLost` → `polaczTeraz` → stary łączył się
           PONOWNIE, potem powstawał nowy - dwa żywe klienty na jednej drodze, a błąd gniazda starego
           ustawiał wspólny `c.stan` na „zerwane", choć nowy działał i dostarczał świeże paczki
-          (apka: „polaczony=false" przy wieku danych 0 s). Każda obsługa zapamiętuje, KTÓREGO klienta
+          (aplikacja: „polaczony=false" przy wieku danych 0 s). Każda obsługa zapamiętuje, KTÓREGO klienta
           dotyczy, i milczy, gdy `c.kl` wskazuje już na innego. */
       const kl = c.kl;
       const moj = () => kl === c.kl;
       c.zerwaneOd = 0; c.byloWTle = false; c.byloZerwane = false; c.odstepNr = 0; c.ponowZegar = null; c.ostProba = 0;
       c.dzialaloOd = 0;   /* [D-407] kiedy to połączenie NAPRAWDĘ stanęło - stąd wiadomo, czy zerować odstęp */
-      /*  [B.0z-78, D-530] MARIAŻ QUIC + TLS: zgubienie i powrót JEDNEJ drogi nie są błędem połączenia (apka nadal
+      /*  [B.0z-78, D-530] MARIAŻ QUIC + TLS: zgubienie i powrót JEDNEJ drogi nie są błędem połączenia (aplikacja nadal
           dostaje dane drugą) - nakładka mówi o nich tylko tutaj, w dzienniku łącza (widzi go serwis, D-366).
-          Pierwsza linia „mariaż: QUIC + TLS naraz” przy każdym łączeniu = dowód, że kod żyje. Paho (apka klienta)
+          Pierwsza linia „mariaż: QUIC + TLS naraz” przy każdym łączeniu = dowód, że kod żyje. Paho (aplikacja klienta)
           tego wywołania nie ma - linia milczy. */
       c.kl.onDroga = t => { if (moj()) zapisz(etyk(c) + t); };
       const ponowPozniej = powod => {
@@ -2978,7 +2985,7 @@
         /*  ⚠ TYLKO GDY TO BYŁA DROGA, KTÓRĄ OBIEKT DOCIERAŁ [D-407, objaw zmierzony 17.09].
             Dotąd KAŻDE zerwanie - także serwera, który nigdy nie działał - kazało sterownikowi wrócić
             do nadawania równoległego. Martwy serwer 2 robił to co dwie sekundy i szarpał tym pierwszym:
-            w dzienniku „serwer 1: połączony ponownie (przerwa 4 s)", a w apce znikające obiegi. */
+            w dzienniku „serwer 1: połączony ponownie (przerwa 4 s)", a w aplikacji znikające obiegi. */
         if (niosl && M.niesieReset) M.niesieReset();
         /*  ⚠ ODSTĘP ZERUJEMY TYLKO PO POŁĄCZENIU, KTÓRE NAPRAWDĘ DZIAŁAŁO [D-407].
             Zerowanie przy każdym zerwaniu znaczyło, że serwer NIEOSIĄGALNY nigdy nie wchodzi
@@ -2998,13 +3005,13 @@
         const ponownie = c.byloZerwane;
         const przerwa = (ponownie && c.zerwaneOd) ? ' (przerwa ' + Math.round((Date.now() - c.zerwaneOd) / 1000) + ' s' + (c.byloWTle ? ', telefon był w tle' : '') + ')' : '';
         c.zerwaneOd = 0; c.byloWTle = false; c.byloZerwane = false; c.odstepNr = 0; c.nieudane = 0;
-        c.odmowaKonta = false;           /* [D-422] konto jednak jest - zdejmujemy znacznik */
+        c.odmowaKonta = false;           /* [D-422] konto jednak jest - zdejmujemy marker */
         c.dzialaloOd = Date.now();       /* [D-407] połączenie NAPRAWDĘ stanęło - dopiero to pozwala zerować odstęp */
-        /*  [D-408] meldunek do serwisu - po chwili, gdy subskrypcje i wybor obiektu juz stoja.
+        /*  [D-408] report do serwisu - po chwili, gdy subskrypcje i wybor obiektu juz stoja.
             [D-430] PO ZERWANIU idzie PELNY dziennik: wtedy jest po co, bo w nim siedzi przyczyna.
             Inaczej z telefonu widac tylko jedna linie skrotu i szuka sie na oslep - dokladnie tak
             zgubilem dzis wyjatek `m is not defined`, ktory zrywal polaczenie co sekunde.
-            ⚠ Nie czesciej niz raz na minute: pelny dziennik to 2-3 kB, a apka ze zrywajacym sie
+            ⚠ Nie czesciej niz raz na minute: pelny dziennik to 2-3 kB, a aplikacja ze zrywajacym sie
               laczem zalalaby brokera wlasnie wtedy, gdy lacze ledwo dycha. */
         c.nrPol = (c.nrPol || 0) + 1;    /* [Astra zad. 20] numer połączenia tego serwera w tej sesji (generacja drogi) */
         setTimeout(() => { try {
@@ -3014,7 +3021,7 @@
           if (pelny) { M._pelnyLog = teraz; M.meldunekKrotki(true); return; }
           M.meldunekKrotki(false);
         } catch (e) {} }, 4000);
-        c.ostOdbior = Date.now();        /* [D-355] swiezo polaczony - strażnik ciszy liczy od teraz */
+        c.ostOdbior = Date.now();        /* [D-355] swiezo polaczony - guard ciszy liczy od teraz */
         if (c.ponowZegar) { clearTimeout(c.ponowZegar); c.ponowZegar = null; }
         c.stan = { stan: 'ok', opis: ponownie ? 'połączony ponownie' + przerwa : 'połączony' };
         zapisz(etyk(c) + (ponownie ? 'połączony ponownie' + przerwa : 'połączony') + drTxt);
@@ -3115,7 +3122,7 @@
     };
     POL.forEach(zrobDriver);
     /*  ZIMNY START Z PAMIĘCI TELEFONU [D-289, C4]: ostatni pełny blok wybranego obiektu leży w localStorage.
-        Otwarcie apki = liczby OD RAZU pod zasłoną „łączę…/pobieram stan…" (zasiew), nie ciemna plansza;
+        Otwarcie aplikacji = liczby OD RAZU pod zasłoną „łączę…/pobieram stan…" (zasiew), nie ciemna plansza;
         świeży blok przychodzi po `zadanie`. Warunki brzegowe: blok z pamięci ma `seq` sprzed godzin →
         pierwsza paczka zm pokaże lukę → `pelny` od ręki, a do jego nadejścia zasłona zostaje (w.luka).
         Zły/obcięty wpis → parsujLinie zwraca null → oddaj() traktuje jak brak bloku. */
@@ -3126,9 +3133,9 @@
     oddaj(!!(wybrany && obiekty[wybrany]));   /* od razu: liczby z pamięci pod zasłoną albo plansza „łączę z brokerem…" */
     /* wiek pakietu ma płynąć także między pakietami - kafel ma zblednąć, gdy obiekt zamilkł */
     setInterval(() => oddaj(false), 1000);
-    /*  [D-408] DZIENNIK APKI WRACA DO SERWISU PO MQTT — temat `<obieg>/apka`.
+    /*  [D-408] DZIENNIK APLIKACJI WRACA DO SERWISU PO MQTT — temat `<obieg>/apka`.
         ⚠ PO CO: gdy klient mówi „nie działa", jedyną drogą do tego, co widzi jego telefon, był
-          zrzut ekranu. Dziś apka sama odsyła wersję, stan obu serwerów i ostatnie linie dziennika —
+          screenshot. Dziś aplikacja sama odsyła wersję, stan obu serwerów i ostatnie linie dziennika —
           czyli dokładnie to, czego szukaliśmy dziś rano, przepisując ekran po ekranie.
         ⚠ DWA TRYBY, ŚWIADOMIE: KRÓTKI (jedna linia przy połączeniu — tanie, zawsze) i PEŁNY
           (na żądanie człowieka). Ciągłe nadawanie całego dziennika zjadałoby łącze i zamieniło
@@ -3136,10 +3143,10 @@
         ⚠ Wysyłamy na temat WYBRANEGO obiegu: konto klienta ma prawo pisać tylko u siebie, więc
           diagnostyka jednego klienta nie trafi nigdy w cudze poddrzewo. */
     /*  [audyt WT/QUIC 02.10, docs/36 §11; z quic/audyt-wt b758b1b6] DROGA I LICZNIKI PRÓB WebTransport w dzienniku łącza
-        i w meldunku do serwisu - z telefonu w słabym zasięgu widać wprost: ile prób WT powstało, ile padło od ręki, ile
+        i w reporcie do serwisu - z telefonu w słabym zasięgu widać wprost: ile prób WT powstało, ile padło od ręki, ile
         porzucono, ile razy zastój PUBACK, ile startów wss, ile wybaczeń po zmianie sieci i ile wstrzymanych prób
         (pamięć porażki / dzierżawa innej karty). W mariażu: KTÓRE DROGI ŻYJĄ (TLS / QUIC) i czemu QUIC stoi. Kanał T3
-        (nakładka v5) ma dziennik zdarzeń prób włączony domyślnie (pierścień 400 wpisów w RAM, bez treści i PIN-ów);
+        (nakładka v5) ma dziennik zdarzeń prób włączony domyślnie (ring buffer 400 wpisów w RAM, bez treści i PIN-ów);
         apka/apka2 (Paho 3.1.1) nakładki nie mają - pusty napis i „droga TLS/wss”. */
     if (window.Paho && window.Paho.MQTT_WERSJA === 5 && window.APKA_DIAG_WT === undefined) window.APKA_DIAG_WT = true;
     M.diagWT = () => {
@@ -3162,30 +3169,30 @@
         return /^webtransport:/.test(String((kl && kl.droga) || '')) ? 'droga QUIC/WebTransport' : 'droga TLS/wss';
       } catch (e) { return ''; }
     };
-    /*  [Astra zad. 20, DLA_OPUSA_PWA_TLS_QUIC.md; 03.10.2026] MELDUNKI DIAGNOSTYCZNE Z LIMITEM. Dawniej KAŻDE udane
+    /*  [Astra zad. 20, DLA_OPUSA_PWA_TLS_QUIC.md; 03.10.2026] REPORTY DIAGNOSTYCZNE Z LIMITEM. Dawniej KAŻDE udane
         połączenie dawało po 4 s linię na `<obiekt>/apka` - przy migającym serwerze zapasowym do 119 meldunków/min
-        (próba 02.10), czyli zalew brokera dokładnie wtedy, gdy łącze ledwo dycha. Teraz: krótki meldunek najwyżej raz
+        (próba 02.10), czyli zalew brokera dokładnie wtedy, gdy łącze ledwo dycha. Teraz: krótki report najwyżej raz
         na MELDUNEK_KROTKI_MS; połączenia w tym oknie są LICZONE i wychodzą jednym podsumowaniem („+N połączeń w serii”)
         po końcu okna - seria nie ginie, tylko nie zalewa. Pełny dziennik po zerwaniu jak dotąd najwyżej raz na minutę
         (liczy się też jako krótki). Alarmów sterownika to NIE dotyczy (inny temat, inny nadawca).
         Pseudonim sesji (losowy na wczytanie strony) i numer połączenia serwera: dwa telefony na jednym koncie da się
-        odróżnić bez haseł, PIN-ów i treści komend (hipoteza migania 02.10: dwie apki na jednym koncie).
+        odróżnić bez haseł, PIN-ów i treści komend (hipoteza migania 02.10: dwie aplikacje na jednym koncie).
         KONTRAKT TEMATU `<obiekt>/apka` - OPÓŹNIENIE I CZAS ZDARZENIA [Sol A0.12, 04.10; pełny opis: DIAGNOSTYKA.md]:
-        to DIAGNOSTYKA HISTORII, nie natychmiastowe zgłoszenie awarii. Zerwanie łącza apka zapisuje u siebie, a wysyła
+        to DIAGNOSTYKA HISTORII, nie natychmiastowe zgłoszenie awarii. Zerwanie łącza aplikacja zapisuje u siebie, a wysyła
         dopiero PO POWROCIE (w przerwie nie ma czym): najwcześniej ~4 s po ponownym połączeniu; „+N połączeń w serii”
-        do 10 s po ostatnim meldunku; po nieudanej wysyłce liczba czeka na następne połączenie. Chwila odbioru na
+        do 10 s po ostatnim reporcie; po nieudanej wysyłce liczba czeka na następne połączenie. Chwila odbioru na
         brokerze NIE jest chwilą zdarzenia: czas zdarzeń niosą tylko linie pełnego dziennika (zegar telefonu, HH:MM:SS,
-        „połączony ponownie (przerwa N s)”); krótki meldunek niesie liczbę połączeń, bez czasu. */
+        „połączony ponownie (przerwa N s)”); krótki report niesie liczbę połączeń, bez czasu. */
     const MELDUNEK_KROTKI_MS = 10000;
     const SESJA_PSEUDONIM = Math.random().toString(36).slice(2, 8);
-    /*  [Sol A0.12-Z1, A0.12a; 04.10.2026] LICZNIK = PRAWDZIWE POŁĄCZENIA BEZ WŁASNEGO MELDUNKU. Rejestracja połączenia
+    /*  [Sol A0.12-Z1, A0.12a; 04.10.2026] LICZNIK = PRAWDZIWE POŁĄCZENIA BEZ WŁASNEGO REPORTU. Rejestracja połączenia
         (`meldunekKrotki` - woła je TYLKO onConnected, raz na połączenie) jest oddzielona od opróżniania licznika przez
         zegar końca okna (`_meldunekKoniecOkna` - niczego NIE nalicza). Dawniej zegar wołał meldunekKrotki(false): gdy
-        pełny meldunek przesunął okno, stary termin trafiał w NOWE okno i zegar liczył SAM SIEBIE jako połączenie
+        pełny report przesunął okno, stary termin trafiał w NOWE okno i zegar liczył SAM SIEBIE jako połączenie
         (próba Sol: wysyłki [1 s, 0] [3 s pełny, 1] [13 s, 2] - ostatnia liczba powinna być 1).
         Teraz: udana wysyłka zabiera dokładnie liczbę, którą podała, i unieważnia stary termin; nowy termin liczy się
         od BIEŻĄCEGO okna; nieudana wysyłka (także wyjątek) zostawia liczbę RAZEM z połączeniem, które ją wywołało
-        (dawniej to jedno ginęło, a okno przesuwało się mimo braku meldunku). Nieudane podsumowanie czeka na następne
+        (dawniej to jedno ginęło, a okno przesuwało się mimo braku reportu). Nieudane podsumowanie czeka na następne
         połączenie - bez ponawiania w kółko. */
     M._pominiete = 0; M._krotkiLog = 0; M._zbiorczyZegar = null;
     const _meldunekTermin = () => {
@@ -3216,7 +3223,7 @@
         return false;
       }
       const ok = _meldunekWyslij(pelny, M._pominiete, teraz);
-      if (!ok) M._pominiete++;                                      /* to połączenie też czeka na meldunek */
+      if (!ok) M._pominiete++;                                      /* to połączenie też czeka na report */
       return ok;
     };
     M.wyslijDziennik = (pelny, pominiete) => {
@@ -3231,7 +3238,7 @@
       /*  ⚠ Znak nowej linii składamy z kodu, nie z literału [D-408a]: zapis `'\n'` w napisie
           padł ofiarą narzędzia, którym wstawiałem tę łatkę — ukośnik zniknął, w pliku został
           PRAWDZIWY przełam wiersza w środku napisu i CAŁY skrypt przestał się wykonywać.
-          Objaw był mylący: apka pokazywała dane demonstracyjne i nie otwierała ustawień,
+          Objaw był mylący: aplikacja pokazywała dane demonstracyjne i nie otwierała ustawień,
           bo nie wykonał się żaden kod, nie tylko ta funkcja. `String.fromCharCode(10)` jest
           odporny na taką pomyłkę i tak samo robi to reszta tego pliku. */
       const NL = String.fromCharCode(10);
@@ -3264,41 +3271,41 @@
     /*  SPRAWDŹ PIN [2026-09-09, Tomasz: „PIN do serwisu taki, jaki jest ustawiony w sterowniku"]:
         publikuje `pin=` bez `w=` (sterownik nic nie zapisuje, tylko odpowiada, czy PIN pasuje).
         Kod 0 → PIN dobry, zapamiętujemy go do kolejnych zmian serwisowych (bez pytania drugi raz).
-        Zwraca 'ok' | 'zle' | <komunikat>. Ekran serwisu w apce woła to przy wejściu, więc PIN
+        Zwraca 'ok' | 'zle' | <komunikat>. Ekran serwisu w aplikacji woła to przy wejściu, więc PIN
         jest JEDEN — ten ze sterownika. */
-    /*  REZERWOWY BROKER — OGLADANIE I ZMIANA Z APKI  [D-412, Tomasz 2026-09-17: „tak brac"
-        (na pytanie, czy robic zmiane rezerwy z apki za PIN-em)]
+    /*  REZERWOWY BROKER — OGLADANIE I ZMIANA Z APLIKACJI  [D-412, Tomasz 2026-09-17: „tak brac"
+        (na pytanie, czy robic zmiane rezerwy z aplikacji za PIN-em)]
         ═══════════════════════════════════════════════════════════════════════════════════════
-        WEJSCIA:   spis serwerow ze sterownika (`M.ostSpisSerwerow`, D-411), meldunki z tematu
+        WEJSCIA:   spis serwerow ze sterownika (`M.ostSpisSerwerow`, D-411), reporty z tematu
                    `zapas`, PIN serwisowy sterownika (ten sam, ktory otwiera menu serwisowe).
         CO Z CZEGO WYNIKA: serwis widzi, co sterownik ma w rezerwie, i moze to zmienic bez
-                   podchodzenia do szafy — jednym rozkazem w tym samym temacie `zadanie`,
-                   ktorym apka i tak prosi o dane.
+                   podchodzenia do szafy — jednym commandem w tym samym temacie `zadanie`,
+                   ktorym aplikacja i tak prosi o dane.
         WYJSCIA:   `M.rezerwa.test() / .ustaw() / .kasuj()` — kazda oddaje ZDANIE STEROWNIKA,
                    nie wlasne „wyslano".
 
         ⚠ ODPOWIEDZI NIE MA W TEMACIE `wynik`. `zapas:` nie idzie droga komend (tam jest `id`
           i kod liczbowy), tylko droga zadan — a sterownik melduje po polsku tematem `zapas`.
           Zmierzone 17.09: bledny PIN odpowiedzial „zmiana rezerwy wymaga PIN" wylacznie tam.
-          Dlatego czekamy na meldunek, a nie na kod.
+          Dlatego czekamy na report, a nie na kod.
 
-        ⚠ JEDNYM BROKEREM, NIE WSZYSTKIMI. Zwykle zadania apka rozsyla kazda droga [D-327], bo
-          powtorka nic nie kosztuje. Tutaj kosztuje: rozkaz doszedlby dwa razy, sterownik dwa razy
-          zapisalby NVS i dwa razy oglosil wynik, a czlowiek zobaczylby dwa meldunki na jedno
-          klikniecie. Rozkaz idzie wiec TA droga, ktora obiekt naprawde dociera.
+        ⚠ JEDNYM BROKEREM, NIE WSZYSTKIMI. Zwykle zadania aplikacja rozsyla kazda droga [D-327], bo
+          powtorka nic nie kosztuje. Tutaj kosztuje: command doszedlby dwa razy, sterownik dwa razy
+          zapisalby NVS i dwa razy oglosil wynik, a czlowiek zobaczylby dwa reporty na jedno
+          klikniecie. Command idzie wiec TA droga, ktora obiekt naprawde dociera.
 
-        ⚠ BRAMKI NA SKLADNIE SA PO NASZEJ STRONIE, BO STEROWNIK ICH NIE MA. Rozbiera rozkaz
+        ⚠ BRAMKI NA SKLADNIE SA PO NASZEJ STRONIE, BO STEROWNIK ICH NIE MA. Rozbiera command
           `strchr(':')` i `strstr(";pin=")`, wiec dwukropek w hasle rozjechalby pola, a srednik
           uciąłby PIN — i to bez zadnego bledu, po prostu zapisalaby sie bzdura. Zamiast tego
           mowimy wprost, czego nie wolno (zasada 10).
-          LIMIT DLUGOSCI [sceptyk C, D7 - 02.10.2026]: firmware do sol/c-firmware rozbieral rozkaz w `char buf[240]`
+          LIMIT DLUGOSCI [sceptyk C, D7 - 02.10.2026]: firmware do sol/c-firmware rozbieral command w `char buf[240]`
           (najwyzej 239 B, dluzszy ucinany PO CICHU), po poprawce Sola S20 bufor = SIEC_ODB_TRESC, czyli tyle, ile
-          przyjmuje poczekalnia (247 B; dluzszy odrzucony juz przy odbiorze). Apka tnie WCZESNIEJ: 200 BAJTOW UTF-8
+          przyjmuje poczekalnia (247 B; dluzszy odrzucony juz przy odbiorze). Aplikacja tnie WCZESNIEJ: 200 BAJTOW UTF-8
           (nie znakow - polska litera to 2 B, a firmware liczy bajty) - miesci sie w obu firmware'ach z zapasem,
-          a najdluzszy prawdziwy rozkaz (zapas: adres 64 + konto 32 + haslo 32 + port + PIN) ma ok. 155 B ASCII.
+          a najdluzszy prawdziwy command (zapas: adres 64 + konto 32 + haslo 32 + port + PIN) ma ok. 155 B ASCII.
 
         ⛔ HASLO REZERWY TO HASLO STEROWNIKA DO CUDZEGO BROKERA, nie haslo klienta. Idzie tresci
-          rozkazu, wiec wylacznie po szyfrowanym polaczeniu (apka z Pages laczy sie po wss) i
+          commandu, wiec wylacznie po szyfrowanym polaczeniu (aplikacja z Pages laczy sie po wss) i
           NIGDY nie trafia do dziennika lacza — w `zapisz()` ponizej jedzie sam adres. */
     const REZ_ZLE_ZNAKI = /[:;\s]/;
     const rezRozkaz = (tresc, coTxt) => new Promise(res => {
@@ -3312,9 +3319,9 @@
                             if (zegarek) clearTimeout(zegarek);
                             if (czekaZapas === sluchaj) czekaZapas = null; res(t); };
       /*  ⛔ „SPRAWDZAM…" TO JESZCZE NIE ODPOWIEDZ [poprawka po przegladzie]. Sterownik na jeden
-          rozkaz mowi dwa razy: najpierw „sprawdzam rezerwe <adres>", a werdykt dopiero po probie
+          command mowi dwa razy: najpierw „sprawdzam rezerwe <adres>", a werdykt dopiero po probie
           polaczenia - do 40 s pozniej (ZAP_PROBA_MS w firmware, podniesione tam z 15 na 40 s, bo
-          uzgadnianie TLS przy zajetym stosie tyle potrafi trwac). Konczenie na pierwszym zdaniu
+          uzgadnianie TLS przy zajetym stacku tyle potrafi trwac). Konczenie na pierwszym zdaniu
           oddawalo przyciski w srodku trwajacej proby: kolejne klikniecie w oknie 3 s ginelo
           w odsiewie powtorek sterownika, a po 3 s wracalo „sprawdzanie juz trwa". */
       const przejsciowy = t => /^sprawdzam /.test(t) || /- sprawdzam$/.test(t);
@@ -3327,12 +3334,12 @@
         kk.send(msg);
       } catch (e) { oddaj1('nie udało się wysłać: ' + e); return; }
       zapisz('rezerwa: ' + coTxt);
-      /*  ⚠ TEN SAM ROZKAZ DWA RAZY W CIAGU 3 s STEROWNIK ODRZUCA W MILCZENIU (SIEC_ODB_DUBEL_MS -
+      /*  ⚠ TEN SAM COMMAND DWA RAZY W CIAGU 3 s STEROWNIK ODRZUCA W MILCZENIU (SIEC_ODB_DUBEL_MS -
           odsiew powtorki idacej druga droga [D-327]). Przyciski gasna na czas czekania, wiec czlowiek
           tego nie wywola; gdyby jednak doszlo do powtorki, skonczy sie ona naszym „sterownik nie
-          odpowiedzial w 15 s" - i to jest uczciwa odpowiedz, bo rozkaz naprawde nie zostal wykonany. */
+          odpowiedzial w 15 s" - i to jest uczciwa odpowiedz, bo command naprawde nie zostal wykonany. */
       /*  15 s, nie 5 jak przy komendach: `zapas:test` melduje „sprawdzam…" od razu, ale przy
-          zajętym stosie pierwszy meldunek potrafi się spóźnić (uzgadnianie TLS - patrz
+          zajętym stacku pierwszy report potrafi się spóźnić (uzgadnianie TLS - patrz
           ZAP_PROBA_MS w firmware, podniesione z 15 na 40 s z tego samego powodu). */
       zegarek = setTimeout(() => oddaj1('sterownik nie odpowiedział w 15 s'), 15000);
     });
@@ -3357,7 +3364,7 @@
         const u = String(user || '').trim(), p = String(haslo || '');
         const nr = parseInt(port, 10);
         /*  ⚠ DLUGOSCI Z FIRMWARE, NIE Z OKA [D-412]: sterownik trzyma adres w 64 znakach, konto
-            i haslo w 32 (SIEC_TXT_DLUGI / SIEC_TXT_KROTKI), a caly rozkaz kopiuje do bufora 240
+            i haslo w 32 (SIEC_TXT_DLUGI / SIEC_TXT_KROTKI), a caly command kopiuje do bufora 240
             znakow i TNIE BEZ SLOWA (stary firmware; po S20 bufor = SIEC_ODB_TRESC - patrz LIMIT DLUGOSCI wyzej
             przy rezRozkaz; dlugosci pol nizej sa w znakach, a firmware liczy bajty - pola ASCII). Urwalby sie
             wtedy ogon z `;pin=`, a sterownik odpowiedzialby „zmiana rezerwy wymaga PIN" - przy PIN-ie, ktory
@@ -3403,7 +3410,7 @@
         bladWysylki: { pin: 'nie wiadomo, czy sprawdzenie PIN-u doszło (błąd przy wysyłce) - spróbuj ponownie za chwilę' } });
       op.wyslij(kk, msg);
     });
-    /*  ⚠ Bez retained `blok` obiekt „nie istnieje" dla apki, dopóki sam nie nada —
+    /*  ⚠ Bez retained `blok` obiekt „nie istnieje" dla aplikacji, dopóki sam nie nada —
         a nadaje dopiero po `zadanie`. Zamknięte koło rozcina parametr ?obiekt=
         (znany prefiks → ogłaszamy od razu) albo lista z tematu `status`
         (retained) — subskrybujemy ją, żeby poznać obiekty, które milczą. */
@@ -3429,7 +3436,7 @@
         (w0.statusy || (w0.statusy = {}))[_zrodlo.nr] = st;
         przeliczStatus(w0);                                  /* tylko z dróg, które żyją [D-481] */
         /*  ⛔ AUTOMATYCZNY WYBOR WOLI OBIEKT, KTORY ZYJE  [D-419, objaw Tomasza: „brak sterownika"
-            przy dzialajacym basenie - apka otwarla sadzawke, ktora wlasnie padla]
+            przy dzialajacym basenie - aplikacja otwarla sadzawke, ktora wlasnie padla]
             Dotad brany byl PIERWSZY obiekt, ktory ogłosil status, bez patrzenia, CO ten status mowi.
             Przy zapamietanym wyborze to bez znaczenia, ale po wyczyszczeniu danych albo na nowym
             telefonie decyduje kolejnosc pakietow retained - czyli nic sensownego. Czlowiek dostaje
@@ -3463,19 +3470,19 @@
                                      _zrodlo = c; c.ostOdbior = Date.now(); _obsluga(m); }; };
     POL.forEach(podepnijOdbior);
 
-    /*  ZAPASY BIERZEMY ZE STEROWNIKA, NIE ZGADUJEMY  [D-411, Tomasz 2026-09-17: „można w apce dać
+    /*  ZAPASY BIERZEMY ZE STEROWNIKA, NIE ZGADUJEMY  [D-411, Tomasz 2026-09-17: „można w aplikacji dać
         zapasowy, żeby kopiował się to, co ma w sterowniku 1 do 1"]
         ------------------------------------------------------------
         WEJSCIA:  retained temat `<prefiks>/serwery` - sterownik wypisuje, czym nadaje i co trzyma
                   w rezerwie (adresy, bez kont i bez hasel).
         CO Z CZEGO WYNIKA: pusty „Zapas 1" w ustawieniach przestaje znaczyc „nie masz rezerwy" -
-                  znaczy „jeszcze nie wiem, zapytam sterownika". Po pierwszym polaczeniu apka zna
+                  znaczy „jeszcze nie wiem, zapytam sterownika". Po pierwszym polaczeniu aplikacja zna
                   adresy i zapisuje je na nastepny raz.
         WYJSCIA:  nowe polaczenie na liscie POL + zapis w pamieci telefonu (`odbior_mqtt`).
 
-        ⚠ TO JEST ZAMKNIECIE SPRAWY Z D-373/D-410. Adres wbudowany w kod apki byl zly (burza ponowien
+        ⚠ TO JEST ZAMKNIECIE SPRAWY Z D-373/D-410. Adres wbudowany w kod aplikacji byl zly (burza ponowien
           na cudzym brokerze), pusty bez slowa tez byl zly (cisza na zywym, ale pustym brokerze).
-          Zrodlem prawdy jest ten, kto naprawde wie: STEROWNIK. Apka pyta, a nie zgaduje.
+          Zrodlem prawdy jest ten, kto naprawde wie: STEROWNIK. Aplikacja pyta, a nie zgaduje.
 
         ⚠ PORTU NIE PRZEPISUJEMY. Sterownik lapie sie natywnym MQTT (8883), przegladarka WebSocketem
           po TLS (HiveMQ 8884, EMQX 8084) - ta sama nazwa, inna liczba. Bierzemy stad SAM ADRES,
@@ -3485,7 +3492,7 @@
           wlasnie dziala - zapisujemy na nastepne uruchomienie i mowimy o tym w dzienniku. Podmiana
           w locie dotyczy tylko polaczen, ktore i tak nie stoja. */
     /*  [Astra 12] ZAPIS TAM, SKĄD PRZYSZŁO LOGOWANIE: sesja bez „zapamiętaj" żyje w sessionStorage (ten sam klucz
-        z przedrostkiem apki) - poprawka adresu trafia do niej i znika z kartą; zapamiętane - do localStorage. */
+        z przedrostkiem aplikacji) - poprawka adresu trafia do niej i znika z kartą; zapamiętane - do localStorage. */
     const zapiszUstawienie = (pole, wart) => {
       try { const mag = sessionStorage.getItem(KL('odbior_mqtt')) ? sessionStorage : localStorage;
             const z = JSON.parse(mag.getItem(KL('odbior_mqtt')) || 'null');
@@ -3509,9 +3516,9 @@
       zapisz('serwer ' + nr + ': ' + c.host + ':' + c.port + ' jako ' + user + ' (' + powod + ')');
       c.polaczTeraz(powod);
     };
-    /*  ⚠ POZYCJA W SPISIE STEROWNIKA TO NIE POZYCJA W APCE [zmierzone 17.09, pierwsze ogloszenie
+    /*  ⚠ POZYCJA W SPISIE STEROWNIKA TO NIE POZYCJA W APLIKACJI [zmierzone 17.09, pierwsze ogloszenie
         spisu z basenu]: sterownik podal `glowny 192.168.1.39` i `zapas1 192.168.1.39` - oba adresy
-        domowe, bo on siedzi w tej samej sieci co broker. Apka chodzi z Pages po HTTPS i z drogi
+        domowe, bo on siedzi w tej samej sieci co broker. Aplikacja chodzi z Pages po HTTPS i z drogi
         zadnego z nich nie uzyje. Dlatego nie przepisujemy „slot na slot", tylko bierzemy z calego
         spisu te adresy, KTORYCH DA SIE UZYC (`lan:0`), i ustawiamy je po kolei jako Zapas 1 i 2.
         ⚠ STEROWNIK WYGRYWA Z WPISANYM RECZNIE - i tak ma byc [wytyczna: „zeby kopiowal sie to, co
@@ -3521,7 +3528,7 @@
     const spisSerwerow = (tekst, pref, zastany) => {
       let s = null; try { s = JSON.parse(tekst); } catch (e) { return; }
       if (!s) return;
-      /*  ⛔ SPIS JEST WLASNOSCIA OBIEGU, NIE APKI [D-426a]. Jedno wspolne pole znaczylo, ze ekran
+      /*  ⛔ SPIS JEST WLASNOSCIA OBIEGU, NIE APLIKACJI [D-426a]. Jedno wspolne pole znaczylo, ze ekran
           basenu pokazywal spis sadzawki - ten, ktory przyszedl ostatni. Konto serwisowe oglada
           kilka obiegow naraz, wiec to nie jest przypadek brzegowy, tylko codziennosc. */
       /*  [D-429] spis jest wlasnoscia OBIEGU I DROGI - kazdy broker ma wlasna kopie i wlasny wiek. */
@@ -3544,16 +3551,16 @@
           zapisz(etyk(_zrodlo) + 'to jest slot ' + s.ja + ' sterownika'); } }
       /*  [Astra 12] PUNKT KOŃCOWY = transport + host + port efektywny + ścieżka, nie sam host. Stary broker
           (8886/8887) i broker v5 (8888/8889) stoją pod TĄ SAMĄ nazwą - porównanie po hoście sklejało je w jeden
-          serwer i drugi nigdy nie wchodził. Sterownik podaje port NATYWNY; apka łączy się WebSocketem po TLS, więc:
+          serwer i drugi nigdy nie wchodził. Sterownik podaje port NATYWNY; aplikacja łączy się WebSocketem po TLS, więc:
           znane pary naszych brokerów tłumaczymy wprost, reszta po dostawcy (adres()), a wpis bez TLS pomijamy
-          (apka zna tylko wss - zwykłe TCP i tak by nie wstało). */
+          (aplikacja zna tylko wss - zwykłe TCP i tak by nie wstało). */
       const WS_Z_NATYWNEGO = { 8886: 8887, 8888: 8889 };
       const kluczPK = a => 'wss://' + String(a.host || '').toLowerCase() + ':' + a.port + '/mqtt';
       const nasz = kluczPK(adres(o.host, o.port));
       const kand = [], kandKl = [];
       ['glowny', 'zapas1', 'zapas2'].forEach(k => {
         const w = s[k]; const h = ((w && w.host) || '').trim();
-        if (!h || (w && w.lan)) return;                       /* pusto albo adres domowy - nie dla apki */
+        if (!h || (w && w.lan)) return;                       /* pusto albo adres domowy - nie dla aplikacji */
         if (w && w.tls === 0) return;                         /* bez TLS - nie dla przeglądarki */
         const a = adres(h);
         if (w && WS_Z_NATYWNEGO[w.port]) a.port = WS_Z_NATYWNEGO[w.port];
@@ -3583,25 +3590,25 @@
       });
     };
 
-    /*  STRAZNIK CISZY - MARTWE GNIAZDO UDAJE POLACZENIE [D-355, 2026-09-13]
+    /*  GUARD CISZY - MARTWE GNIAZDO UDAJE POLACZENIE [D-355, 2026-09-13]
         ------------------------------------------------------------
         WEJSCIA:  czas ostatniej paczki z kazdego brokera (`c.ostOdbior`), stan biblioteki.
         CO Z CZEGO WYNIKA: gdy biblioteka TWIERDZI, ze jest polaczona, a od brokera nie przyszlo nic
                   przez STRAZNIK_CISZY_MS - uznajemy lacze za martwe i budujemy klienta OD ZERA.
         WYJSCIA:  wpis w dzienniku + nowe polaczenie.
 
-        ⛔ PO CO, skoro mamy juz ponawianie [Tomasz 13.09: „apka laczy sie ok, ale podczas pracy jak
+        ⛔ PO CO, skoro mamy juz ponawianie [Tomasz 13.09: „aplikacja laczy sie ok, ale podczas pracy jak
         straci internet, juz sie ponownie nie polaczy - trzeba PWA restartowac i laczy sie od razu";
         na ekranie stalo „sterownik online, ale ostatni pakiet 312 s temu"]:
         `polaczTeraz` zaczyna sie od `if (!c.kl || c.kl.isConnected()) return;`. Gdy telefon traci
         internet, gniazdo TCP NIE ZAMYKA SIE od razu - biblioteka dalej uwaza, ze jest polaczona,
-        `onConnectionLost` nie przychodzi, wiec CALE ponawianie jest wylaczone. Apka wie, ze od pieciu
+        `onConnectionLost` nie przychodzi, wiec CALE ponawianie jest wylaczone. Aplikacja wie, ze od pieciu
         minut nic nie dostala (pokazuje to na ekranie!), i nie robi z ta wiedza nic.
         ⚠ PROG MUSI BYC WIEKSZY NIZ KEEPALIVE (30 s), zeby nie zrywac lacza, ktore po prostu milczy,
         bo nikt nie prosi o ciezkie tematy. Liczymy KAZDA paczke, takze lekka - przy zywym brokerze
         cisza dluzsza niz minuta nie zdarza sie nawet wtedy, gdy sterownik nie nadaje: idzie keepalive
         i odpowiedzi na subskrypcje.
-        ⚠ Strażnik chodzi tylko wtedy, gdy KARTA JEST WIDOCZNA - w tle przegladarka i tak dlawi
+        ⚠ Guard chodzi tylko wtedy, gdy KARTA JEST WIDOCZNA - w tle przegladarka i tak dlawi
         liczniki, a telefon w kieszeni nie musi trzymac lacza. */
     const STRAZNIK_CISZY_MS = 75000;
     setInterval(() => {
@@ -3633,7 +3640,7 @@
     }, 15000);
 
     /*  POWROT SIECI - PROBUJEMY OD RAZU [D-355]
-        Przegladarka mowi wprost, kiedy sieć wraca. Bez tego apka czekala na swoj odstep, a po serii
+        Przegladarka mowi wprost, kiedy sieć wraca. Bez tego aplikacja czekala na swoj odstep, a po serii
         nieudanych prob potrafil on urosnac - czlowiek patrzy na „laczę ponownie…", chociaz internet
         jest juz od kilkunastu sekund. */
     window.addEventListener('online', () => {
