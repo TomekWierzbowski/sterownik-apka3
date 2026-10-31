@@ -1165,7 +1165,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '45786e9e9e';
+window.APKA_WERSJA = '0fb634d57f';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1664,7 +1664,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-31 15:14';
+window.HMI_ZBUDOWANO = '2026-10-31 15:59';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -2103,7 +2103,7 @@ window.HMI_ZBUDOWANO = '2026-10-31 15:14';
                Bez sterownika (makieta sama) - cisza: dopisek wypisany na ślepo byłby fałszywy.
      WYJŚCIA:  dopisek do treści alarmu albo ''. */
   const POMPA_STOP_TXT = {
-    asonda: 'Pompa filtracyjna też zatrzymana — tak ustawiono reakcję na uszkodzenie sondy w menu serwisowym „dolewanie i sonda poziomu”',
+    asonda: 'Pompa filtracyjna też zatrzymana — tak ustawiono reakcję na uszkodzenie sondy w menu serwisowym „Dolewanie” (przy wyłączonym dolewaniu: „Sonda poziomu”)',
     amano:  'Pompa filtracyjna też zatrzymana — tak ustawiono reakcję na uszkodzenie czujnika w menu serwisowym „pomiar ciśnienia”'};
   const pompaStoiDopisek = (k, suf) => {
     const r = window.DUO_REAKCJA;
@@ -7835,7 +7835,9 @@ function ekrSerwis(){
     <div class="mrow" data-lv="idz.grzanie" onclick="idz('grzanie')"><span class="t">${regGrz() ? 'Grzanie' : 'Odczyt temperatur'}<i>${regGrz() ? 'histereza, korekta' + (nZrodelCiepla() > 1 ? ', źródła ciepła' : '') : 'kalibracja, odczyty'}</i></span><span class="ch">›</span></div>
     ${/* [31.10] DOLEWANIE WYŁĄCZONE: ekran zostaje (sonda pilnuje suchobiegu, rodzaj układu, geometria), ale nazywa się
           jak to, co na nim zostało - bez progów dolewania i kontroli zużycia */''}
-    <div class="mrow" data-lv="idz.poziom" onclick="idz('poziom')"><span class="t">${N.dol_wl ? 'Dolewanie i sonda poziomu' : 'Sonda poziomu'}<i>${N.dol_wl ? 'progi, rodzaj układu, parametry zbiornika / niecki' : 'suchobieg, rodzaj układu, parametry zbiornika / niecki'}</i></span><span class="ch">›</span></div>
+    <div class="mrow" data-lv="idz.poziom" onclick="idz('poziom')"><span class="t">${N.dol_wl ? 'Dolewanie' : 'Sonda poziomu'}<i>${N.dol_wl ? 'rodzaj układu, parametry zbiornika / niecki, zużycie wody' : 'rodzaj układu, parametry zbiornika / niecki'}</i></span><span class="ch">›</span></div>
+    ${/* [31.10, Tomasz] progi poziomu wody - osobny wiersz (dawniej ramka na ekranie „Dolewanie”) */''}
+    <div class="mrow" data-lv="idz.poziomy" onclick="idz('poziomy')"><span class="t">Poziomy wody<i>${N.dol_wl ? 'start i stop dolewania, suchobieg' : 'suchobieg'}${N.uklad === 'przelew' ? ', nadmiar' : ''}</i></span><span class="ch">›</span></div>
     ${/* [31.10] PŁUKANIE WYŁĄCZONE = wiersza nie ma (włącza się w SERWIS → Funkcje) */''}
     ${N.pluk_wl ? `<div class="mrow" data-lv="idz.pluk" onclick="idz('pluk')"><span class="t">Płukanie filtra<i>dodatkowe parametry płukania filtra / kontrola prawidłowości płukania</i></span><span class="ch">›</span></div>` : ''}
     ${/* [31.10] POMIAR CIŚNIENIA WYŁĄCZONY (SERWIS → Funkcje) albo bez czujnika = wiersza nie ma */''}
@@ -8093,6 +8095,40 @@ function przelacznikNast(klucz){
   if (klucz === 'pluk_wl' && window.blokadySwiata) window.blokadySwiata();
 }
 
+/* ===== EKRAN: poziomy wody [31.10] ======================================
+   [Tomasz 2026-10-31: „zrób z tego jakby osobne menu jako Poziomy wody” (zrzut: ramka POZIOMY DOLEWANIA / SUCHOBIEGU)]
+   WEJŚCIA:  N.dol_start / dol_stop / sucho_stop / dol_maxs / prefill_max / dol_autokas, N.nadmiar_prog / nadmiar_hist
+             (tylko przy zbiorniku przelewowym), N.dol_wl (dolewanie w ruchu - SERWIS → Funkcje).
+   CO Z CZEGO WYNIKA: ta sama ramka co dawniej na ekranie „Dolewanie” (łańcuch walidacji 0 < suchobieg < start < stop
+             zostaje razem), pod nią progi nadmiaru - to też poziomy wody. Dolewanie wyłączone: tylko suchobieg i START
+             (próg powrotu po suchobiegu, D-96). ZAPISZ / ANULUJ wracają tutaj (ekranNastawy).
+   WYJŚCIA:  ekran; nastawy tymi samymi kluczami co dotąd. */
+function ekrPoziomy(){
+  const przelew = N.uklad === 'przelew';
+  return `<div class="tresc">
+    ${/* [31.10] DOLEWANIE WYŁĄCZONE: zostaje próg suchobiegu i START dolewania - ten drugi jest też progiem POWROTU po
+          suchobiegu [D-96]; znikają stop dolewania, czas, wstępne dopełnienie, autokasowanie i kontrola zużycia */''}
+    <div class="grupka" data-lv="g">${N.dol_wl ? 'POZIOMY DOLEWANIA / SUCHOBIEGU' : 'POZIOMY SUCHOBIEGU'}</div>
+    ${/* CAŁA RODZINA PROGÓW W JEDNEJ RAMCE [Tomasz 2026-08-21] — te
+          cztery nastawy trzymają się razem łańcuchem walidacji
+          (0 < suchobieg STOP < start dolewania < stop dolewania),
+          więc mają wyglądać jak jedna rzecz, a nie cztery osobne.
+          Nota pod suchobiegiem USUNIĘTA [2026-08-20] — informacja
+          została w opisie samej nastawy (widać ją w edytorze). */''}
+    <div class="para" data-lv="para">
+      ${wierszN('dol_start')}${N.dol_wl ? wierszN('dol_stop') : ''}
+      ${wierszN('sucho_stop')}${N.dol_wl ? wierszN('dol_maxs') + wierszN('prefill_max') : ''}
+          ${/* [31.10, Tomasz: „automatyczne kasowanie alarmu dolewania po 24h, bez przypisu”] sterownik kasuje teraz 24 h
+                od ZAPALENIA alarmu (dawniej o północy) - 08_filling.h filling_autokas_tick */''}
+          ${N.dol_wl ? wierszWyl('dol_autokas','Automatyczne kasowanie alarmu dolewania po 24h') : ''}
+    </div>
+    ${/* przypis nad ramką [Tomasz 2026-08-21] — tak samo jak „zmierz
+          i wpisz" czy „wynik obliczeń": mówi, o jakim poziomie są te dwie
+          nastawy, zanim człowiek przeczyta ich długie nazwy */''}
+    ${przelew ? `<div class="para" data-lv="para"><div class="etpara" data-lv="etpara">poziom maksymalny / wymuszenia</div>${wierszN('nadmiar_prog')}${wierszN('nadmiar_hist')}</div>` : ''}
+  </div>` + pasek('SERWIS · poziomy wody', 'serwis');
+}
+
 function ekrPoziom(){
   const przelew = N.uklad === 'przelew';
   return `<div class="tresc">
@@ -8109,21 +8145,8 @@ function ekrPoziom(){
             skracala to do „przelew". Skrót w jednym z dwóch miejsc znaczy,
             że serwisant czyta dwie różne nazwy tej samej nastawy. */''}
       <span class="w">${przelew?'zbiornik przelewowy':'skimmer'}</span><span class="ch">›</span></div>
-    ${/* [31.10] DOLEWANIE WYŁĄCZONE: zostaje próg suchobiegu i START dolewania - ten drugi jest też progiem POWROTU po
-          suchobiegu [D-96]; znikają stop dolewania, czas, wstępne dopełnienie, autokasowanie i kontrola zużycia */''}
-    <div class="grupka" data-lv="g">${N.dol_wl ? 'POZIOMY DOLEWANIA / SUCHOBIEGU' : 'POZIOMY SUCHOBIEGU'}</div>
-    ${/* CAŁA RODZINA PROGÓW W JEDNEJ RAMCE [Tomasz 2026-08-21] — te
-          cztery nastawy trzymają się razem łańcuchem walidacji
-          (0 < suchobieg STOP < start dolewania < stop dolewania),
-          więc mają wyglądać jak jedna rzecz, a nie cztery osobne.
-          Nota pod suchobiegiem USUNIĘTA [2026-08-20] — informacja
-          została w opisie samej nastawy (widać ją w edytorze). */''}
-    <div class="para" data-lv="para">
-      ${wierszN('dol_start')}${N.dol_wl ? wierszN('dol_stop') : ''}
-      ${wierszN('sucho_stop')}${N.dol_wl ? wierszN('dol_maxs') + wierszN('prefill_max') : ''}
-          ${N.dol_wl ? wierszWyl('dol_autokas','Kasuj alarm czasu dolewania po każdym dniu',
-            'o północy alarm gaśnie sam i dolewanie próbuje od nowa') : ''}
-    </div>
+    ${/* [31.10, Tomasz: „zrób z tego osobne menu jako Poziomy wody”] ramka progów (start / stop dolewania, suchobieg,
+          czasy, autokasowanie) i progi nadmiaru przeniesione na ekran „Poziomy wody” (ekrPoziomy niżej) */''}
     ${/* REAKCJA NA USZKODZENIE SONDY — POD „MAX CZAS DOLEWANIA" [Tomasz
           2026-08-28]. POZA ramką progów: tamte cztery wiąże łańcuch
           walidacji (0 < suchobieg < start < stop), a to jest wybór
@@ -8131,12 +8154,10 @@ function ekrPoziom(){
           ZAWSZE — sonda jest dla nich źródłem prawdy i nie ma z czego
           liczyć; wybiera się tutaj wyłącznie los pompy filtracyjnej. */''}
     <div class="mrow" data-lv="c.sonda_reakcja" onclick="sondaReakcjaPrzelacz()">
-      <span class="t">Reakcja na uszkodzenie sondy poziomu<i>dolewanie i płukanie stają zawsze — tu decyduje się tylko o pompie filtracyjnej</i></span>
+      ${/* [31.10, Tomasz: „przypis pod reakcją na uszkodzenie sondy poziomu wykasuj”] - treść (dolewanie i płukanie stają
+            zawsze, wybór dotyczy tylko pompy filtracyjnej) zostaje w komentarzu wyżej */''}
+      <span class="t">Reakcja na uszkodzenie sondy poziomu</span>
       <span class="w">${N.sonda_reakcja==='stop'?'zatrzymanie pompy':'pompa pracuje dalej'}</span><span class="ch">›</span></div>
-    ${/* przypis nad ramką [Tomasz 2026-08-21] — tak samo jak „zmierz
-          i wpisz" czy „wynik obliczeń": mówi, o jakim poziomie są te dwie
-          nastawy, zanim człowiek przeczyta ich długie nazwy */''}
-    ${przelew ? `<div class="para" data-lv="para"><div class="etpara" data-lv="etpara">poziom maksymalny / wymuszenia</div>${wierszN('nadmiar_prog')}${wierszN('nadmiar_hist')}</div>` : ''}
     ${/* GEOMETRIA PRZED KONTROLĄ ZUŻYCIA [Tomasz 2026-08-27: „PARAMETRY
           NIECKI (całość) daj nad ZUŻYCIE WODY NA DOLEWANIE — KONTROLA"] -
           najpierw to, co się wpisuje raz przy uruchomieniu, potem odczyty */''}
@@ -8269,7 +8290,7 @@ function ekrPoziom(){
     </div>
     ` : ''}
     ${sekcjaCichy()}
-  </div>` + pasek(N.dol_wl ? 'SERWIS · dolewanie i sonda poziomu' : 'SERWIS · sonda poziomu', 'serwis');
+  </div>` + pasek(N.dol_wl ? 'SERWIS · dolewanie' : 'SERWIS · sonda poziomu', 'serwis');   /* [31.10, Tomasz] nazwa jak wiersz w menu */
 }
 
 /* ===== TRYB CICHY - ZAWÓR SSANIA Z DNA [D-495, 2026-09-26] ===============
@@ -8278,7 +8299,7 @@ function ekrPoziom(){
      WEJŚCIA:  N.cichy_jest (bit 0 rejestru 3328+o: przelew + zawór przypisany), N.cichy_sposob
                i N.cichy_czas (5120+o*10 +1/+2), SRV_S.cichy (stan ze sterownika: żądanie, zawór, powód,
                minuty do końca, przycisk zwarty).
-     CO Z CZEGO WYNIKA: sekcja NA DOLE ekranu „Dolewanie i sonda poziomu” - to funkcja DODATKOWA
+     CO Z CZEGO WYNIKA: sekcja NA DOLE ekranu „Dolewanie” (dawniej „Dolewanie i sonda poziomu”, 31.10) - to funkcja DODATKOWA
                (CLAUDE.md §13: nasza, konkurencja jej nie ma, więc głębiej), a jej świat to zbiornik
                przelewowy i sonda poziomu. Skimmer albo brak zaworu = sekcji NIE MA (zasada
                „nie pokazuj, czego nie ma”) - bramka N.cichy_jest, dla generatora gdy=cichy_jest=true.
@@ -11204,6 +11225,8 @@ function ekranNastawy(k){
   if (k==='kal_temp_kor' || k==='grz_hist') return 'grzanie';
   if (k.startsWith('kal_')) return 'kalib';
   if (k.startsWith('heat_')) return 'grzanie';
+  /* [31.10] progi poziomu mieszkają na ekranie „Poziomy wody” */
+  if (['dol_start','dol_stop','sucho_stop','dol_maxs','prefill_max','nadmiar_prog','nadmiar_hist'].includes(k)) return 'poziomy';
   return 'poziom';
 }
 /* GRANICE NASTAWY — stałe albo LICZONE Z INNEJ NASTAWY [D-98].
@@ -11394,6 +11417,7 @@ function srvRender(anim = true){
     e==='pinnowy'  ? ekrPin(true)  :
     e==='serwis'   ? ekrSerwis()   :
     e==='poziom'   ? ekrPoziom()   :
+    e==='poziomy'  ? ekrPoziomy()  :
     e==='pluk'     ? ekrPluk()     :
     e==='cisn'     ? ekrCisn()     :
     e==='kalib'    ? ekrKalib()    :
@@ -11737,7 +11761,7 @@ srvRender();
    warunkow w szablonach. Czyta to narzedzia_hmi/inwentarz.ps1
    (--dump-dom), a generuj_srv.py robi z tego tabele ekranow LVGL. */
 if (location.search.indexOf('inwentarz') >= 0) {
-  const EKRANY_INW = ['serwis','poziom','pluk','cisn','kalib','grzanie',
+  const EKRANY_INW = ['serwis','poziom','poziomy','pluk','cisn','kalib','grzanie',
                       'obejscia','atrakcje','alarmy','przezn','gotowosc','diag','historia','zdarzenia'];
   /* [nazwa, [wartosc bazowa, warianty...]] - baza = "wszystko widac" */
   const BRAMKI = [
