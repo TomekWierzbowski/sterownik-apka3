@@ -1165,7 +1165,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = 'eda6aad1fd';
+window.APKA_WERSJA = 'd2a1739995';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1664,7 +1664,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-31 20:06';
+window.HMI_ZBUDOWANO = '2026-10-31 20:11';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -8632,7 +8632,9 @@ function ekrCisn(){
           Alarm uszkodzenia jest niekwitowalny i gaśnie sam (obejście manometru albo powrót pomiaru). */''}
     <div class="grupka" data-lv="g">USZKODZENIE CZUJNIKA CIŚNIENIA</div>
     <div class="mrow" data-lv="c.cisn_reakcja" onclick="cisnReakcjaPrzelacz()">
-      <span class="t">Reakcja na uszkodzenie czujnika ciśnienia<i>działa przy czujniku 4–20 mA; obejście manometru zdejmuje zatrzymanie</i></span>
+      ${/* [31.10, Tomasz: „Reakcja na uszkodzenie czujnika ciśnienia bez przypisu”] dawny podpis: „działa przy czujniku
+            4–20 mA; obejście manometru zdejmuje zatrzymanie” - jak przy sondzie poziomu */''}
+      <span class="t">Reakcja na uszkodzenie czujnika ciśnienia</span>
       <span class="w">${N.cisn_reakcja==='stop'?'zatrzymanie pompy':'pompa pracuje dalej'}</span><span class="ch">›</span></div>
     ${W.zatrzask
       ? `<div class="grupka" data-lv="g">WYJŚCIE Z ZATRZASKU</div>
