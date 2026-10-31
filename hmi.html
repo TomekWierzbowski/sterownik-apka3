@@ -1165,7 +1165,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '2ea6fa6855';
+window.APKA_WERSJA = '09442fb58b';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1664,7 +1664,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-31 09:14';
+window.HMI_ZBUDOWANO = '2026-10-31 11:11';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -2224,10 +2224,10 @@ window.HMI_ZBUDOWANO = '2026-10-31 09:14';
   const cfg = () => S.ob===0
     ? {chem:el('b_chem').checked, chlor:el('b_chl').checked, wagi:el('b_wagi').checked,
        rol:el('b_rol').checked, bial:el('b_bial').checked, rgb:el('b_rgb').checked,
-       mano:el('b_mano').checked}
+       mano:el('b_mano').checked && funON('cisn')}
     : {chem:el('w_chem').checked, chlor:el('w_chl').checked, wagi:el('w_wagi').checked,
        rol:false, bial:el('w_bial').checked, rgb:el('w_rgb').checked,
-       mano:el('w_mano').checked};
+       mano:el('w_mano').checked && funON('cisn')};
   const el = id => document.getElementById(id);
   /* --- POZIOM WODY I UV [Tomasz 2026-08-18] --- */
   const pozOb   = () => +el(S.ob===0?'s_poz_b':'s_poz_w').value || 0;
@@ -2268,6 +2268,9 @@ window.HMI_ZBUDOWANO = '2026-10-31 09:14';
      ptaszek w symulacji (`s_dolwyl_*`) — mostek go zaznacza, żeby były
      JEDNE drzwi do tej blokady, nie dwoje. */
   const funON = k => !window.DUO_FUN || window.DUO_FUN[k] !== false;
+  /* [31.10] MANOMETR NA EKRANIE: czujnik w obiegu (ptaszek b_mano / w_mano - pod mostem ze świata: wyposażenie b9)
+     I pomiar ciśnienia w ruchu (SERWIS → Funkcje, 4036/4037). Zdjęty = tarczy z ciśnieniem nie ma. */
+  const manoOb = () => (S.ob===0 ? el('b_mano') : el('w_mano')).checked && funON('cisn');
   /* ⚠ OBECNOSC UV ZE STEROWNIKA, GDY JEST POD RĘKĄ [2026-09-01].
      Ptaszek `w_uv` pochodzi z kontraktu makiety, czyli z założenia sprzed
      miesiąca; `jest_uv` mówi, czy lampa ma w tej szafie przypisane wyjście
@@ -2327,7 +2330,7 @@ window.HMI_ZBUDOWANO = '2026-10-31 09:14';
   setInterval(()=>{
     if (S.ekran!=='glowny') return;
     KROK=(KROK+1)%4;
-    const zapch = filtrOb() && (S.ob===0?el('b_mano'):el('w_mano')).checked;
+    const zapch = filtrOb() && manoOb();
     const pompa = true;   /* praca wynika z trybu toru (pracujeTor) */
     for (let tor=0; tor<2; tor++){
       const s=el('akcsvg'+tor); if(!s) continue;
@@ -3282,7 +3285,7 @@ window.HMI_ZBUDOWANO = '2026-10-31 09:14';
                                 ale klaster dalej wiruje, bo pompa pracuje
        Kolor na WARTOSCI i na kwadracikach zostaje mimo jednego koloru paska:
        pasek mowi "cos sie dzieje", a czerwien na miejscu mowi GDZIE. */
-    const mano   = (S.ob===0?el('b_mano'):el('w_mano')).checked;
+    const mano   = manoOb();
     /* ==================================================================
        CZERWIEŃ TYLKO Z OSTRZEŻENIA, NIGDY WPROST Z „ZABRUDZONEGO FILTRA"
        ==================================================================
@@ -3404,7 +3407,7 @@ window.HMI_ZBUDOWANO = '2026-10-31 09:14';
          TRYB POMPY (tarcza piorkowa, dotkniecie przelacza po kole)
          + INFO O CISNIENIU. Przy dwoch torach - dwie tarcze z numerami. */
       const tory = H.dane[S.ob], n = dwie()?2:1;
-      const maMano2 = S.ob===0 ? el('b_mano').checked : el('w_mano').checked;
+      const maMano2 = manoOb();
       const brud2 = filtrOb();
       /* 2 FILTRY = 2 CISNIENIA I 2 PIORKA [Tomasz]: kazdy tor dostaje
          KOMPLET (tarcza + podpis POMPA n + wlasny manometr) - bo kazdy
@@ -4023,7 +4026,7 @@ window.HMI_ZBUDOWANO = '2026-10-31 09:14';
        zawezony do toru, wiec oba elementy mowia o TYM torze. Piorko = tryb
        PROGRAMOWY; fizyczny HOA w szafie pozostaje NADRZEDNY (E.5) - przy
        RECE/0 w szafie piorko bedzie tylko wskaznikiem wymuszenia. */
-    const maMano = S.ob===0 ? el('b_mano').checked : el('w_mano').checked;
+    const maMano = manoOb();
     const brudny = filtrOb();
     const stoiP = !pracujeTor(T().tryb, H.tor);   /* pompa stoi = nie tłoczy */
     const cis = awariaMano() ? null
@@ -6030,6 +6033,8 @@ window.HMI_ZBUDOWANO = '2026-10-31 09:14';
       if (d.uv_on !== undefined)     window.DUO_UV_ON = !!d.uv_on;
       if (d.jest_uv !== undefined)   window.DUO_JEST_UV = !!d.jest_uv;
       /* [D-234] roleta jest, gdy sterownik ma przypisany jej styk - nie z kontraktu makiety */
+      /* [31.10] czujnik ciśnienia przypisany w mapie I/O (wyposażenie b9) - dotąd ptaszek makiety, nie sterownik */
+      if (d.jest_cis !== undefined){ const c = el(d.obieg_nr === 1 ? 'w_mano' : 'b_mano'); if (c && c.checked !== !!d.jest_cis) c.checked = !!d.jest_cis; }
       if (d.jest_roleta !== undefined){ const c = el('b_rol'); if (c && c.checked !== !!d.jest_roleta) c.checked = !!d.jest_roleta; }
       if (d.bw_skip_powod !== undefined) window.DUO_BW_SKIP = d.bw_skip_powod;
       if (d.bw_widelki_powod !== undefined) window.DUO_BW_WIDELKI = d.bw_widelki_powod;   /* [D-245] */
@@ -7100,6 +7105,7 @@ const N = {
    * OFF na cały cykl płukania. */
   grz_wl:true, dol_wl:true, pluk_wl:true, uv_wl:true,
   cichy_wl:true,                   /* [31.10] tryb cichy - wyłącznik serwisowy (5120 + obieg*10 + 3) */
+  cisn_wl:true,                    /* [31.10] pomiar ciśnienia - wyłącznik serwisowy (4036 / 4037) */
   /* geometria [Tomasz 2026-08-19]: przelew → parametry ZBIORNIKA
    * (wysokość do przelewu + boki lustra), skimmer → parametry NIECKI
    * (boki proste: a×b×głębokość; okrągła: średnica — wanny ze skimmerem
@@ -7833,7 +7839,8 @@ function ekrSerwis(){
     <div class="mrow" data-lv="idz.poziom" onclick="idz('poziom')"><span class="t">${N.dol_wl ? 'Dolewanie i sonda poziomu' : 'Sonda poziomu'}<i>${N.dol_wl ? 'progi, rodzaj układu, parametry zbiornika / niecki' : 'suchobieg, rodzaj układu, parametry zbiornika / niecki'}</i></span><span class="ch">›</span></div>
     ${/* [31.10] PŁUKANIE WYŁĄCZONE = wiersza nie ma (włącza się w SERWIS → Funkcje) */''}
     ${N.pluk_wl ? `<div class="mrow" data-lv="idz.pluk" onclick="idz('pluk')"><span class="t">Płukanie filtra<i>dodatkowe parametry płukania filtra / kontrola prawidłowości płukania</i></span><span class="ch">›</span></div>` : ''}
-    <div class="mrow" data-lv="idz.cisn" onclick="idz('cisn')"><span class="t">Pomiar ciśnienia<i>ochrona przed nieprawidłowym ciśnieniem w układzie filtracyjnym</i></span><span class="ch">›</span></div>
+    ${/* [31.10] POMIAR CIŚNIENIA WYŁĄCZONY (SERWIS → Funkcje) albo bez czujnika = wiersza nie ma */''}
+    ${cisAkt() ? `<div class="mrow" data-lv="idz.cisn" onclick="idz('cisn')"><span class="t">Pomiar ciśnienia<i>ochrona przed nieprawidłowym ciśnieniem w układzie filtracyjnym</i></span><span class="ch">›</span></div>` : ''}
     ${/* JEDNA GRUPA ZAMIAST DWÓCH [Tomasz 2026-08-21: „scal narzędzia
           i funkcje serwisowe i napisz tylko funkcje serwisowe"] — podział
           na „narzędzie" i „stan instalacji" był rozróżnieniem dla autora
@@ -7844,7 +7851,7 @@ function ekrSerwis(){
     ${/* KALIBRACJA TUTAJ [Tomasz 2026-08-21] — to nie nastawa procesu,
           tylko czynność serwisowa przy czujniku (dwa punkty na żywo);
           robi się ją raz, przy uruchomieniu albo po wymianie sondy */''}
-    <div class="mrow" data-lv="idz.kalib" onclick="idz('kalib')"><span class="t">Kalibracja czujników<i>sonda poziomu, czujnik ciśnienia</i></span><span class="ch">›</span></div>
+    <div class="mrow" data-lv="idz.kalib" onclick="idz('kalib')"><span class="t">Kalibracja czujników<i>sonda poziomu${cisAkt() ? ', czujnik ciśnienia' : ''}</i></span><span class="ch">›</span></div>
     ${/* wskaźnik mówi, ILE rzeczy stoi zdjętych z ruchu — nazwa jednej,
           gdy jest jedna, licznik gdy więcej; obejścia mają pierwszeństwo,
           bo one dodatkowo wiszą chipem na pasku */''}
@@ -7863,14 +7870,9 @@ function ekrSerwis(){
       : `<div class="mrow" data-lv="idz.pilot" onclick="idz('pilot')"><span class="t">Pilot 433 MHz<i>${
       SRV_S.pilot && SRV_S.pilot.chip === false ? 'radio nie odpowiada' : (SRV_S.pilot ? ((n => n === 1 ? '1 przycisk sparowany' : (n >= 2 && n <= 4 ? n + ' przyciski sparowane' : n + ' przycisków sparowanych'))(SRV_S.pilot.wpisy.filter(w => w.kanal !== 255).length)) : 'nauka przycisków, sparowane piloty')}</i></span><span class="ch">›</span></div>`) : ''}
     <div class="mrow" data-lv="idz.obejscia" onclick="idz('obejscia')"><span class="t">Funkcje</span>${
-      (SRV_S.obejscie_sonda||SRV_S.obejscie_mano) ? '<span class="w" style="color:#7a5200">AKTYWNE</span>'
-      : (() => { const wyl = [['grz_wl','GRZANIE'],['dol_wl','DOLEWANIE'],
-                              ['pluk_wl','PŁUKANIE'],['uv_wl','UV']]
-                             .concat(N.cichy_jest && N.cichy_wl_jest !== false ? [['cichy_wl','TRYB CICHY']] : [])   /* [31.10] */
-                             .filter(f => !N[f[0]]);
-                 return wyl.length === 0 ? ''
-                      : `<span class="w" style="color:#7a5200">${
-                          wyl.length === 1 ? wyl[0][1]+' WYŁ' : wyl.length+' FUNKCJE WYŁ'}</span>`; })()
+      /* [31.10, Tomasz: „zdejmij info, że 4 funkcje wyłączone”] licznik wyłączonych funkcji zdjęty - wyłączona funkcja
+         i tak znika z menu; znacznik zostaje tylko dla OBEJŚĆ (zdejmują ochronę, wiszą też chipem na pasku) */
+      (SRV_S.obejscie_sonda||SRV_S.obejscie_mano) ? '<span class="w" style="color:#7a5200">AKTYWNE</span>' : ''
     }<span class="ch">›</span></div>
     ${/* WYLACZANIE ALARMOW TUZ POD OBEJSCIAMI [Tomasz 2026-08-24] - ta
           sama polka co obejscia i wylaczniki funkcji: swiadome zdjecie
@@ -7985,6 +7987,11 @@ const jestW = k => (W['jest_' + k] === undefined || W['jest_' + k] === null) ? t
    a kafel pokazuje sama temperature. */
 const grzStyk = () => (W.grz_styk === undefined || W.grz_styk === null) ? true : !!W.grz_styk;
 const regGrz  = () => grzStyk() && !!N.grz_wl;
+/* [31.10] POMIAR CIŚNIENIA: czujnik w mapie I/O (W.jest_cis = wyposażenie b9) i wyłącznik w ruchu (4036/4037).
+   cisAkt() = pokazujemy odczyt, ochrony, kalibrację i obejście; jestCisWl() = wiersz w Funkcjach (sterownik zna
+   wyłącznik - linia MN ze znacznikiem b14; starszy firmware: wiersza nie ma, reszta jak dotąd). */
+const cisAkt    = () => jestW('cis') && !!N.cisn_wl;
+const jestCisWl = () => jestW('cis') && N.cisn_wl_jest !== false;
 function wierszWyl(klucz, et, opis){
   /* przez przelacznikNast(), a nie inline — ptaszek nastawy musi trafić
      do panelu użytkownika tak samo jak zapis wartości [Tomasz 2026-08-20] */
@@ -8615,7 +8622,7 @@ function ekrKalib(){
           przypadkowy. ⚠ Klikać, gdy sonda jest w swoim zerze - inaczej
           wkalibrujemy wodę, która akurat stoi. */''}
     <div class="abtn" data-lv="abtn" onclick="poka('zerowanie sondy poziomu — kliknij ponownie, aby potwierdzić')">ZERUJ SONDĘ POZIOMU</div>
-    <div class="grupka" data-lv="g">CZUJNIK CIŚNIENIA</div>
+    ${cisAkt() ? `<div class="grupka" data-lv="g">CZUJNIK CIŚNIENIA</div>
     <div class="para" data-lv="para">
       ${wierszN('kal_cis_zak')}${wierszN('kal_cis_off')}
     </div>
@@ -8623,7 +8630,7 @@ function ekrKalib(){
     ${/* ⚠ CIŚNIENIE ZERUJE SIĘ TYLKO PRZY ROZPRĘŻONEJ INSTALACJI. Gdy filtracja
           stoi niżej niż niecka, czujnik mierzy słup wody i to NIE JEST zero
           [Tomasz 2026-08-28]. */''}
-    <div class="abtn" data-lv="abtn" onclick="poka('zerowanie czujnika ciśnienia — kliknij ponownie, aby potwierdzić')">ZERUJ CZUJNIK CIŚNIENIA</div>
+    <div class="abtn" data-lv="abtn" onclick="poka('zerowanie czujnika ciśnienia — kliknij ponownie, aby potwierdzić')">ZERUJ CZUJNIK CIŚNIENIA</div>` : ''}
     ${/* KOREKTA WSKAZANIA I HISTEREZA PRZENIESIONE DO „GRZANIA"
           [Tomasz 2026-08-21] — obie dotyczą regulatora temperatury,
           więc mają stać przy źródłach ciepła, a nie w kalibracji
@@ -9750,19 +9757,17 @@ function ekrObejscia(){
      TRYB CICHY: wiersz tylko, gdy funkcja jest w tej szafie (przelew + zawór, N.cichy_jest) i sterownik zna jej
      wyłącznik (N.cichy_wl_jest !== false - starszy firmware go nie ma; nie pokazujemy, czego nie ma).
      PODPIS MÓWI STAN FAKTYCZNY [2026-08-21]: opis tylko przy zdjętym ptaszku, nie „co się stanie po odznaczeniu”. */
+  /* [31.10, Tomasz: „do menu Funkcje dodaj pomiar ciśnienia oraz zdejmij ten przypis”] POMIAR CIŚNIENIA: wiersz, gdy
+     czujnik jest w mapie I/O i sterownik zna wyłącznik (jestCisWl); zdjęty = bez odczytu, ochron i alarmów, znika też
+     obejście czujnika ciśnienia. Żółty przypis „Funkcja zdjęta z ruchu — nie wraca sama” USUNIĘTY. */
   const jestCichy = !!N.cichy_jest && N.cichy_wl_jest !== false;
-  const zdjete = (jestW('dol') && !N.dol_wl) || (jestW('pluk') && !N.pluk_wl) || (jestW('uv') && !N.uv_wl)
-              || (grzStyk() && !N.grz_wl) || (jestCichy && !N.cichy_wl);
   return `<div class="tresc">
     ${jestW('dol')  ? wierszWyl('dol_wl', 'Dolewanie', N.dol_wl ? '' : 'wyłączone — sonda dalej pilnuje suchobiegu') : ''}
     ${jestW('pluk') ? wierszWyl('pluk_wl', 'Płukanie filtra', N.pluk_wl ? '' : 'wyłączone — bez harmonogramu i przycisku') : ''}
     ${jestCichy     ? wierszWyl('cichy_wl', 'Tryb cichy', N.cichy_wl ? '' : 'wyłączony — bez kafla i harmonogramu') : ''}
     ${grzStyk()     ? wierszWyl('grz_wl', 'Grzanie', N.grz_wl ? '' : 'wyłączone — temperatura tylko do podglądu') : ''}
+    ${jestCisWl()   ? wierszWyl('cisn_wl', 'Pomiar ciśnienia', N.cisn_wl ? '' : 'wyłączony — bez odczytu, ochron i alarmów') : ''}
     ${jestW('uv')   ? wierszWyl('uv_wl', 'Lampa UV') : ''}
-    ${zdjete ? `
-      <div class="ostrzega" data-lv="ostrzega"><b>Funkcja zdjęta z ruchu — nie wraca sama.</b>
-      Znika z menu serwisowego, harmonogramów i odczytów (temperatura zostaje do podglądu). Włącza ją
-      z powrotem człowiek — sprawdź tę listę, zanim oddasz obiekt.</div>` : ''}
     <div class="grupka" data-lv="g">OBEJŚCIA</div>
     <div class="mrow szary ${SRV_S.obejscie_sonda?'wl':''}" data-lv="k.obejscie_sonda" onclick="obejscieSonda()">
       <span class="ptaszek">${PTASZEK}</span>
@@ -9771,9 +9776,9 @@ function ekrObejscia(){
             poziomu), ale BLOKUJE dolewanie i płukanie — bez wiarygodnego
             poziomu nie ma czym przerwać zrzutu, gdy wody zabraknie. */''}
       <span class="t">Sonda poziomu wody${SRV_S.obejscie_sonda ? '<i>obejście: pompa pracuje bez pomiaru, dolewanie i płukanie stoją</i>' : ''}</span></div>
-    <div class="mrow szary ${SRV_S.obejscie_mano?'wl':''}" data-lv="k.obejscie_mano" onclick="obejscieMano()">
+    ${cisAkt() || SRV_S.obejscie_mano ? `<div class="mrow szary ${SRV_S.obejscie_mano?'wl':''}" data-lv="k.obejscie_mano" onclick="obejscieMano()">
       <span class="ptaszek">${PTASZEK}</span>
-      <span class="t">Czujnik ciśnienia${SRV_S.obejscie_mano ? '<i>obejście: pompa pracuje bez ochrony ciśnieniowej</i>' : ''}</span></div>
+      <span class="t">Czujnik ciśnienia${SRV_S.obejscie_mano ? '<i>obejście: pompa pracuje bez ochrony ciśnieniowej</i>' : ''}</span></div>` : ''}
     ${(SRV_S.obejscie_sonda||SRV_S.obejscie_mano) ? `
       <div class="ostrzega" data-lv="ostrzega"><b>Obejście aktywne — znacznik na pasku pilnuje z każdego
       ekranu.</b> Nie wygasa samo i <b>przetrwa zanik zasilania</b> — zdejmuje je
@@ -11656,7 +11661,10 @@ if (PANEL_LEWY) {
        `null` znaczy „starszy firmware nie przysyla" i wtedy zostawiamy to,
        co jest - zgadywanie bylo wlasnie tym bledem. */
     if (d.funkcje){
-      const PAR = {grz:'grz_wl', dol:'dol_wl', pluk:'pluk_wl', uv:'uv_wl', cichy:'cichy_wl'};
+      const PAR = {grz:'grz_wl', dol:'dol_wl', pluk:'pluk_wl', uv:'uv_wl', cichy:'cichy_wl', cisn:'cisn_wl'};
+      /* [31.10] pomiar ciśnienia: null = sterownik nie zna wylacznika (linia MN bez znacznika b14) - wiersza w Funkcjach nie ma */
+      const cisJest = d.funkcje.cisn !== null && d.funkcje.cisn !== undefined;
+      if (N.cisn_wl_jest !== cisJest){ N.cisn_wl_jest = cisJest; zmiana = true; }
       /* [31.10] tryb cichy: null = sterownik nie zna wylacznika (linia MN bez znacznika b15) - wiersza w Funkcjach nie ma */
       const wlJest = d.funkcje.cichy !== null && d.funkcje.cichy !== undefined;
       if (N.cichy_wl_jest !== wlJest){ N.cichy_wl_jest = wlJest; zmiana = true; }
@@ -11864,7 +11872,7 @@ if (DUO && window.parent !== window){
     /* WYŁĄCZNIKI SERWISOWE FUNKCJI [Tomasz 2026-08-21] — panel użytkownika
        ma pokazać skutek: zimna woda, zamknięty zawór, martwy przycisk
        płukania. Bez tego wyłącznik żyłby tylko po stronie serwisu. */
-    funkcje:{grz:N.grz_wl, dol:N.dol_wl, pluk:N.pluk_wl, uv:N.uv_wl, cichy:N.cichy_wl},
+    funkcje:{grz:N.grz_wl, dol:N.dol_wl, pluk:N.pluk_wl, uv:N.uv_wl, cichy:N.cichy_wl, cisn:N.cisn_wl},
     /* LIMIT ZUŻYCIA WODY [Tomasz 2026-08-21: „gdy ustawione limit 0, to
        brak alarmów"] — panel użytkownika musi wiedzieć, czy ten alarm
        w ogóle istnieje: przy zerze nie ma z czym porównywać, więc

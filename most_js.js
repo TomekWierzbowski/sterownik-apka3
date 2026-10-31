@@ -158,9 +158,11 @@
   /* [31.10] tryb cichy: b8/b9 = wylacznik serwisowy (1 = w ruchu), b15 = sterownik go zna; bez znacznika null
      (starszy firmware - menu nie pokazuje wiersza, ekran traktuje tryb jak wlaczony) */
   function funkcjeZMn(w, o, uvZapas) {
-    if (w === null || w === undefined) return { uv: uvZapas, grz: null, dol: null, pluk: null, cichy: null };
+    if (w === null || w === undefined) return { uv: uvZapas, grz: null, dol: null, pluk: null, cichy: null, cisn: null };
     return { grz: bit(w, 0 + o), dol: bit(w, 2 + o), pluk: bit(w, 4 + o), uv: bit(w, 6 + o),
-             cichy: (w & 0x8000) ? bit(w, 8 + o) : null };
+             cichy: (w & 0x8000) ? bit(w, 8 + o) : null,
+             /* [31.10] pomiar ciśnienia: b10/b11 (1 = w ruchu), b14 = sterownik zna wyłącznik; bez znacznika null */
+             cisn: (w & 0x4000) ? bit(w, 10 + o) : null };
   }
   function profilZSlow(slowa) {
     if (!slowa || slowa.every(s => s === null)) return null;
@@ -351,6 +353,7 @@
       akc_nast: akcNastawyZMn(mnSlowo),
       jest_uv: bit(wyp, 7), jest_grz: bit(wyp, 5) || bit(wyp, 6), grz_styk: bit(wyp, 13),
       jest_dol: bit(wyp, 4), jest_pluk: bit(wyp, 3),
+      jest_cis: bit(wyp, 9),         /* [31.10] czujnik ciśnienia przypisany w mapie I/O */
       jest_roleta: bit(wyp, 12),     /* styk rolety przypisany [D-234] */
       temp_pow: b.length > 71 ? i16(b[70]) / 10.0 : null,
       temp_pow_stan: b.length > 71 ? b[71] : 0,
@@ -404,6 +407,9 @@
     if (klucz === 'cichy_czas')   return [CICHY_NAST + o * CICHY_NAST_KROK + 2, Math.round(parseFloat(wart)) & 0xFFFF];
     /* [31.10] wylacznik serwisowy trybu cichego: 1 = w ruchu (wraca bitem MN b8/b9) */
     if (klucz === 'cichy_wl')     return [CICHY_NAST + o * CICHY_NAST_KROK + 3, ['1', 'true', 'tak', 'on'].includes(s) ? 1 : 0];
+    /* [31.10] pomiar ciśnienia: tylko ZAPIS (4036/4037) - stan wraca bitem MN b10/b11, NIE z rejestru: lustro MQTT
+       czyta nieznany rejestr jako 0 i apka przy starszym firmware schowałaby ciśnienie */
+    if (klucz === 'cisn_wl')      return [4036 + o, ['1', 'true', 'tak', 'on'].includes(s) ? 1 : 0];
     for (const [i, k, skala, rodzaj] of MN_NASTAWY) {
       if (k !== klucz) continue;
       const [baza, rel] = MN_UKLAD[i];
