@@ -1169,7 +1169,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '4a9ac21218';
+window.APKA_WERSJA = '0799b30320';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1668,7 +1668,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-31 20:51';
+window.HMI_ZBUDOWANO = '2026-10-31 21:43';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -7901,7 +7901,9 @@ function ekrSerwis(){
     ${/* WYGASZACZ [Tomasz 2026-08-26: „zrób ładny wygaszacz i umieść jego
           parametry w funkcje serwisowe"] - nastawy PANELU (NVS), nie
           sterownika; ekran specjalny, w LVGL srv_wygaszacz.c */''}
-    <div class="mrow" data-lv="idz.wygaszacz" onclick="idz('wygaszacz')"><span class="t">Wygaszacz ekranu<i>zegar i temperatura na czarnym tle po czasie bez dotyku</i></span>
+    ${/* [31.10, Tomasz: „przypis pod Wygaszacz ekranu do usunięcia”] dawny podpis: „zegar i temperatura na czarnym tle
+          po czasie bez dotyku” */''}
+    <div class="mrow" data-lv="idz.wygaszacz" onclick="idz('wygaszacz')"><span class="t">Wygaszacz ekranu</span>
       <span class="w">${SRV_S.wyg_min ? SRV_S.wyg_min + ' min · ' + SRV_S.wyg_jasn + ' %' : 'wył.'}</span><span class="ch">›</span></div>
     ${/* SIEC [kolejka „budowa sieci" pkt 4, 2026-09-07]: nastawy STEROWNIKA,
           nie panelu - ekran czyta rejestry 3160+/4740+ sam, jak pilot. */''}
@@ -9462,8 +9464,14 @@ function ekrSiec(){
   const staTxt = !(sta & 1) ? 'wyłączone' : (sta & 4) ? siecIpSt(3173) + ' · ' + siecZnak(siecS(3172)) + ' dBm'
                : (sta & 2) ? 'połączona, czeka na adres' : (sta & 8) ? 'łączy się…' : 'brak połączenia';
   const mq2 = siecS(3192);
-  const mqTxt = (!(mq & 1) && !(mq2 & 1)) ? 'wyłączone'
-              : MQTT_SERW.filter(s => siecS(s.st) & 1).map(s => s.nr + ': ' + mqttSkrot(s)).join(' · ');
+  /* [31.10, Tomasz (zrzut z telefonu): „MQTT jest nieczytelne — może wystarczy MQTT i w ramce ilość pakietów”] wiersz zbiorczy
+     mówi KRÓTKO: przy sesji sama liczba wysłanych pakietów, bez „1: … wysłanych · 2: …” (długi napis nie mieścił się obok
+     nazwy i nachodził na nią); stan bez sesji jednym słowem. Pełne zdania (mqttSkrot) zostają na ekranie MQTT. */
+  const mqKrotko = s => (siecS(s.st) & 2) && !mqttWarunek(s) ? String(siecS(s.wysl))
+                     : mqttWarunek(s) ? 'odmowa' : (siecS(s.kod) ? 'błąd' : 'łączy się…');
+  const mqWl = MQTT_SERW.filter(s => siecS(s.st) & 1);
+  const mqTxt = !mqWl.length ? 'wyłączone'
+              : mqWl.map(mqKrotko).join(' · ') + (mqWl.every(s => (siecS(s.st) & 2) && !mqttWarunek(s)) ? '<small> pakietów</small>' : '');
   return `<div class="tresc">
     ${/* [31.10, Tomasz: „usuń przypisy w POŁĄCZENIA i TELEMETRIA, nad POŁĄCZENIA wykasuj”] bez noty „Czytam rejestry sieci
           (3160+, 4740+) — pod mostem, ze strony sterownika albo z lustra brokera” i bez podpisów wierszy Ethernet / WiFi / MQTT */''}
