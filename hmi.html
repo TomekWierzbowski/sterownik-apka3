@@ -1169,7 +1169,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '2ea19dae5f';
+window.APKA_WERSJA = '230d9f5129';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1668,7 +1668,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-31 21:53';
+window.HMI_ZBUDOWANO = '2026-10-31 22:50';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -9441,9 +9441,9 @@ const mqttWarunek = s => (siecS(s.st) & 2) && (siecS(s.st) & 8);
 function mqttCert(s){
   const st = siecS(s.st), kod = siecS(s.kod);
   if ((st & 2) && (st & 16)) return siecOdczyt('Certyfikat serwera', 'sprawdzenie ważności się nie uda — zegar sterownika nie jest ustawiony', 'bez dat', true);
-  if ((st & 2) && (st & 32)) return siecOdczyt('Certyfikat serwera', 'urząd, nazwa i daty ważności', 'sprawdzony');
+  if ((st & 2) && (st & 32)) return siecOdczyt('Certyfikat serwera', '', 'sprawdzony');   /* [31.10] bez podpisu - zwykły stan */
   if (!(st & 2) && (kod === 513 || kod === 514)) return siecOdczyt('Certyfikat serwera', siecMqttBlad(kod), 'odrzucony', true);
-  return siecOdczyt('Certyfikat serwera', (st & 2) ? 'połączenie bez certyfikatu' : 'brak połączenia', '—');
+  return siecOdczyt('Certyfikat serwera', '', (st & 2) ? 'bez certyfikatu' : '—');         /* [31.10] stan w wartości */
 }
 const mqttZle = s => ((siecS(s.st) & 1) && !(siecS(s.st) & 2)) || mqttWarunek(s);
 const mqttSkrot = s => !(siecS(s.st) & 1) ? 'wyłączony'
@@ -9702,16 +9702,13 @@ function ekrSiecMqtt(){
   return `<div class="tresc">
     ${siecBanery(true)}
     <div class="grupka" data-lv="g">SERWERY</div>
-    ${MQTT_SERW.map(s => `<div class="mrow" onclick="idz('siec_mq${s.nr}')"><span class="t">Serwer ${s.nr}${
-        s.nr === 1 ? '<i>zwykle broker w sieci obiektu</i>' : '<i>zwykle serwer centralny przez internet</i>'}</span>
+    ${/* [31.10, Tomasz: „Sieć — MQTT: tutaj również wyczyść przypisy”] bez podpisów serwerów („zwykle broker w sieci obiektu”,
+          „zwykle serwer centralny przez internet”), bez podpisów nastaw (zostają w edytorze) i bez noty o tematach stan/status */''}
+    ${MQTT_SERW.map(s => `<div class="mrow" onclick="idz('siec_mq${s.nr}')"><span class="t">Serwer ${s.nr}</span>
       <span class="w ${mqttZle(s) ? 'zle' : ''}">${mqttSkrot(s)}</span><span class="ch">›</span></div>`).join('')}
     <div class="grupka" data-lv="g">WSPÓLNE DLA OBU</div>
-    ${siecWierszLb(4826, 'Co ile wysyłać', 'najmniej 5 s — częściej nie ma po co', 5, 3600, 's')}
-    ${siecWierszTxt(4891, 16, 'Początek tematu', 'np. basen — pod nim idą basen/stan i basen/status')}
-    <div class="nota" data-lv="nota">Sterownik publikuje <b>&lt;temat&gt;/stan</b> (JSON z pomiarami i alarmami)
-      oraz <b>&lt;temat&gt;/status</b> = online/offline. Zerwanie łącza rozgłasza serwer (testament), więc
-      cisza na wykresie jest widoczna od razu. Oba serwery dostają <b>ten sam pakiet i ten sam temat</b> —
-      to jeden obiekt, tylko wysyłany w dwa miejsca.</div>
+    ${siecWierszLb(4826, 'Co ile wysyłać', 'najmniej 5 s — częściej nie ma po co', 5, 3600, 's', 0, true)}
+    ${siecWierszTxt(4891, 16, 'Początek tematu', 'np. basen — pod nim idą basen/stan i basen/status', true)}
   </div>` + pasek('SERWIS · sieć — MQTT', 'siec');
 }
 
@@ -9721,26 +9718,25 @@ function ekrSiecSerw(nr){
   return `<div class="tresc">
     ${siecBanery(true)}
     <div class="grupka" data-lv="g">STAN</div>
-    ${mqttWarunek(s) ? siecOdczyt('Połączenie', 'nie spełniono warunku połączenia', 'nie', true)
-      : siecOdczyt('Połączenie', (st & 2) ? 'zalogowany' : ((st & 1) ? 'próbuje' : 'wyłączony'), (st & 2) ? 'jest' : 'brak', (st & 1) && !(st & 2))}
+    ${/* [31.10, Tomasz: „w podmenu Serwer 1 i 2 przypisy również wykasuj”] wiersze bez podpisów-objaśnień, stan w wartości;
+          zostają: komunikat „Ostatni błąd” i objaśnienie certyfikatu PRZY PROBLEMIE (zasada 10); opisy pól w edytorze */''}
+    ${mqttWarunek(s) ? siecOdczyt('Połączenie', '', 'nie spełniono warunku', true)
+      : siecOdczyt('Połączenie', '', (st & 2) ? 'jest' : ((st & 1) ? 'łączy się' : 'wyłączony'), (st & 1) && !(st & 2))}
     ${kod ? `<div class="alarmuje" data-lv="alarmuje"><b>Ostatni błąd: ${siecMqttBlad(kod)}.</b>
        Sterownik próbuje dalej — telemetria nie zatrzymuje niczego w wodzie.${
        tls ? ' Przy szyfrowaniu sprawdź też datę w sterowniku: certyfikat ocenia się wobec zegara.' : ''}</div>` : ''}
-    ${siecOdczyt('Wysłanych', 'licznik pakietów stanu od włączenia', siecS(s.wysl))}
-    ${siecOdczyt('Błędów', 'nieudane próby wysłania albo połączenia', siecS(s.bled), siecS(s.bled) > 0)}
+    ${siecOdczyt('Wysłanych', '', siecS(s.wysl))}
+    ${siecOdczyt('Błędów', '', siecS(s.bled), siecS(s.bled) > 0)}
     ${mqttCert(s)}
     <div class="grupka" data-lv="g">NASTAWY</div>
-    ${siecPtaszek(s.wl, 0, 'Wysyłaj na ten serwer', 'sterownik tylko publikuje stan — nie przyjmuje stamtąd komend')}
-    ${siecWierszTxt(s.host, 32, 'Adres serwera', 'adres IP albo nazwa')}
-    ${siecWierszLb(s.port, 'Port', 'bez szyfrowania zwykle 1883, z szyfrowaniem 8883', 1, 65535, '')}
-    ${siecPtaszek(s.wl, 1, 'Szyfrowanie połączenia (TLS)',
-        'obowiązkowe, gdy dane wychodzą poza obiekt; sterownik sprawdza certyfikat serwera')}
-    ${siecWierszTxt(s.user, 16, 'Użytkownik', 'zostaw puste, jeśli serwer nie wymaga')}
+    ${siecPtaszek(s.wl, 0, 'Wysyłaj na ten serwer', '')}
+    ${siecWierszTxt(s.host, 32, 'Adres serwera', 'adres IP albo nazwa', true)}
+    ${siecWierszLb(s.port, 'Port', 'bez szyfrowania zwykle 1883, z szyfrowaniem 8883', 1, 65535, '', 0, true)}
+    ${siecPtaszek(s.wl, 1, 'Szyfrowanie połączenia (TLS)', '')}
+    ${siecWierszTxt(s.user, 16, 'Użytkownik', 'zostaw puste, jeśli serwer nie wymaga', true)}
     ${siecWierszTxt(s.haslo, 16, 'Hasło')}
-    <div class="nota" data-lv="nota">${nr === 1
-      ? 'Serwer w sieci obiektu zwykle nie potrzebuje szyfrowania — ruch nie opuszcza budynku.'
-      : 'Serwer w internecie <b>zawsze</b> z szyfrowaniem: bez niego adres, hasło i cały stan idą otwartym tekstem.'}
-      Okres wysyłania i początek tematu są wspólne dla obu serwerów.</div>
+    ${/* [31.10] nota USUNIĘTA: serwer w sieci obiektu zwykle bez szyfrowania / w internecie zawsze z szyfrowaniem; okres
+          i początek tematu wspólne dla obu serwerów */''}
   </div>` + pasek('SERWIS · sieć — MQTT serwer ' + nr, 'siec_mqtt');
 }
 
