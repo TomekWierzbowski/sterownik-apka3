@@ -1165,7 +1165,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = 'e788bb7c5a';
+window.APKA_WERSJA = '6ea1a9e176';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1664,7 +1664,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-31 17:40';
+window.HMI_ZBUDOWANO = '2026-10-31 19:10';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -8281,7 +8281,7 @@ function ekrPoziom(){
     ${/* SPOSÓB POMIARU pod ramką, nad notą o limicie [Tomasz 2026-08-27:
           „umieść nad «Limit 0 = alarm nieaktywny…»"] - najpierw liczby,
           potem skąd się biorą i co z nimi zrobić */''}
-    <div class="etpara" data-lv="etpara">sposób pomiaru: zmiany poziomu wody i czas dolewania</div>
+    ${/* [31.10, Tomasz: „tekst «sposób pomiaru: zmiany poziomu i dolewania» wyciąć”] etykieta USUNIĘTA */''}
     ${/* [31.10, Tomasz: „przypis zredukuj do Limit = 0 alarm nieaktywny”] dawniej (przy zerze): „zostaw zero, dopóki nie
           wiesz, ile obiekt zużywa normalnie — sprawdź kilka dni i wpisz z zapasem” + zawsze „Do limitu 24 h nie doliczamy
           ilości wody potrzebnej na płukanie!” - obie rady są teraz w opisie nastawy (edytor; zdanie o płukaniu dopisane 31.10) i w D-100; przypis stały */''}
@@ -8339,18 +8339,20 @@ function sekcjaCichy(){
   if (!N.cichy_jest || !N.cichy_wl) return '';                 /* [31.10] wyłączony w SERWIS → Funkcje = sekcji nie ma */
   const sp = N.cichy_sposob;
   const zle = !!(SRV_S.cichy && SRV_S.cichy.zadany && SRV_S.cichy.powod === 4);
+  /* [31.10, Tomasz: „przypis pod Tryb cichy do wykasowania oraz pod Stan”] obie noty sekcji USUNIĘTE: „po co zawór, kiedy
+     ssanie wraca na zbiornik” (zasada jest w nagłówku wyżej i w D-495) oraz „tempo ubytku przy trybie cichym z bilansu
+     zbiornika: poziom tuż przed przejściem na dno vs 5 min po powrocie, l/h ze znakiem” */
   return `<div class="grupka" data-lv="g">TRYB CICHY</div>
-    <div class="nota" data-lv="nota">Zawór przełącza ssanie pompy ze zbiornika przelewowego na dno niecki — woda nie przelewa się do rynny: cisza i mniejsze straty ciepła. Ssanie z dna tylko przy pracującej pompie; nadmiar w zbiorniku, płukanie, brak pomiaru poziomu i test wyjść wracają ssanie na zbiornik.</div>
     <div class="para" data-lv="para">
       <div class="mrow" data-lv="c.cichy_sposob" onclick="srvCichySposobPrzelacz()">
-        <span class="t">Sposób załączania przyciskiem</span>
+        ${/* [31.10, Tomasz: „Tryb cichy: Sposób załączania — bez «przyciskiem»”] */''}
+        <span class="t">Sposób załączania</span>
         <span class="w">${sp !== null && sp !== undefined && sp < AKC_SPOSOBY_UI.length ? AKC_SPOSOBY_UI[sp] : '—'}</span><span class="ch">›</span></div>
       ${wierszN('cichy_czas')}
     </div>
     <div class="mrow odczyt" data-lv="o"><span class="t">Stan</span>
       <span class="w${zle ? ' zle' : ''}">${cichyStanSrv()}</span></div>
-    ${N.cichy_zwarty ? `<div class="ostrzega" data-lv="ostrzega">Przycisk trybu cichego zwarty dłużej niż 30 s — przycisk teraz nie działa (kafel i harmonogram działają). Sprawdź przewód i przycisk przy niecce.</div>` : ''}
-    <div class="nota" data-lv="nota">Tempo ubytku przy trybie cichym liczone jest z bilansu zbiornika: poziom tuż przed przejściem na dno porównany z poziomem 5 min po powrocie na zbiornik (w l/h, ze znakiem — deszcz albo wąż dadzą minus).</div>`;
+    ${N.cichy_zwarty ? `<div class="ostrzega" data-lv="ostrzega">Przycisk trybu cichego zwarty dłużej niż 30 s — przycisk teraz nie działa (kafel i harmonogram działają). Sprawdź przewód i przycisk przy niecce.</div>` : ''}`;
 }
 /* sposób po kole, jak akcSposobPrzelacz; „na czas” bez czasu nie ma sensu - podstawiamy 60 min
    (liczbę widać i można ją poprawić), bo tryb, który wyłącza się po zerze minut, wyglądałby na zepsuty */
