@@ -1169,7 +1169,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '0799b30320';
+window.APKA_WERSJA = '2ea19dae5f';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1668,7 +1668,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-31 21:43';
+window.HMI_ZBUDOWANO = '2026-10-31 21:53';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -9388,13 +9388,14 @@ function siecPtaszek(adr, bit, et, opis){
 }
 const SIEC_HASLA = [[4767,4782],[4800,4815],[4875,4890],[4970,4985]];   /* AP, stacja, serwer 1, serwer 2 */
 const siecToHaslo = a => SIEC_HASLA.some(z => a >= z[0] && a <= z[1]);
-function siecWierszTxt(adr, slow, et, opis){
+/* [31.10] bezOpisu = wiersz bez szarego podpisu, opis zostaje w edytorze (Tomasz: „Sieć — punkt dostępu: usuń przypisy”) */
+function siecWierszTxt(adr, slow, et, opis, bezOpisu){
   const ukryte = siecToHaslo(adr) && SRV_S.siecHasla === false;
   if (ukryte) return `<div class="mrow"><span class="t">${et}<i>widoczne tylko z punktu dostępu sterownika</i></span>
     <span class="w">ukryte</span></div>`;
   const v = siecTxtOdczyt(adr, slow);
   return `<div class="mrow" onclick="siecEdytuj({rodzaj:'tekst',adr:${adr},slow:${slow},et:'${et.replace(/'/g,'')}',opis:'${(opis||'').replace(/'/g,'')}'})">
-    <span class="t">${et}${opis ? `<i>${opis}</i>` : ''}</span>
+    <span class="t">${et}${opis && !bezOpisu ? `<i>${opis}</i>` : ''}</span>
     <span class="w">${v ? esc(v) : '—'}</span><span class="ch">›</span></div>`;
 }
 function siecWierszIp(adr, et, opis){
@@ -9402,10 +9403,10 @@ function siecWierszIp(adr, et, opis){
     <span class="t">${et}${opis ? `<i>${opis}</i>` : ''}</span>
     <span class="w">${siecIpNa(adr)}</span><span class="ch">›</span></div>`;
 }
-function siecWierszLb(adr, et, opis, min, max, jed, bajt){
+function siecWierszLb(adr, et, opis, min, max, jed, bajt, bezOpisu){
   const w = siecNa(adr), v = bajt ? ((w >> 8) & 255) : w;
   return `<div class="mrow" onclick="siecEdytuj({rodzaj:'liczba',adr:${adr},et:'${et.replace(/'/g,'')}',opis:'${(opis||'').replace(/'/g,'')}',min:${min},max:${max},jed:'${jed||''}',bajt:${bajt?1:0}})">
-    <span class="t">${et}${opis ? `<i>${opis}</i>` : ''}</span>
+    <span class="t">${et}${opis && !bezOpisu ? `<i>${opis}</i>` : ''}</span>
     <span class="w">${v}${jed ? '<small> ' + jed + '</small>' : ''}</span><span class="ch">›</span></div>`;
 }
 function siecOdczyt(et, opis, wart, zle){
@@ -9529,16 +9530,18 @@ function ekrSiecAp(){
   return `<div class="tresc">
     ${siecBanery(true)}
     <div class="grupka" data-lv="g">STAN</div>
-    ${siecOdczyt('Nadaje', (st & 2) ? 'sieć widoczna na telefonie' : ((st & 1) ? 'włączony, ale nie wystartował' : 'wyłączony'), (st & 2) ? 'tak' : 'nie', (st & 1) && !(st & 2))}
-    ${siecOdczyt('Podłączonych', 'telefony i komputery w sieci sterownika', st >> 8)}
-    ${siecOdczyt('Adres strony', 'ten adres wpisuje się w przeglądarce', (st & 2) ? siecIpSt(3169) : '—')}
+    ${/* [31.10, Tomasz: „Sieć — punkt dostępu: usuń przypisy”] wiersze bez podpisów; stan „włączony, ale nie wystartował”
+          przeszedł z podpisu do wartości (czerwonej), żeby nie zginął */''}
+    ${siecOdczyt('Nadaje', '', (st & 2) ? 'tak' : ((st & 1) ? 'nie wystartował' : 'wyłączony'), (st & 1) && !(st & 2))}
+    ${siecOdczyt('Podłączonych', '', st >> 8)}
+    ${siecOdczyt('Adres strony', '', (st & 2) ? siecIpSt(3169) : '—')}
     <div class="grupka" data-lv="g">NASTAWY</div>
-    ${siecPtaszek(4750, 0, 'Punkt dostępu włączony', 'sieć sterownika działa bez routera — do serwisu przy szafie')}
-    ${siecWierszTxt(4751, 16, 'Nazwa sieci', 'widoczna na liście sieci w telefonie')}
-    ${siecWierszTxt(4767, 16, 'Hasło', 'najmniej 8 znaków — krótszego WPA2 nie przyjmie')}
-    ${siecWierszLb(4750, 'Kanał', 'zmieniać tylko, gdy w pobliżu tłok na paśmie', 1, 13, '', 1)}
-    <div class="nota" data-lv="nota">Po <b>ZASTOSUJ</b> punkt dostępu wstaje od nowa — telefon rozłączy się
-      i trzeba połączyć go ponownie (z nowym hasłem, jeśli je zmieniono).</div>
+    ${siecPtaszek(4750, 0, 'Punkt dostępu włączony', '')}
+    ${siecWierszTxt(4751, 16, 'Nazwa sieci', 'widoczna na liście sieci w telefonie', true)}
+    ${siecWierszTxt(4767, 16, 'Hasło', 'najmniej 8 znaków — krótszego WPA2 nie przyjmie', true)}
+    ${siecWierszLb(4750, 'Kanał', 'zmieniać tylko, gdy w pobliżu tłok na paśmie', 1, 13, '', 1, true)}
+    ${/* [31.10, Tomasz: „Po ZASTOSUJ punkt dostępu wstaje od nowa … — usuń”] dawna nota: „Po ZASTOSUJ punkt dostępu wstaje
+          od nowa — telefon rozłączy się i trzeba połączyć go ponownie (z nowym hasłem, jeśli je zmieniono)” */''}
   </div>` + pasek('SERWIS · sieć — punkt dostępu', 'siec');
 }
 
@@ -9548,35 +9551,38 @@ function ekrSiecSta(){
   return `<div class="tresc">
     ${siecBanery(true)}
     <div class="grupka" data-lv="g">STAN</div>
-    ${siecOdczyt('Połączenie', (st & 2) ? 'przyłączona do sieci' : ((st & 8) ? 'próbuje się połączyć' : ((st & 1) ? 'nie połączona' : 'wyłączone')), (st & 2) ? 'jest' : 'brak', (st & 1) && !(st & 2))}
+    ${/* [31.10, Tomasz: „Sieć — połączenie z siecią: usuń przypisy”] wiersze bez podpisów-objaśnień; stan połączenia przeszedł
+          z podpisu do wartości, maska i brama (dane, nie objaśnienie) zostają pod adresem; komunikat „Ostatnie rozłączenie”
+          (zasada 10) zostaje */''}
+    ${siecOdczyt('Połączenie', '', (st & 2) ? 'jest' : ((st & 8) ? 'łączy się' : ((st & 1) ? 'brak' : 'wyłączone')), (st & 1) && !(st & 2))}
     ${(st & 1) && !(st & 2) && powod ? `<div class="alarmuje" data-lv="alarmuje"><b>Ostatnie rozłączenie: ${SIEC_POWOD[powod] || ('kod ' + powod)}.</b>
        ${powod === 201 ? 'Sprawdź nazwę sieci — wielkość liter ma znaczenie. Sterownik widzi WYŁĄCZNIE sieci 2,4 GHz: jeśli router nadaje 5 GHz pod tą nazwą, wybierz z listy („Szukaj sieci w zasięgu") tę na 2,4 GHz.' : (powod === 15 || powod === 202 ? 'Najczęściej to złe hasło.' : 'Kod pochodzi ze sterownika WiFi.')}</div>` : ''}
-    ${siecOdczyt('Siła sygnału', 'powyżej −70 dBm połączenie jest spokojne', (st & 2) ? siecZnak(siecS(3172)) + ' dBm' : '—', (st & 2) && siecZnak(siecS(3172)) < -75)}
+    ${siecOdczyt('Siła sygnału', '', (st & 2) ? siecZnak(siecS(3172)) + ' dBm' : '—', (st & 2) && siecZnak(siecS(3172)) < -75)}
     ${siecOdczyt('Adres', (st & 4) ? 'maska ' + siecIpSt(3175) + ' · brama ' + siecIpSt(3177) : 'brak', (st & 4) ? siecIpSt(3173) : '—', (st & 2) && !(st & 4))}
-    ${siecOdczyt('Prób połączenia', 'rośnie przy każdym podejściu — stale rosnące = coś jest nie tak', siecS(3179))}
+    ${siecOdczyt('Prób połączenia', '', siecS(3179))}
     ${/*  ⚠ ADRES SPRZĘTOWY I REZERWACJA [Tomasz 2026-09-08]. Adresy z DHCP
            WĘDRUJĄ: sadzawka miała 192.168.1.53, po restarcie ten sam adres
            wziął basen — i strona otwarta ze starej zakładki pokazywała cudzy
            obiekt. Lekarstwem jest rezerwacja w routerze, a do niej potrzebny
            jest ten numer; dotąd trzeba go było zgadywać z listy klientów. */''}
-    ${siecOdczyt('Adres sprzętowy', 'wpisz go w routerze jako rezerwację — wtedy sterownik ma zawsze ten sam adres', siecMac(3215))}
+    ${siecOdczyt('Adres sprzętowy', '', siecMac(3215))}
     <div class="grupka" data-lv="g">NASTAWY</div>
-    ${siecPtaszek(4783, 0, 'Łączenie z siecią włączone', 'sterownik wchodzi do sieci obiektu; punkt dostępu może działać równocześnie')}
+    ${siecPtaszek(4783, 0, 'Łączenie z siecią włączone', '')}
     ${/*  ⚠ WYBÓR Z LISTY PRZED WPISYWANIEM Z PAMIĘCI [Tomasz 2026-09-08:
            „najlepiej byłoby, żeby była wyszukiwarka sieci"]. Nazwa wpisana
            ręcznie to najczęstsza przyczyna „nie łączy się": jedna wielka
            litera zamiast małej i sterownik szuka sieci, której nie ma —
            a powód rozłączenia mówi tylko „nie znalazł". */''}
-    <div class="mrow" onclick="skanWejdz()"><span class="t">Szukaj sieci w zasięgu<i>wybierz z listy zamiast wpisywać z pamięci</i></span><span class="ch">›</span></div>
-    ${siecWierszTxt(4784, 16, 'Nazwa sieci', 'dokładnie tak, jak w routerze — z wielkimi literami')}
+    <div class="mrow" onclick="skanWejdz()"><span class="t">Szukaj sieci w zasięgu</span><span class="ch">›</span></div>
+    ${siecWierszTxt(4784, 16, 'Nazwa sieci', 'dokładnie tak, jak w routerze — z wielkimi literami', true)}
     ${siecWierszTxt(4800, 16, 'Hasło')}
-    ${siecPtaszek(4783, 1, 'Adres z DHCP', 'router sam nadaje adres; wyłącz, żeby wpisać własny')}
+    ${siecPtaszek(4783, 1, 'Adres z DHCP', '')}
     ${!dhcp ? `${siecWierszIp(4816, 'Adres IP')}
     ${siecWierszIp(4818, 'Maska podsieci')}
     ${siecWierszIp(4820, 'Brama')}
     ${siecWierszIp(4822, 'Serwer nazw (DNS)')}` : ''}
-    <div class="nota" data-lv="nota">⚠ Punkt dostępu stoi na 192.168.4.1. Jeśli sieć obiektu też jest
-      192.168.4.x, wpisz tu adres ręczny z innej podsieci albo wyłącz punkt dostępu.</div>
+    ${/* [31.10] nota USUNIĘTA: „⚠ Punkt dostępu stoi na 192.168.4.1. Jeśli sieć obiektu też jest 192.168.4.x, wpisz tu adres
+          ręczny z innej podsieci albo wyłącz punkt dostępu.” */''}
   </div>` + pasek('SERWIS · sieć — połączenie z siecią', 'siec');
 }
 
