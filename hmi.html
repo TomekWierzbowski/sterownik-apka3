@@ -1165,7 +1165,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '6ea1a9e176';
+window.APKA_WERSJA = 'eda6aad1fd';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1664,7 +1664,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-31 19:10';
+window.HMI_ZBUDOWANO = '2026-10-31 20:06';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -8322,23 +8322,14 @@ function ekrPoziom(){
                Sposób załączania przyciskiem - te same pięć sposobów, co kanał akcesoriów (ten sam rdzeń
                w firmware); czas pracy w minutach, 0 = bez odliczania.
      WYJŚCIA:  wiersze c.cichy_sposob, n.cichy_czas (komenda `nastawa` -> most/apka -> 5121/5122 obiegu),
-               odczyt stanu (o), ostrzeżenie o zwartym przycisku (bramka cichy_zwarty), noty.
+               ostrzeżenie o zwartym przycisku (bramka cichy_zwarty). [31.10, Tomasz: „Tryb cichy: stan włączony / wyłączony
+               usuń z menu Dolewanie”] odczyt „Stan” USUNIĘTY - stan i powód czekania (zasada 10) pokazuje kafel klienta
+               (panel4_hala.html, CICHY_POWOD_TXT) i dziennik zdarzeń (ZD_CICHY_POWOD).
    ⚠ TEKSTY - SZKIC DO AKCEPTACJI TOMASZA; te same słowa w panelu LVGL (parytet trzech światów).
    ⚠ Harmonogram i włącz/wyłącz NIE są tutaj - to rzeczy klienta (ekran harmonogramu, kafel), bez PIN-u. */
-const CICHY_POWOD_SRV = ['', 'czeka — pompa stoi', 'czeka — nadmiar w zbiorniku', 'czeka — płukanie',
-                         'niedostępny — brak pomiaru poziomu', 'czeka — test wyjść'];
-function cichyStanSrv(){
-  const c = SRV_S.cichy;
-  if (!c) return '— —';
-  if (!c.zadany) return 'wyłączony';
-  const zost = c.zostalo > 0 ? ' · zostało ' + c.zostalo + ' min' : '';
-  if (c.zawor) return 'włączony · zawór na dnie' + zost;
-  return 'włączony · ' + (CICHY_POWOD_SRV[c.powod] || 'zawór na zbiorniku') + zost;
-}
 function sekcjaCichy(){
   if (!N.cichy_jest || !N.cichy_wl) return '';                 /* [31.10] wyłączony w SERWIS → Funkcje = sekcji nie ma */
   const sp = N.cichy_sposob;
-  const zle = !!(SRV_S.cichy && SRV_S.cichy.zadany && SRV_S.cichy.powod === 4);
   /* [31.10, Tomasz: „przypis pod Tryb cichy do wykasowania oraz pod Stan”] obie noty sekcji USUNIĘTE: „po co zawór, kiedy
      ssanie wraca na zbiornik” (zasada jest w nagłówku wyżej i w D-495) oraz „tempo ubytku przy trybie cichym z bilansu
      zbiornika: poziom tuż przed przejściem na dno vs 5 min po powrocie, l/h ze znakiem” */
@@ -8350,8 +8341,6 @@ function sekcjaCichy(){
         <span class="w">${sp !== null && sp !== undefined && sp < AKC_SPOSOBY_UI.length ? AKC_SPOSOBY_UI[sp] : '—'}</span><span class="ch">›</span></div>
       ${wierszN('cichy_czas')}
     </div>
-    <div class="mrow odczyt" data-lv="o"><span class="t">Stan</span>
-      <span class="w${zle ? ' zle' : ''}">${cichyStanSrv()}</span></div>
     ${N.cichy_zwarty ? `<div class="ostrzega" data-lv="ostrzega">Przycisk trybu cichego zwarty dłużej niż 30 s — przycisk teraz nie działa (kafel i harmonogram działają). Sprawdź przewód i przycisk przy niecce.</div>` : ''}`;
 }
 /* sposób po kole, jak akcSposobPrzelacz; „na czas” bez czasu nie ma sensu - podstawiamy 60 min
@@ -8528,11 +8517,13 @@ function cisnReakcjaPrzelacz(){
    zawsze, to zbedna komplikacja"]. Nota mowila wczesniej o „minimalnym
    odstepie miedzy plukaniami" bez wskazania zrodla - serwis mogl z tego
    wnioskowac, ze przycisk WYPŁUCZ TERAZ potrafi odmowic. Nie potrafi. */
-function ekrPluk(){
-  /* zmienna zostawała po usuniętej nocie o widełkach — usunięta razem
-     z nią [Tomasz 2026-08-21], żeby nie zostawiać martwego kodu */
+/* ===== EKRAN: dodatkowe funkcje płukania filtra [31.10] =====
+   [Tomasz 2026-10-31: „DODATKOWE FUNKCJE PŁUKANIA FILTRA zrób jako osobne menu”] - podmenu ekranu „Płukanie filtra”:
+   blokada dolewania i dopełnienie z ilością i czasem (filtracje poza harmonogramem i zaległe płukanie - osobne podmenu
+   ekrPlukPoza). ZAPISZ / ANULUJ pl_blokuj / pl_dolewka / pl_ile i prefill_max wracają tutaj (ekranNastawy), wstecz -
+   do „Płukania filtra”. */
+function ekrPlukDod(){
   return `<div class="tresc">
-    <div class="grupka" data-lv="g">DODATKOWE FUNKCJE PŁUKANIA FILTRA</div>
     ${/* KOLEJNOŚĆ WG TOMASZA [2026-08-21]: najpierw blokada dolewania
           (bez podpisu — reguła jest oczywista z nazwy), potem dodatkowe
           dolewanie z podpisem i jego parametrem, a na końcu czasy obu
@@ -8545,21 +8536,35 @@ function ekrPluk(){
     ${/* [31.10] podpis bez „czas maksymalny 30 min” - czas jest teraz nastawą tuż pod spodem (prefill_max) */''}
     ${wierszWyl('pl_dolewka','Dopełnienie przed płukaniem','zapas wody na płukanie')}
     ${N.pl_dolewka ? wierszN('pl_ile') + wierszN('prefill_max') : ''}
-    ${/* OBIE FILTRACJE W JEDNEJ RAMCE [Tomasz 2026-08-21] — to jedna
-          para: pompa przed zrzutem i po zrzucie, obie tylko poza oknem
-          harmonogramu. Ramka mówi, że to komplet, a nie dwie luźne
-          nastawy stojące obok siebie. */''}
-    <div class="para" data-lv="para">
-      ${/* przypis nad parą [Tomasz 2026-08-21] — mówi, KIEDY te dwie
-            nastawy w ogóle grają: gdy płukanie wypadło poza oknem
-            filtracji, bo w oknie pompa i tak pracuje [D-97] */''}
-      <div class="etpara" data-lv="etpara">płukanie poza harmonogramem filtracji</div>
-      ${wierszN('pl_wstepna')}${wierszN('pl_koncowa')}
+  </div>` + pasek('SERWIS · dodatkowe funkcje płukania filtra', 'pluk');
+}
+
+/* ===== EKRAN: płukanie poza harmonogramem filtracji [31.10] =====
+   [Tomasz 2026-10-31: „płukanie poza harmonogramem filtracji również osobne”] - drugie podmenu ekranu „Płukanie filtra”:
+   filtracja wstępna / końcowa i zaległe płukanie (dawna ramka z ekranu „Dodatkowe funkcje płukania filtra”).
+   ZAPISZ / ANULUJ pl_wstepna / pl_koncowa / pl_powt wracają tutaj (ekranNastawy), wstecz - do „Płukania filtra”. */
+function ekrPlukPoza(){
+  return `<div class="tresc">
+    ${/* OBIE FILTRACJE RAZEM [Tomasz 2026-08-21] — to jedna para: pompa przed zrzutem i po zrzucie, obie tylko poza oknem
+          harmonogramu (w oknie pompa i tak pracuje, D-97). [31.10] dawna ramka z etykietą „płukanie poza harmonogramem
+          filtracji” jest teraz osobnym ekranem o tej nazwie - etykieta i obwódka zbędne */''}
+    ${wierszN('pl_wstepna')}${wierszN('pl_koncowa')}
     ${/* ZALEGŁE PŁUKANIE: ptaszek + liczba prób [D-236, Tomasz 2026-09-07: „brakuje ptaszka
           aktywującego zaległe płukania"]; liczba prób tylko przy włączonym */''}
     ${wierszWyl('pl_zalegle','Zaległe płukanie','przerwane z harmonogramu ponawia w dniu planu; wyłączone = ma ruszyć o swojej godzinie albo wcale')}
     ${N.pl_zalegle ? wierszN('pl_powt') : ''}
-    </div>
+  </div>` + pasek('SERWIS · płukanie poza harmonogramem', 'pluk');   /* [31.10] krótszy tytuł - pełny obcinał się na 4″ */
+}
+
+function ekrPluk(){
+  /* zmienna zostawała po usuniętej nocie o widełkach — usunięta razem
+     z nią [Tomasz 2026-08-21], żeby nie zostawiać martwego kodu */
+  return `<div class="tresc">
+    ${/* [31.10, Tomasz: „DODATKOWE FUNKCJE PŁUKANIA FILTRA zrób jako osobne menu”] PODMENU (ekrPlukDod niżej);
+          na tym ekranie zostaje kontrola prawidłowości płukania */''}
+    <div class="mrow" data-lv="idz.pluk_dod" onclick="idz('pluk_dod')"><span class="t">Dodatkowe funkcje płukania filtra<i>blokada dolewania, dopełnienie przed płukaniem</i></span><span class="ch">›</span></div>
+    ${/* [31.10, Tomasz: „płukanie poza harmonogramem filtracji również osobne”] drugie PODMENU (ekrPlukPoza) */''}
+    <div class="mrow" data-lv="idz.pluk_poza" onclick="idz('pluk_poza')"><span class="t">Płukanie poza harmonogramem filtracji<i>filtracja wstępna i końcowa, zaległe płukanie</i></span><span class="ch">›</span></div>
     <div class="grupka" data-lv="g">ILOŚĆ WODY POPŁUCZNEJ — KONTROLA PRAWIDŁOWOŚCI PŁUKANIA FILTRA</div>
     ${/* ODCZYT I WIDEŁKI W JEDNEJ OBRAMÓWCE [Tomasz 2026-08-21] — ta sama
           zasada, co przy nadmiarze: pomiar i progi, które się do niego
@@ -8580,7 +8585,9 @@ function ekrPluk(){
     <div class="para" data-lv="para">
       ${/* etykieta ramki [Tomasz 2026-08-28: „nad tabelą minimum i maximum napisz:
             weryfikacja działania zaworu — podaj widełki"] */''}
-      <div class="etpara" data-lv="etpara">weryfikacja działania zaworu — podaj widełki</div>
+      ${/* [31.10, Tomasz: „weryfikacja działania zaworu — podaj widełki zmień na: zawór płuczący — dolny i górny limit ilości
+            wody na płukanie”] */''}
+      <div class="etpara" data-lv="etpara">zawór płuczący — dolny i górny limit ilości wody na płukanie</div>
       ${wierszN('pl_wid_min')}${wierszN('pl_wid_max')}
     </div>
     ${/* obie noty USUNIĘTE [Tomasz 2026-08-21] — treść żyje w opisach
@@ -11234,7 +11241,10 @@ function ekranNastawy(k){
      poziomu"] - kluczy akcN_* nie bylo na liscie i ZAPISZ wracal
      na domyslny ekran poziomu */
   if (k.startsWith('akc')) return 'atrakcje';
-  if (k.startsWith('pl_')) return 'pluk';
+  /* [31.10] widełki wody popłucznej zostają na „Płukaniu filtra”, reszta pl_* w podmenu „Dodatkowe funkcje” */
+  if (k === 'pl_wid_min' || k === 'pl_wid_max') return 'pluk';
+  if (['pl_wstepna','pl_koncowa','pl_powt'].includes(k)) return 'pluk_poza';   /* [31.10] podmenu „Płukanie poza harmonogramem” */
+  if (k.startsWith('pl_')) return 'pluk_dod';
   if (k.startsWith('c') && (k[1]==='A'||k[1]==='B'||k[1]==='C')) return 'cisn';
   /* KOREKTA WSKAZANIA I HISTEREZA MIESZKAJĄ W GRZANIU [Tomasz 2026-08-21] —
      wiersze przeniesiono tam wcześniej, ale ekranNastawy() nadal odsyłał
@@ -11245,7 +11255,7 @@ function ekranNastawy(k){
   if (k.startsWith('kal_')) return 'kalib';
   if (k.startsWith('heat_')) return 'grzanie';
   /* [31.10] progi poziomu mieszkają na ekranie „Poziomy wody” */
-  if (k === 'prefill_max') return 'pluk';                /* [31.10] czas dopełnienia przed płukaniem - ekran „Płukanie filtra” */
+  if (k === 'prefill_max') return 'pluk_dod';            /* [31.10] czas dopełnienia przed płukaniem - podmenu „Dodatkowe funkcje płukania” */
   if (['dol_start','dol_stop','sucho_stop','dol_maxs','nadmiar_prog','nadmiar_hist'].includes(k)) return 'poziomy';
   if (k.startsWith('geo_')) return 'geo';                 /* [31.10] wymiary niecki / zbiornika - podmenu „Dolewanie” */
   return 'poziom';
@@ -11441,6 +11451,8 @@ function srvRender(anim = true){
     e==='poziomy'  ? ekrPoziomy()  :
     e==='geo'      ? ekrGeo()      :
     e==='pluk'     ? ekrPluk()     :
+    e==='pluk_dod' ? ekrPlukDod()  :
+    e==='pluk_poza'? ekrPlukPoza() :
     e==='cisn'     ? ekrCisn()     :
     e==='kalib'    ? ekrKalib()    :
     e==='grzanie'  ? ekrGrzanie()  :
@@ -11783,7 +11795,7 @@ srvRender();
    warunkow w szablonach. Czyta to narzedzia_hmi/inwentarz.ps1
    (--dump-dom), a generuj_srv.py robi z tego tabele ekranow LVGL. */
 if (location.search.indexOf('inwentarz') >= 0) {
-  const EKRANY_INW = ['serwis','poziom','poziomy','geo','pluk','cisn','kalib','grzanie',
+  const EKRANY_INW = ['serwis','poziom','poziomy','geo','pluk','pluk_dod','pluk_poza','cisn','kalib','grzanie',
                       'obejscia','atrakcje','alarmy','przezn','gotowosc','diag','historia','zdarzenia'];
   /* [nazwa, [wartosc bazowa, warianty...]] - baza = "wszystko widac" */
   const BRAMKI = [
