@@ -1165,7 +1165,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '201d4a8ebb';
+window.APKA_WERSJA = 'e788bb7c5a';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1664,7 +1664,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-31 16:19';
+window.HMI_ZBUDOWANO = '2026-10-31 17:40';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -7493,8 +7493,9 @@ const EDY = {
      Zero = alarm nieaktywny, tak samo jak widełki zrzutu przy płukaniu:
      dopóki nikt nie wie, ile obiekt zużywa normalnie, nie ma z czym
      porównywać, a alarm strzelałby na oślep. */
-  dol_limit_l: {et:'Limit na 24 h',    j:'l',  k:10, min:0,  max:20000,
-    o:'Ile litrów w ciągu doby wolno dolać, zanim poleci alarm „zużycie wody powyżej limitu". Liczymy ostatnie 24 h wstecz, nie dobę od północy. Sprawdź kilka normalnych dni i wpisz z zapasem. 0 = alarm nieaktywny.'},
+  /* [31.10, Tomasz: „Limit na 24 h dodaj — alarm”] nazwa mówi, że przekroczenie zapala alarm */
+  dol_limit_l: {et:'Limit na 24 h — alarm', j:'l',  k:10, min:0,  max:20000,
+    o:'Ile litrów w ciągu doby wolno dolać, zanim poleci alarm „zużycie wody powyżej limitu". Liczymy ostatnie 24 h wstecz, nie dobę od północy. Sprawdź kilka normalnych dni i wpisz z zapasem. Wody dolanej na płukanie nie doliczamy. 0 = alarm nieaktywny.'},
   /* DRUGI STOPIEN [D-100]: ten prog ZATRZYMUJE POMPE I DOLEWANIE,
      nie tylko alarmuje. Byl w firmware (4520+11) od 2026-08-22, ale
      nie mial wiersza - ochrone dalo sie wlaczyc, a nie dalo sie jej
@@ -7532,7 +7533,7 @@ const EDY = {
   pl_powt:     {et:'Zaległe płukanie — próbuj ile razy', j:'', k:1, min:0, max:5,
     o:'Płukanie z harmonogramu przerwane w trakcie (suchobieg, STOP, termik) sterownik ponawia po ustąpieniu przyczyny najwyżej tyle razy; potem alarm i koniec na dziś. 0 = zaległych nie rób: ma ruszyć o swojej godzinie albo wcale.'},
   pl_ile:      {et:'Ilość wody na dopełnienie', j:'mm', k:5, min:0, max:500,
-    o:'Zapas ponad poziom górny; czas maksymalny dolewki 30 min.'},
+    o:'Zapas ponad poziom górny; jak długo wolno dolewać, mówi „Maksymalny czas dopełnienia”.'},
   /* „widełki zrzutu" → „ilość wody popłucznej" [Tomasz 2026-08-21] */
   pl_wid_min:  {et:'Ilość wody popłucznej — dolna granica', j:'l', k:10, min:0, max:65535,
     o:'Poniżej = głowica nie przełączyła. Oba zera = alarm nieaktywny.'},
@@ -8095,7 +8096,7 @@ function przelacznikNast(klucz){
 
 /* ===== EKRAN: poziomy wody [31.10] ======================================
    [Tomasz 2026-10-31: „zrób z tego jakby osobne menu jako Poziomy wody” (zrzut: ramka POZIOMY DOLEWANIA / SUCHOBIEGU)]
-   WEJŚCIA:  N.dol_start / dol_stop / sucho_stop / dol_maxs / prefill_max / dol_autokas, N.nadmiar_prog / nadmiar_hist
+   WEJŚCIA:  N.dol_start / dol_stop / sucho_stop / dol_maxs / dol_autokas, N.nadmiar_prog / nadmiar_hist
              (tylko przy zbiorniku przelewowym), N.dol_wl (dolewanie w ruchu - SERWIS → Funkcje).
    CO Z CZEGO WYNIKA: ta sama ramka co dawniej na ekranie „Dolewanie” (łańcuch walidacji 0 < suchobieg < start < stop
              zostaje razem), pod nią progi nadmiaru - to też poziomy wody. Dolewanie wyłączone: tylko suchobieg i START
@@ -8115,7 +8116,9 @@ function ekrPoziomy(){
           została w opisie samej nastawy (widać ją w edytorze). */''}
     <div class="para" data-lv="para">
       ${wierszN('dol_start')}${N.dol_wl ? wierszN('dol_stop') : ''}
-      ${wierszN('sucho_stop')}${N.dol_wl ? wierszN('dol_maxs') + wierszN('prefill_max') : ''}
+      ${wierszN('sucho_stop')}${N.dol_wl ? wierszN('dol_maxs') : ''}
+      ${/* [31.10, Tomasz: „Maksymalny czas dopełniania przenieś do Płukanie filtra”] prefill_max (4520+12) to czas
+            DOPEŁNIENIA PRZED PŁUKANIEM (07_backwash.h), nie zwykłego dolewania - stoi teraz pod „Ilość wody na dopełnienie” */''}
           ${/* [31.10, Tomasz: „automatyczne kasowanie alarmu dolewania po 24h, bez przypisu”] sterownik kasuje teraz 24 h
                 od ZAPALENIA alarmu (dawniej o północy) - 08_filling.h filling_autokas_tick */''}
           ${N.dol_wl ? wierszWyl('dol_autokas','Automatyczne kasowanie alarmu dolewania po 24h') : ''}
@@ -8167,7 +8170,7 @@ function ekrPoziom(){
       <span class="t">Reakcja na uszkodzenie sondy poziomu</span>
       <span class="w">${N.sonda_reakcja==='stop'?'zatrzymanie pompy':'pompa pracuje dalej'}</span><span class="ch">›</span></div>
     ${/* GEOMETRIA PRZED KONTROLĄ ZUŻYCIA [Tomasz 2026-08-27: „PARAMETRY
-          NIECKI (całość) daj nad ZUŻYCIE WODY NA DOLEWANIE — KONTROLA"] -
+          NIECKI (całość) daj nad ZUŻYCIE WODY NA DOLEWANIE — KONTROLA"] (od 31.10 „ZUŻYCIE WODY — KONTROLA”) -
           najpierw to, co się wpisuje raz przy uruchomieniu, potem odczyty */''}
     ${/* [31.10, Tomasz: „chodziło mi, żeby w Dolewanie było menu Poziomy wody, oraz zrób tak samo z Parametry niecki albo,
           jak jest zbiornik, to Parametry zbiornika przelewowego”] dwa PODMENU tego ekranu; wstecz z nich wraca tutaj */''}
@@ -8179,11 +8182,10 @@ function ekrPoziom(){
           nie było gdzie ustawić. Ta sama konstrukcja co przy kontroli
           płukania: POMIAR u góry (żeby operator miał z czego wpisać
           liczbę), NASTAWA pod nim, a bez przelicznika l/cm alarm śpi. */''}
-    ${N.dol_wl ? `<div class="grupka" data-lv="g">ZUŻYCIE WODY NA DOLEWANIE — KONTROLA</div>
-    ${/* PO CO TA SEKCJA — słowami Tomasza [2026-08-21]. Stoi NAD liczbami,
-          bo to ona mówi, na co się patrzy; szczegóły progu są pod ramką. */''}
-    <div class="nota" data-lv="nota">Ubytki na parowanie, wychlapanie i nieszczelność
-    niecki. W tej tabeli nie uwzględniamy ilości wody dolanej na potrzeby płukania.</div>
+    ${/* [31.10, Tomasz: „Zużycie wody na dolewanie — kontrola zmień na Zużycie wody — kontrola i wykasuj przypis pod”]
+          dawna nota nad liczbami (2026-08-21): „Ubytki na parowanie, wychlapanie i nieszczelność niecki. W tej tabeli nie
+          uwzględniamy ilości wody dolanej na potrzeby płukania.” - USUNIĘTA (zasada odejmowania zrzutów: D-100) */''}
+    ${N.dol_wl ? `<div class="grupka" data-lv="g">ZUŻYCIE WODY — KONTROLA</div>
     <div class="para" data-lv="para">
       ${/* skąd się bierze liczba — RAZ, w etykiecie ramki [Tomasz
             2026-08-21]; wcześniej wisiało pod pierwszym wierszem
@@ -8280,7 +8282,10 @@ function ekrPoziom(){
           „umieść nad «Limit 0 = alarm nieaktywny…»"] - najpierw liczby,
           potem skąd się biorą i co z nimi zrobić */''}
     <div class="etpara" data-lv="etpara">sposób pomiaru: zmiany poziomu wody i czas dolewania</div>
-    <div class="nota" data-lv="nota">${N.dol_limit_l === 0 ? 'Limit <b>0 = alarm nieaktywny</b>: zostaw zero, dopóki nie wiesz, ile obiekt zużywa normalnie — sprawdź kilka dni i wpisz z zapasem. ' : ''}<b>Do limitu 24 h nie doliczamy ilości wody potrzebnej na płukanie!</b></div>
+    ${/* [31.10, Tomasz: „przypis zredukuj do Limit = 0 alarm nieaktywny”] dawniej (przy zerze): „zostaw zero, dopóki nie
+          wiesz, ile obiekt zużywa normalnie — sprawdź kilka dni i wpisz z zapasem” + zawsze „Do limitu 24 h nie doliczamy
+          ilości wody potrzebnej na płukanie!” - obie rady są teraz w opisie nastawy (edytor; zdanie o płukaniu dopisane 31.10) i w D-100; przypis stały */''}
+    <div class="nota" data-lv="nota">Limit <b>0 = alarm nieaktywny</b></div>
     ${/* ⛔ WIERSZ „Przelicznik" USUNIĘTY [Tomasz 2026-08-20]:
           *„parametr w l/cm jest dla operatora bardziej zrozumiały, ty
           sobie to możesz przeliczać do kodu na mm, więc po co to
@@ -8535,8 +8540,9 @@ function ekrPluk(){
           płukania w menu serwis dubluje się z użytkownika"] — tam stoi
           obok przycisku ręcznego płukania i harmonogramu. */''}
     ${wierszWyl('pl_blokuj','Blokuj dolewanie na czas fazy płukania filtra','')}
-    ${wierszWyl('pl_dolewka','Dopełnienie przed płukaniem','zapas wody na płukanie — czas maksymalny 30 min')}
-    ${N.pl_dolewka ? wierszN('pl_ile') : ''}
+    ${/* [31.10] podpis bez „czas maksymalny 30 min” - czas jest teraz nastawą tuż pod spodem (prefill_max) */''}
+    ${wierszWyl('pl_dolewka','Dopełnienie przed płukaniem','zapas wody na płukanie')}
+    ${N.pl_dolewka ? wierszN('pl_ile') + wierszN('prefill_max') : ''}
     ${/* OBIE FILTRACJE W JEDNEJ RAMCE [Tomasz 2026-08-21] — to jedna
           para: pompa przed zrzutem i po zrzucie, obie tylko poza oknem
           harmonogramu. Ramka mówi, że to komplet, a nie dwie luźne
@@ -11237,7 +11243,8 @@ function ekranNastawy(k){
   if (k.startsWith('kal_')) return 'kalib';
   if (k.startsWith('heat_')) return 'grzanie';
   /* [31.10] progi poziomu mieszkają na ekranie „Poziomy wody” */
-  if (['dol_start','dol_stop','sucho_stop','dol_maxs','prefill_max','nadmiar_prog','nadmiar_hist'].includes(k)) return 'poziomy';
+  if (k === 'prefill_max') return 'pluk';                /* [31.10] czas dopełnienia przed płukaniem - ekran „Płukanie filtra” */
+  if (['dol_start','dol_stop','sucho_stop','dol_maxs','nadmiar_prog','nadmiar_hist'].includes(k)) return 'poziomy';
   if (k.startsWith('geo_')) return 'geo';                 /* [31.10] wymiary niecki / zbiornika - podmenu „Dolewanie” */
   return 'poziom';
 }
