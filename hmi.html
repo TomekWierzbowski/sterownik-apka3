@@ -1165,7 +1165,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '0fb634d57f';
+window.APKA_WERSJA = '201d4a8ebb';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1664,7 +1664,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-31 15:59';
+window.HMI_ZBUDOWANO = '2026-10-31 16:19';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -7835,9 +7835,7 @@ function ekrSerwis(){
     <div class="mrow" data-lv="idz.grzanie" onclick="idz('grzanie')"><span class="t">${regGrz() ? 'Grzanie' : 'Odczyt temperatur'}<i>${regGrz() ? 'histereza, korekta' + (nZrodelCiepla() > 1 ? ', źródła ciepła' : '') : 'kalibracja, odczyty'}</i></span><span class="ch">›</span></div>
     ${/* [31.10] DOLEWANIE WYŁĄCZONE: ekran zostaje (sonda pilnuje suchobiegu, rodzaj układu, geometria), ale nazywa się
           jak to, co na nim zostało - bez progów dolewania i kontroli zużycia */''}
-    <div class="mrow" data-lv="idz.poziom" onclick="idz('poziom')"><span class="t">${N.dol_wl ? 'Dolewanie' : 'Sonda poziomu'}<i>${N.dol_wl ? 'rodzaj układu, parametry zbiornika / niecki, zużycie wody' : 'rodzaj układu, parametry zbiornika / niecki'}</i></span><span class="ch">›</span></div>
-    ${/* [31.10, Tomasz] progi poziomu wody - osobny wiersz (dawniej ramka na ekranie „Dolewanie”) */''}
-    <div class="mrow" data-lv="idz.poziomy" onclick="idz('poziomy')"><span class="t">Poziomy wody<i>${N.dol_wl ? 'start i stop dolewania, suchobieg' : 'suchobieg'}${N.uklad === 'przelew' ? ', nadmiar' : ''}</i></span><span class="ch">›</span></div>
+    <div class="mrow" data-lv="idz.poziom" onclick="idz('poziom')"><span class="t">${N.dol_wl ? 'Dolewanie' : 'Sonda poziomu'}<i>poziomy wody, rodzaj układu, parametry ${N.uklad === 'przelew' ? 'zbiornika' : 'niecki'}${N.dol_wl ? ', zużycie wody' : ''}</i></span><span class="ch">›</span></div>
     ${/* [31.10] PŁUKANIE WYŁĄCZONE = wiersza nie ma (włącza się w SERWIS → Funkcje) */''}
     ${N.pluk_wl ? `<div class="mrow" data-lv="idz.pluk" onclick="idz('pluk')"><span class="t">Płukanie filtra<i>dodatkowe parametry płukania filtra / kontrola prawidłowości płukania</i></span><span class="ch">›</span></div>` : ''}
     ${/* [31.10] POMIAR CIŚNIENIA WYŁĄCZONY (SERWIS → Funkcje) albo bez czujnika = wiersza nie ma */''}
@@ -8126,7 +8124,17 @@ function ekrPoziomy(){
           i wpisz" czy „wynik obliczeń": mówi, o jakim poziomie są te dwie
           nastawy, zanim człowiek przeczyta ich długie nazwy */''}
     ${przelew ? `<div class="para" data-lv="para"><div class="etpara" data-lv="etpara">poziom maksymalny / wymuszenia</div>${wierszN('nadmiar_prog')}${wierszN('nadmiar_hist')}</div>` : ''}
-  </div>` + pasek('SERWIS · poziomy wody', 'serwis');
+  </div>` + pasek('SERWIS · poziomy wody', 'poziom');   /* [31.10] podmenu „Dolewanie” */
+}
+
+/* ===== EKRAN: parametry niecki / zbiornika przelewowego [31.10] =====
+   [Tomasz 2026-10-31: „zrób tak samo z Parametry niecki albo, jak jest zbiornik, to Parametry zbiornika przelewowego”]
+   Podmenu ekranu „Dolewanie”: ta sama sekcja co dawniej na nim (sekcjaGeo - wymiary do wpisania i wynik obliczeń).
+   ZAPISZ / ANULUJ nastaw geo_* wracają tutaj (ekranNastawy), wstecz - do „Dolewania”. */
+function ekrGeo(){
+  const przelew = N.uklad === 'przelew';
+  return `<div class="tresc">${sekcjaGeo(przelew)}</div>` +
+    pasek(przelew ? 'SERWIS · parametry zbiornika przelewowego' : 'SERWIS · parametry niecki', 'poziom');
 }
 
 function ekrPoziom(){
@@ -8161,7 +8169,10 @@ function ekrPoziom(){
     ${/* GEOMETRIA PRZED KONTROLĄ ZUŻYCIA [Tomasz 2026-08-27: „PARAMETRY
           NIECKI (całość) daj nad ZUŻYCIE WODY NA DOLEWANIE — KONTROLA"] -
           najpierw to, co się wpisuje raz przy uruchomieniu, potem odczyty */''}
-    ${sekcjaGeo(przelew)}
+    ${/* [31.10, Tomasz: „chodziło mi, żeby w Dolewanie było menu Poziomy wody, oraz zrób tak samo z Parametry niecki albo,
+          jak jest zbiornik, to Parametry zbiornika przelewowego”] dwa PODMENU tego ekranu; wstecz z nich wraca tutaj */''}
+    <div class="mrow" data-lv="idz.poziomy" onclick="idz('poziomy')"><span class="t">Poziomy wody<i>${N.dol_wl ? 'start i stop dolewania, suchobieg' : 'suchobieg'}${przelew ? ', nadmiar' : ''}</i></span><span class="ch">›</span></div>
+    <div class="mrow" data-lv="idz.geo" onclick="idz('geo')"><span class="t">${przelew ? 'Parametry zbiornika przelewowego' : 'Parametry niecki'}<i>wymiary, pojemność, litrów na cm</i></span><span class="ch">›</span></div>
     ${/* KONTROLA ZUŻYCIA WODY [Tomasz 2026-08-21: „czego nie mamy
           w serwis: Zużycie wody powyżej limitu"] — panel użytkownika ma
           taki alarm („Dolano dziś 380 l, limit 150 l/dobę"), a limitu
@@ -11227,6 +11238,7 @@ function ekranNastawy(k){
   if (k.startsWith('heat_')) return 'grzanie';
   /* [31.10] progi poziomu mieszkają na ekranie „Poziomy wody” */
   if (['dol_start','dol_stop','sucho_stop','dol_maxs','prefill_max','nadmiar_prog','nadmiar_hist'].includes(k)) return 'poziomy';
+  if (k.startsWith('geo_')) return 'geo';                 /* [31.10] wymiary niecki / zbiornika - podmenu „Dolewanie” */
   return 'poziom';
 }
 /* GRANICE NASTAWY — stałe albo LICZONE Z INNEJ NASTAWY [D-98].
@@ -11418,6 +11430,7 @@ function srvRender(anim = true){
     e==='serwis'   ? ekrSerwis()   :
     e==='poziom'   ? ekrPoziom()   :
     e==='poziomy'  ? ekrPoziomy()  :
+    e==='geo'      ? ekrGeo()      :
     e==='pluk'     ? ekrPluk()     :
     e==='cisn'     ? ekrCisn()     :
     e==='kalib'    ? ekrKalib()    :
@@ -11761,7 +11774,7 @@ srvRender();
    warunkow w szablonach. Czyta to narzedzia_hmi/inwentarz.ps1
    (--dump-dom), a generuj_srv.py robi z tego tabele ekranow LVGL. */
 if (location.search.indexOf('inwentarz') >= 0) {
-  const EKRANY_INW = ['serwis','poziom','poziomy','pluk','cisn','kalib','grzanie',
+  const EKRANY_INW = ['serwis','poziom','poziomy','geo','pluk','cisn','kalib','grzanie',
                       'obejscia','atrakcje','alarmy','przezn','gotowosc','diag','historia','zdarzenia'];
   /* [nazwa, [wartosc bazowa, warianty...]] - baza = "wszystko widac" */
   const BRAMKI = [
