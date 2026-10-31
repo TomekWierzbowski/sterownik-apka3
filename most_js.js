@@ -352,6 +352,7 @@
       mapa_do: mapy[0], mapa_di: mapy[1],
       akc_nast: akcNastawyZMn(mnSlowo),
       jest_uv: bit(wyp, 7), jest_grz: bit(wyp, 5) || bit(wyp, 6), grz_styk: bit(wyp, 13),
+      grz_dwa: bit(wyp, 6),          /* [31.10] drugi styk grzania przypisany (i grzanie w ruchu) - dwa źródła ciepła [D-93] */
       jest_dol: bit(wyp, 4), jest_pluk: bit(wyp, 3),
       jest_cis: bit(wyp, 9),         /* [31.10] czujnik ciśnienia przypisany w mapie I/O */
       jest_roleta: bit(wyp, 12),     /* styk rolety przypisany [D-234] */

@@ -1165,7 +1165,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '09442fb58b';
+window.APKA_WERSJA = '45786e9e9e';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1664,7 +1664,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-31 11:11';
+window.HMI_ZBUDOWANO = '2026-10-31 15:14';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -7228,10 +7228,9 @@ async function pinDoSterownika(pin){
       const r = await window.MOST_JS.sprawdzPin(pin);
       if (r === 'ok')  return 'ok';
       /* kod 3 przychodzi także, gdy sterownik NIE MA ustawionego PIN-u strony (basen 09.09) - mówimy o obu */
-      /* [31.10] krócej: 3 wiersze drobnym drukiem nie mieściły się nad klawiaturą. Treść jak dawniej: zły PIN serwisowy
-         (6 cyfr) albo - gdy serwisowego jeszcze nie ustawiono - zły PIN obiektu / brak PIN-u strony [D-510] */
-      if (r === 'zle') return 'Sterownik odrzucił PIN. Serwisowy ma 6 cyfr; bez serwisowego — PIN obiektu (4), '
-                              + 'ustawiany przy szafie: serwis → sieć → strona.';
+      /* [31.10, Tomasz: „przy złym PIN-ie daj info tylko o złym PIN-ie”] sam komunikat - bez objaśnień, które PIN-y
+         sterownik przyjmuje (dawniej: zły PIN serwisowy 6 cyfr albo - bez serwisowego - PIN obiektu / brak PIN-u strony, D-510) */
+      if (r === 'zle') return 'Zły PIN';
       return r;                                  /* brak połączenia / timeout — pokaż powód, nie wpuszczaj */
     }
     return 'brak';
@@ -7249,7 +7248,7 @@ async function pinDoSterownika(pin){
     return 'ok';
   }
   if (txt.indexOf('blokada;') === 0) return txt.slice(8);
-  return 'sterownik odrzucił PIN';
+  return 'Zły PIN';                                   /* [31.10] jak w trybie chmury */
 }
 
 /* ===== POCHODNE STANU (atrapa logiki B8M — tylko do wyświetlania) ====== */
@@ -7767,7 +7766,7 @@ async function pinOk(zmiana){
     if (w === 'ok'){ SRV_S.pin=''; idz('serwis'); return; }       /* PIN sprawdził sterownik */
     if (w !== 'brak'){ SRV_S.pin=''; SRV_S.pinBlad = w; srvRender(false); return; }
     /* sterownik nie ma zamka -> stara droga: PIN z pamięci przeglądarki */
-    if (SRV_S.pin !== nvsPin()){ SRV_S.pin=''; SRV_S.pinBlad='zły PIN'; srvRender(false); return; }
+    if (SRV_S.pin !== nvsPin()){ SRV_S.pin=''; SRV_S.pinBlad='Zły PIN'; srvRender(false); return; }
     SRV_S.pin='';
     if (nvsPin() === '1111'){ SRV_S.pinNowy=''; idz('pinnowy'); }  /* wymuszenie */
     else idz('serwis');
@@ -7819,13 +7818,13 @@ function ekrSerwis(){
           Wiersz pokazuje WYBRANA nazwe, BEZ podpisu [Tomasz 2026-08-27:
           „wykasuj pod obieg filtracyjny notkę"] - numer szuflady i zaciski
           sa w diagnostyce (mapa I/O), nie tutaj. */''}
-    <div class="mrow" data-lv="idz.przezn" onclick="SRV_S.przezn_obieg=0; idz('przezn')"><span class="t">Obieg filtracyjny</span><span class="w">${
+    <div class="mrow" data-lv="idz.przezn" onclick="SRV_S.przezn_obieg=0; idz('przezn')"><span class="t">Rodzaj obiegu filtracyjnego</span><span class="w">${
       N.dwa_obiegi ? PRZEZNACZENIA[SRV_S.przezn_dwa[0]] : PRZEZNACZENIA[przeznTeraz()]}</span><span class="ch">›</span></div>
     ${/* DWA OBIEGI [D-135, Tomasz 2026-08-27: „jak będą 2 obiegi, to automatycznie
          tworzy się nowy pasek Obieg filtracyjny 2, do którego wchodzimy i zaznaczamy
          tak samo"] - drugi wiersz z bramką dwa_obiegi (inwentarz -> generator ->
          gdy_dwa_obiegi_true = przezn_dwa() w panelu) */''}
-    ${N.dwa_obiegi ? `<div class="mrow" data-lv="idz.przezn" onclick="SRV_S.przezn_obieg=1; idz('przezn')"><span class="t">Obieg filtracyjny 2</span><span class="w">${
+    ${N.dwa_obiegi ? `<div class="mrow" data-lv="idz.przezn" onclick="SRV_S.przezn_obieg=1; idz('przezn')"><span class="t">Rodzaj obiegu filtracyjnego 2</span><span class="w">${
       PRZEZNACZENIA[SRV_S.przezn_dwa[1]]}</span><span class="ch">›</span></div>` : ''}
     ${/* GRZANIE NA SAMEJ GÓRZE [Tomasz 2026-08-21] — bez dopisku „źródła
           ciepła" w tytule i bez wskaźnika trybu z prawej: ekran mieści
@@ -7833,7 +7832,7 @@ function ekrSerwis(){
     ${/* podpis WYLICZANY Z KONTRAKTU [B.4g]: „źródła ciepła" dopisujemy
           tylko wtedy, gdy styki grzania są dwa — przy jednym nie ma
           czego wybierać ani łączyć, więc i w podpisie tego nie ma */''}
-    <div class="mrow" data-lv="idz.grzanie" onclick="idz('grzanie')"><span class="t">${regGrz() ? 'Grzanie' : 'Odczyt temperatur'}<i>${regGrz() ? 'histereza, korekta' + (KONTRAKT.DO.filter(d=>/Grzanie/.test(d[1])).length>1 ? ', źródła ciepła' : '') : 'kalibracja, odczyty'}</i></span><span class="ch">›</span></div>
+    <div class="mrow" data-lv="idz.grzanie" onclick="idz('grzanie')"><span class="t">${regGrz() ? 'Grzanie' : 'Odczyt temperatur'}<i>${regGrz() ? 'histereza, korekta' + (nZrodelCiepla() > 1 ? ', źródła ciepła' : '') : 'kalibracja, odczyty'}</i></span><span class="ch">›</span></div>
     ${/* [31.10] DOLEWANIE WYŁĄCZONE: ekran zostaje (sonda pilnuje suchobiegu, rodzaj układu, geometria), ale nazywa się
           jak to, co na nim zostało - bez progów dolewania i kontroli zużycia */''}
     <div class="mrow" data-lv="idz.poziom" onclick="idz('poziom')"><span class="t">${N.dol_wl ? 'Dolewanie i sonda poziomu' : 'Sonda poziomu'}<i>${N.dol_wl ? 'progi, rodzaj układu, parametry zbiornika / niecki' : 'suchobieg, rodzaj układu, parametry zbiornika / niecki'}</i></span><span class="ch">›</span></div>
@@ -7987,6 +7986,12 @@ const jestW = k => (W['jest_' + k] === undefined || W['jest_' + k] === null) ? t
    a kafel pokazuje sama temperature. */
 const grzStyk = () => (W.grz_styk === undefined || W.grz_styk === null) ? true : !!W.grz_styk;
 const regGrz  = () => grzStyk() && !!N.grz_wl;
+/* [31.10, Tomasz: „jeśli sterownik ma tylko jedno wyjście grzania, w serwisie nie powinno być trybu równolegle albo
+   inteligentnie - właściwie bez menu źródła ciepła”] ILE ŹRÓDEŁ CIEPŁA: pod sterownikiem z wyposażenia (b6 = drugi styk
+   grzania przypisany, W.grz_dwa), bez sterownika - z KONTRAKTU makiety jak dotąd. Dawniej zawsze z KONTRAKTU: w apce
+   na warsztacie (jeden styk) ekran pokazywał „Źródła ciepła” z przykładowej tabeli makiety. */
+const nZrodelCiepla = () => (W.grz_dwa === undefined || W.grz_dwa === null)
+  ? KONTRAKT.DO.filter(d => /Grzanie/.test(d[1])).length : (W.grz_dwa ? 2 : 1);
 /* [31.10] POMIAR CIŚNIENIA: czujnik w mapie I/O (W.jest_cis = wyposażenie b9) i wyłącznik w ruchu (4036/4037).
    cisAkt() = pokazujemy odczyt, ochrony, kalibrację i obejście; jestCisWl() = wiersz w Funkcjach (sterownik zna
    wyłącznik - linia MN ze znacznikiem b14; starszy firmware: wiersza nie ma, reszta jak dotąd). */
@@ -8737,7 +8742,7 @@ function ekrGrzanie(){
      priorytetyzować: cała sekcja źródeł znika, zostaje sam regulator.
      Gdyby tryb był zapisany na 1/2 z czasów dwóch źródeł, wracamy do
      „pojedynczo", żeby ekran nie kłamał. */
-  const nZrodel = KONTRAKT.DO.filter(d => /Grzanie/.test(d[1])).length;
+  const nZrodel = nZrodelCiepla();                     /* [31.10] ze sterownika, nie z tabeli makiety */
   if (nZrodel < 2 && N.heat_tryb !== 0) N.heat_tryb = 0;
   return `<div class="tresc">
     ${/* REGULACJA GRZANIA - wylacznik 4046 przeniesiony tu z 'funkcji' [D-207,
@@ -10362,7 +10367,7 @@ function ekrPrzezn(){
         <span class="t">${n}</span></div>`).join('');
   return `<div class="tresc">
     ${wiersze}
-  </div>` + pasek('SERWIS · obieg filtracyjny' + (ob === 1 ? ' 2' : ''), 'serwis');
+  </div>` + pasek('SERWIS · rodzaj obiegu filtracyjnego' + (ob === 1 ? ' 2' : ''), 'serwis');   /* [31.10, Tomasz] nazwa jak wiersz w menu */
 }
 
 /* ⛔ almRozwin USUNIETE [D-114]: akordeon zastapiony podekranem.
@@ -11564,6 +11569,7 @@ if (PANEL_LEWY) {
   const POLA_SWIATA = ['hoa','poziom','cis','temp','termik','awtemp',
                        'ostrzCis','awsonda','awmano','zatrzask','pluk',
                        'jest_grz','grz_styk','jest_dol','jest_pluk','jest_uv',   /* wyposazenie [D-207] */
+                       'jest_cis','grz_dwa',   /* [31.10] czujnik cisnienia w mapie I/O; drugi styk grzania (dwa zrodla ciepla) */
                        'temp_pow','temp_pow_stan','awtempBrak'];
   /* ⚠ To NIE jest swiat zewnetrzny, tylko WYNIK PRACY modulu -
      raport gotowosci, liczniki, zatrzask awarii. Stad do SRV_S, nie do W. */
@@ -12013,7 +12019,7 @@ body:not(.bez-wody) .screen,body.bez-wody .screen{border-radius:0}
 <canvas id="woda" aria-hidden="true"></canvas>
 <script>
 (function () {
-  /* WODA W TLE [D-292]: canvas 2D, ~30 kl/s, 14 plam kaustyki (gradienty radialne, tryb "lighter") na
+  /* WODA W TLE [D-292 → 31.10 spokojna tafla, opis niżej]: canvas 2D; DAWNIEJ ~30 kl/s, 14 plam kaustyki (gradienty radialne, tryb "lighter") na
      głębi, kręgi rozchodzące się od dotknięcia (700 ms). Zero bibliotek, zero wpływu na układ - canvas
      leży pod .wrap i nie łapie dotyku. Bateria: w tle karty pętla stoi; reduced-motion = jedna klatka. */
   var c = document.getElementById('woda'); if (!c) return;
@@ -12021,31 +12027,35 @@ body:not(.bez-wody) .screen,body.bez-wody .screen{border-radius:0}
   var wl = true;   /* WODA ZAWSZE WŁĄCZONA [Tomasz 2026-09-11: „wykasuj woda wł, zawsze włączone"] - przełącznik zdjęty */
   var ruch = !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
   document.body.classList.toggle('bez-wody', !wl);
-  function rozm() { S = Math.min(devicePixelRatio || 1, 1.5); W = innerWidth; H = innerHeight; c.width = W * S; c.height = H * S; c.style.width = W + 'px'; c.style.height = H + 'px'; g.setTransform(S, 0, 0, S, 0, 0); }
-  addEventListener('resize', rozm); rozm();
-  var plamy = []; for (var i = 0; i < 14; i++) plamy.push({ x: Math.random(), y: Math.random(), r: 90 + Math.random() * 160, f: .12 + Math.random() * .25, p: Math.random() * 6.3, a: .05 + Math.random() * .07 });
-  var kregi = []; var ost = 0, klatka = 0;
-  addEventListener('pointerdown', function (e) { if (!wl) return; kregi.push({ x: e.clientX, y: e.clientY, t: performance.now() }); if (kregi.length > 8) kregi.shift(); }, { passive: true });
+  /*  [31.10, Tomasz: „woda jakby zastyga, a po kropli powinna być jednolita tafla”] SPOKOJNA TAFLA ZAMIAST KAUSTYKI.
+      Dawniej 14 wędrujących jasnych plam (tryb "lighter") prześwitywało przez półprzezroczysty ekran HMI jako poświata
+      na kaflach, a trzy rzeczy zostawiały je „zastygnięte”: (1) przy ograniczeniu ruchu / oszczędzaniu baterii plamy
+      rysowały się jedną klatką i stały; (2) zmiana rozmiaru okna czyściła płótno bez ponownego rysowania (niedomalowany
+      prostokąt); (3) każdy powrót z tła odpalał KOLEJNĄ pętlę. Teraz: tafla = sam gradient głębi; dotknięcie = kręgi
+      (700 ms); po ostatnim kręgu, po zmianie rozmiaru i po powrocie z tła - czysta klatka; jedna pętla naraz i tylko
+      wtedy, gdy kręgi trwają (bez kręgów płótno stoi - zero pracy w tle). Ograniczenie ruchu = sama tafla, bez kręgów. */
+  var kregi = [], bieg = false;
   function rysuj(t) {
     var gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, '#0a3450'); gr.addColorStop(.55, '#062238'); gr.addColorStop(1, '#03111c');
     g.globalCompositeOperation = 'source-over'; g.fillStyle = gr; g.fillRect(0, 0, W, H);
-    g.globalCompositeOperation = 'lighter';
-    for (var i = 0; i < plamy.length; i++) { var q = plamy[i], s = t / 1000;
-      var x = (q.x + .08 * Math.sin(s * q.f + q.p) + .05 * Math.cos(s * q.f * .7 + q.p * 2)) * W;
-      var y = (q.y + .06 * Math.cos(s * q.f * .9 + q.p) + .04 * Math.sin(s * q.f * 1.3)) * H;
-      var r = q.r * (1 + .15 * Math.sin(s * q.f * 2 + q.p));
-      var rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, 'rgba(120,210,255,' + q.a + ')'); rg.addColorStop(.6, 'rgba(60,150,220,' + (q.a * .5) + ')'); rg.addColorStop(1, 'rgba(0,0,0,0)');
-      g.fillStyle = rg; g.beginPath(); g.arc(x, y, r, 0, 6.2832); g.fill(); }
     for (var k = kregi.length - 1; k >= 0; k--) { var o = kregi[k], u = (t - o.t) / 700; if (u >= 1) { kregi.splice(k, 1); continue; }
       g.strokeStyle = 'rgba(210,240,255,' + (0.55 * (1 - u)) + ')'; g.lineWidth = 3 * (1 - u) + .5;
       g.beginPath(); g.arc(o.x, o.y, 12 + u * 170, 0, 6.2832); g.stroke();
       g.strokeStyle = 'rgba(210,240,255,' + (0.3 * (1 - u)) + ')'; g.beginPath(); g.arc(o.x, o.y, 6 + u * 110, 0, 6.2832); g.stroke(); }
   }
-  function petla(t) { if (!wl || document.hidden) { ost = 0; return; } if (t - ost >= 33) { ost = t; rysuj(t); } if (ruch || kregi.length) requestAnimationFrame(petla); }
-  function start() { if (!wl) return; rysuj(performance.now()); if (ruch) requestAnimationFrame(petla); }
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) start(); });
-  addEventListener('pointerdown', function () { if (wl && !ruch) requestAnimationFrame(petla); }, { passive: true });
-  start();
+  function rozm() { S = Math.min(devicePixelRatio || 1, 1.5); W = innerWidth; H = innerHeight; c.width = W * S; c.height = H * S; c.style.width = W + 'px'; c.style.height = H + 'px'; g.setTransform(S, 0, 0, S, 0, 0); rysuj(performance.now()); }
+  function petla(t) {
+    if (!wl || document.hidden) { bieg = false; kregi.length = 0; rysuj(t); return; }
+    rysuj(t);
+    if (kregi.length) requestAnimationFrame(petla); else { bieg = false; rysuj(t); }   /* koniec kręgów = czysta tafla */
+  }
+  addEventListener('resize', rozm); rozm();
+  addEventListener('pointerdown', function (e) {
+    if (!wl || !ruch) return;
+    kregi.push({ x: e.clientX, y: e.clientY, t: performance.now() }); if (kregi.length > 8) kregi.shift();
+    if (!bieg) { bieg = true; requestAnimationFrame(petla); }
+  }, { passive: true });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && !bieg) rysuj(performance.now()); });
 })();
 </script>
 <style>
