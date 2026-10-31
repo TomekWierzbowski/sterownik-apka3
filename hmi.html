@@ -1090,6 +1090,10 @@
         background:#14161a;color:#fff;font-size:13.9px;font-weight:500;letter-spacing:.02em;
         display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;
         padding:4px 10px;user-select:none;text-align:center;line-height:1.2}.srv .abtn:active{background:#33383f}.srv .abtn.szary{background:#e9ebee;color:#14161a;border-color:#cfd3d8}.srv .abtn.szary:active{background:#dde0e4}.srv .abtn.grozny{background:#8f0d0d;border-color:#8f0d0d}.srv .abtn.grozny:active{background:#a83232}
+  /* OKNO POTWIERDŹ / ODRZUĆ [31.10, Tomasz: „zerowanie sond — powinno wyświetlić się okno potwierdź albo odrzuć”]:
+     przykrywa ekran panelu (.screen ma position:relative), przyciski pełnej szerokości pod mokrą rękę */.srv .zerokno{position:absolute;inset:0;z-index:30;background:rgba(20,22,26,.55);display:flex;align-items:center;
+           justify-content:center;padding:16px}.srv .zerokno-r{background:#fff;border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:14px;width:100%;
+             box-shadow:0 8px 24px rgba(0,0,0,.25)}.srv .zerokno-t{font-size:17px;font-weight:600;color:#14161a}.srv .zerokno-o{font-size:14.5px;line-height:1.35;color:#14161a}.srv .zerokno-p{display:flex;gap:10px}.srv .zerokno-p .abtn{flex:1 1 0}
   /* czerwony napis w czerwonej ramce [Tomasz 2026-08-27] - reset liczników */.srv .abtn.czerw{background:#fff;color:#bb0000;border-color:#bb0000}.srv .abtn.czerw:active{background:#fbeaea}.srv .abtn.zablok{background:#eceef1;color:#8d949e;border-color:#d5d9de;cursor:not-allowed}.srv .nota{flex:0 0 auto;font-size:13.5px;color:#5d6470;line-height:1.35;padding:0 2px}.srv .nota b{color:#14161a}.srv .nota.zla{color:#8f0d0d}.srv .ostrzega{flex:0 0 auto;background:#fdf6ec;border:1px solid #e8d5ae;border-radius:6px;
             padding:6px 8px;font-size:14.2px;line-height:1.4;color:#14161a}.srv .ostrzega b{color:#7a5200}.srv .alarmuje{flex:0 0 auto;background:#fbeaea;border:1px solid #e4b6b6;border-radius:6px;
             padding:6px 8px;font-size:14.2px;line-height:1.4;color:#14161a}.srv .alarmuje b{color:#8f0d0d}
@@ -1165,7 +1169,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = 'd2a1739995';
+window.APKA_WERSJA = '4a9ac21218';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1664,7 +1668,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-31 20:11';
+window.HMI_ZBUDOWANO = '2026-10-31 20:51';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -7918,10 +7922,10 @@ function ekrSerwis(){
           gotowości i przy nieznanym raporcie (sterownik jeszcze nic nie powiedział) wiersza NIE MA - plakietki „komplet”
           i „—” zniknęły razem z nim. Bramka inwentarza got_luki (spoza katalogu, jak got_znana): generator robi z niej
           gdy_got_luki_true -> srv_got_luki() na panelu (srv_tabele.c, ta sama maska co wiersze luk). */''}
-    ${gotJestCoZglosic() ? `<div class="mrow" data-lv="idz.gotowosc" onclick="idz('gotowosc')"><span class="t">Czego brakuje do pełnej pracy<i>funkcje, które śpią: nieustawiona nastawa albo odcięcie po awarii</i></span>${
-      (() => { const n = gotLuki().length;
-               return n === 0 ? '' : `<span class="w zle">${n}</span>`; })()
-    }<span class="ch">›</span></div>` : ''}
+    ${/* [31.10, Tomasz: „Czego brakuje do pełnej pracy — usuń”, okno: „cały wiersz”] wiersz raportu gotowości USUNIĘTY z menu
+          (świadomie, mimo decyzji z 30.09 wyżej, że raport ma być osiągalny - Tomasz wybrał to w oknie z tą informacją).
+          Ekran ekrGotowosc() i gotJestCoZglosic() zostają w kodzie - panel LVGL ma swój wiersz (srv_tabele.c) i decyzja,
+          czy go też zdjąć, zapadnie przy przenoszeniu zmian z 31.10 na panel. */''}
     <div class="mrow" data-lv="idz.historia" onclick="idz('historia')"><span class="t">Historia alarmów<i>alarmy z czasem wystąpienia</i></span><span class="ch">›</span></div>
     <div class="mrow" data-lv="idz.zdarzenia" onclick="idz('zdarzenia')"><span class="t">Dziennik zdarzeń<i>${
       SRV_S.zdarzenia ? (SRV_S.zdarzenia.ile + ' wpisów: użytkownik, automat, konfiguracja') : 'kto co przełączył, co zrobił automat, co zmieniono'}</i></span><span class="ch">›</span></div>
@@ -8644,6 +8648,33 @@ function ekrCisn(){
   </div>` + pasek('SERWIS · pomiar ciśnienia', 'serwis');
 }
 
+/* ZEROWANIE CZUJNIKA — OKNO POTWIERDŹ / ODRZUĆ [31.10, Tomasz: „zerowanie sond: otwiera się komunikat, a powinno
+   wyświetlić się okno potwierdź albo odrzuć”]
+   WEJŚCIA:  który czujnik: 1 = sonda poziomu, 3 = czujnik ciśnienia (wartości wyzwalacza 4040 + obieg - te same, co panel
+             LVGL, srv_tabele.c zeruj_czujnik); obieg z obiegSzuflada() jak reset liczników wody.
+   CO Z CZEGO WYNIKA: przycisk ZERUJ otwiera okno (nic jeszcze nie idzie do sterownika); POTWIERDŹ wysyła wyzwalacz -
+             sterownik zapisuje BIEŻĄCY surowy odczyt jako punkt dolny toru i sam go waliduje (odmowa wraca zwykłą drogą
+             zapisów); ODRZUĆ zamyka okno bez zmian. Dawniej przycisk pokazywał tylko komunikat i NIC nie wysyłał.
+   WYJŚCIA:  okno na ekranie kalibracji; komenda `rej` (most / apka) albo /cmd (strona sterownika).
+   ⚠ Panel LVGL ma dziś dwa kliknięcia z napisem (ZER_POTW_MS) - okno do przeniesienia razem z resztą zmian z 31.10. */
+let ZER_PYT = null;                    /* {co, nazwa, opis} otwartego okna albo null */
+function zerujPytaj(co, nazwa, opis){ ZER_PYT = {co, nazwa, opis}; srvRender(false); }
+function zerujOdrzuc(){ ZER_PYT = null; srvRender(false); }
+function zerujPotwierdz(){
+  const q = ZER_PYT; ZER_PYT = null; srvRender(false);
+  if (!q) return;
+  const l = (4040 + obiegSzuflada()) + ':' + q.co;
+  if (window.parent !== window) srvKomenda('rej', l);
+  else if (location.protocol === 'http:' || location.protocol === 'https:') fetch('/cmd?co=rej&wart=' + l).catch(() => {});
+}
+function zerOkno(){
+  if (!ZER_PYT) return '';
+  return `<div class="zerokno" onclick="if(event.target===this)zerujOdrzuc()"><div class="zerokno-r">
+    <div class="zerokno-t">Zerowanie — ${ZER_PYT.nazwa}</div>
+    <div class="zerokno-o">${ZER_PYT.opis}</div>
+    <div class="zerokno-p"><div class="abtn szary" onclick="zerujOdrzuc()">ODRZUĆ</div>
+      <div class="abtn" onclick="zerujPotwierdz()">POTWIERDŹ</div></div></div></div>`;
+}
 function ekrKalib(){
   /* KALIBRACJA JEDNOPUNKTOWA [D-98, Tomasz 2026-08-21] — „dla 4 mA odczyt
      0, dla 20 mA odczyt max, a max = zakres sondy… przetworniki idą
@@ -8675,7 +8706,7 @@ function ekrKalib(){
           Dwa kliknięcia: kasujemy kalibrację toru, a klik w szafie bywa
           przypadkowy. ⚠ Klikać, gdy sonda jest w swoim zerze - inaczej
           wkalibrujemy wodę, która akurat stoi. */''}
-    <div class="abtn" data-lv="abtn" onclick="poka('zerowanie sondy poziomu — kliknij ponownie, aby potwierdzić')">ZERUJ SONDĘ POZIOMU</div>
+    <div class="abtn" data-lv="abtn" onclick="zerujPytaj(1, 'sonda poziomu', 'Bieżący odczyt sondy stanie się zerem.')">ZERUJ SONDĘ POZIOMU</div>
     ${cisAkt() ? `<div class="grupka" data-lv="g">CZUJNIK CIŚNIENIA</div>
     <div class="para" data-lv="para">
       ${wierszN('kal_cis_zak')}${wierszN('kal_cis_off')}
@@ -8684,7 +8715,7 @@ function ekrKalib(){
     ${/* ⚠ CIŚNIENIE ZERUJE SIĘ TYLKO PRZY ROZPRĘŻONEJ INSTALACJI. Gdy filtracja
           stoi niżej niż niecka, czujnik mierzy słup wody i to NIE JEST zero
           [Tomasz 2026-08-28]. */''}
-    <div class="abtn" data-lv="abtn" onclick="poka('zerowanie czujnika ciśnienia — kliknij ponownie, aby potwierdzić')">ZERUJ CZUJNIK CIŚNIENIA</div>` : ''}
+    <div class="abtn" data-lv="abtn" onclick="zerujPytaj(3, 'czujnik ciśnienia', 'Bieżący odczyt czujnika stanie się zerem.')">ZERUJ CZUJNIK CIŚNIENIA</div>` : ''}
     ${/* KOREKTA WSKAZANIA I HISTEREZA PRZENIESIONE DO „GRZANIA"
           [Tomasz 2026-08-21] — obie dotyczą regulatora temperatury,
           więc mają stać przy źródłach ciepła, a nie w kalibracji
@@ -8693,7 +8724,7 @@ function ekrKalib(){
           (4 mA = 0, liniowość, żywe zero) komuś, kto i tak ma tu do
           wpisania dwie liczby z tabliczki i jedną z miarki. Wiedza
           została w opisach nastaw (widać je w edytorze) i w D-98. */''}
-  </div>` + pasek('SERWIS · kalibracja czujników', 'serwis');
+  </div>` + pasek('SERWIS · kalibracja czujników', 'serwis') + zerOkno();
 }
 /* WYSYLKA NASTAWY DO STEROWNIKA - JEDNA DROGA DLA WSZYSTKICH
    ==========================================================
@@ -8920,7 +8951,7 @@ function obejscieMano(){
 const AKC_NAZWY = ['Masaż wodny 1','Masaż wodny 2',
                    'Masaż powietrzny 1','Masaż powietrzny 2',
                    'Atrakcja 1','Atrakcja 2',
-                   'Oświetlenie białe','Oświetlenie barwne'];
+                   'Oświetlenie','Oświetlenie barwne'];   /* [31.10, Tomasz: „Oświetlenie białe zmień na Oświetlenie”] */
 
 /* WŁASNE NAZWY KANAŁÓW [D-493, Tomasz 2026-09-24: „pasowałoby, żeby gdzieś można było wpisać nazwę,
    co to jest ten kanał"; wyświetlanie „własna (fabryczna)"]. Nazwa leży w sterowniku (rejestry 4140+,
@@ -9434,18 +9465,21 @@ function ekrSiec(){
   const mqTxt = (!(mq & 1) && !(mq2 & 1)) ? 'wyłączone'
               : MQTT_SERW.filter(s => siecS(s.st) & 1).map(s => s.nr + ': ' + mqttSkrot(s)).join(' · ');
   return `<div class="tresc">
-    ${!SRV_S.siecS || !SRV_S.siecN ? `<div class="nota" data-lv="nota">Czytam rejestry sieci (3160+, 4740+) — pod mostem, ze strony sterownika albo z lustra brokera.</div>` : ''}
-    ${SRV_CHMURA ? `<div class="ostrzega" data-lv="ostrzega"><b>Przez chmurę: tylko podgląd.</b> Zmiany nastaw sieci sterownik przyjmuje wyłącznie przy szafie (panel, most, strona na punkcie dostępu) — zła nazwa sieci albo hasło odcięłyby go od internetu bez drogi powrotu. Hasła są tu ukryte.</div>` : ''}
+    ${/* [31.10, Tomasz: „usuń przypisy w POŁĄCZENIA i TELEMETRIA, nad POŁĄCZENIA wykasuj”] bez noty „Czytam rejestry sieci
+          (3160+, 4740+) — pod mostem, ze strony sterownika albo z lustra brokera” i bez podpisów wierszy Ethernet / WiFi / MQTT */''}
+    ${/* [31.10, Tomasz: „Przez chmurę: tylko podgląd … Hasła są tu ukryte — usuń”] ostrzeżenie w apce USUNIĘTE. Odmowa zapisu
+          nastaw sieci przez chmurę dalej ma komunikat (zasada 10): sterownik odpowiada „ODMOWA nastawy sieci tylko przez serwer
+          z Home Assistantem” (19_modbus_master.h MM_KONS_SIEC_ODMOWA). */''}
     ${siecBanery(false)}
     <div class="grupka" data-lv="g">POŁĄCZENIA</div>
-    ${maEth ? `<div class="mrow" data-lv="idz.siec_eth" onclick="idz('siec_eth')"><span class="t">Ethernet<i>gniazdo w sterowniku (W5500)</i></span>
+    ${maEth ? `<div class="mrow" data-lv="idz.siec_eth" onclick="idz('siec_eth')"><span class="t">Ethernet</span>
       <span class="w ${(eth & 2) && !(eth & 8) ? 'zle' : ''}">${ethTxt}</span><span class="ch">›</span></div>` : ''}
-    <div class="mrow" data-lv="idz.siec_ap" onclick="idz('siec_ap')"><span class="t">WiFi — punkt dostępu<i>własna sieć sterownika: telefon łączy się wprost z szafą</i></span>
+    <div class="mrow" data-lv="idz.siec_ap" onclick="idz('siec_ap')"><span class="t">WiFi — punkt dostępu</span>
       <span class="w">${apTxt}</span><span class="ch">›</span></div>
-    <div class="mrow" data-lv="idz.siec_sta" onclick="idz('siec_sta')"><span class="t">WiFi — połączenie z siecią<i>sterownik jako klient sieci obiektu</i></span>
+    <div class="mrow" data-lv="idz.siec_sta" onclick="idz('siec_sta')"><span class="t">WiFi — połączenie z siecią</span>
       <span class="w ${(sta & 1) && !(sta & 4) ? 'zle' : ''}">${staTxt}</span><span class="ch">›</span></div>
     <div class="grupka" data-lv="g">TELEMETRIA</div>
-    <div class="mrow" data-lv="idz.siec_mqtt" onclick="idz('siec_mqtt')"><span class="t">MQTT<i>wysyłanie stanu do serwerów — tylko wysyłanie, sterownik niczego nie przyjmuje</i></span>
+    <div class="mrow" data-lv="idz.siec_mqtt" onclick="idz('siec_mqtt')"><span class="t">MQTT</span>
       <span class="w ${MQTT_SERW.some(mqttZle) ? 'zle' : ''}">${mqTxt}</span><span class="ch">›</span></div>
     ${(siecS(3187) & 16) ? `<div class="grupka" data-lv="g">DOSTĘP</div>
     <div class="mrow" data-lv="idz.siec_web" onclick="idz('siec_web')"><span class="t">Strona sterownika<i>kto może ją otworzyć i czy widać hasła sieci</i></span>
@@ -10487,11 +10521,10 @@ function ekrAlarmy(){
     ${/* OSTRZEZENIE STOI NAD LISTA, NIE POD NIA — czyta sie je zanim
           padnie pierwsze klikniecie, a nie po. Ta sama zasada, co
           „rodzaj ukladu" na gorze ekranu poziomu. */''}
-    <div class="alarmuje" data-lv="alarmuje"><b>Wyłączenie alarmu gasi KOMUNIKAT, nie OCHRONĘ.</b>
-      Blokady pompy, dolewania i płukania czytają stan czujników, a nie tę
-      listę — wyciszony alarm dalej zatrzyma to, co zatrzymywał, tylko ekran
-      przestanie mówić dlaczego. Wyłączaj wyłącznie to, co sam potrafisz
-      zdiagnozować, i zdejmij ciszę, zanim oddasz obiekt.</div>
+    ${/* [31.10, Tomasz: „Blokady pompy, dolewania i płukania czytają stan czujników … zdejmij ciszę, zanim oddasz obiekt —
+          usuń”] zostaje samo pogrubione zdanie; dawne rozwinięcie: blokady czytają stan czujników, nie tę listę, wyciszony
+          alarm dalej zatrzymuje, tylko ekran nie mówi dlaczego; wyłączaj to, co umiesz zdiagnozować, zdejmij ciszę przed oddaniem */''}
+    <div class="alarmuje" data-lv="alarmuje"><b>Wyłączenie alarmu gasi KOMUNIKAT, nie OCHRONĘ.</b></div>
     ${ile ? `<div class="ostrzega" data-lv="ostrzega"><b>Wyciszonych pozycji: ${ile}.</b>
       Ustawienie siedzi w pamięci trwałej sterownika i przetrwa zanik zasilania —
       nie wygasa samo.</div>` : ''}
@@ -10738,12 +10771,10 @@ function ekrDiag(){
         : 'brak danych'}</span></div>
     <div class="grupka" data-lv="g">TEST WYJŚĆ — LOGIKA OMINIĘTA</div>
     ${!SRV_S.serw_tryb ? `
-      ${/* krótsza wersja [Tomasz 2026-08-21] — liczy się JEDNA rzecz:
-            co przestaje chronić. Failsafe 8 s to szczegół implementacji,
-            a „do prób przewodów i styczników" mówi już nagłówek sekcji. */''}
-      <div class="ostrzega" data-lv="ostrzega"><b>Automatyka i zabezpieczenia ominięte.</b>
-      Sonda poziomu, czujnik ciśnienia i termik <b>nie chronią</b>, dopóki
-      tryb trwa.</div>
+      ${/* [31.10, Tomasz: „Automatyka i zabezpieczenia ominięte. Sonda poziomu, czujnik ciśnienia i termik nie chronią,
+            dopóki tryb trwa — wykasuj”] ostrzeżenie USUNIĘTE; o ominięciu mówią nagłówek „TEST WYJŚĆ — LOGIKA OMINIĘTA”
+            i przycisk „WŁĄCZAM ŚWIADOMIE”. ⚠ panel LVGL (srv_diag.c) ma jeszcze ten tekst - do przeniesienia razem
+            z resztą zmian serwisu z 31.10 */''}
       <div class="abtn grozny" data-lv="abtn" onclick="probyStart()">WŁĄCZAM ŚWIADOMIE — START PRÓB</div>`
     : `<div class="abtn" data-lv="abtn" onclick="probyStop()">KONIEC PRÓB — WYŁĄCZ TRYB</div>`}
   </div>` + pasek('SERWIS · diagnostyka', 'serwis');

@@ -69,7 +69,7 @@
   const MAPA_KOD_DO = { 1: 'Pompa filtracyjna', 2: 'Zawór głowicy płuczącej', 3: 'Zawór dolewania',
     4: 'Grzanie — styk 1', 5: 'Grzanie — styk 2', 6: 'Lampa UV', 7: 'Masaż wodny 1', 8: 'Masaż wodny 2',
     9: 'Masaż powietrzny 1', 10: 'Masaż powietrzny 2', 11: 'Atrakcja 1', 12: 'Atrakcja 2',
-    13: 'Oświetlenie białe', 14: 'Oświetlenie barwne', 15: 'Zawór trybu cichego' };   /* 15 [D-495, 2026-09-26] */
+    13: 'Oświetlenie', 14: 'Oświetlenie barwne', 15: 'Zawór trybu cichego' };   /* 15 [D-495, 2026-09-26] */
   const MAPA_KOD_DI = { 1: 'Przełącznik w pozycji AUTO', 2: 'Przełącznik w pozycji HAND',
     3: 'Termik pompy filtracyjnej', 4: 'Przycisk masażu 1', 5: 'Przycisk masażu 2', 6: 'Przycisk światła',
     7: 'Roleta zamknięta', 8: 'Termik pompy masażu 1', 9: 'Termik pompy masażu 2',
