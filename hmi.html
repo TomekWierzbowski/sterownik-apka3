@@ -1169,7 +1169,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '0d630a5b95';
+window.APKA_WERSJA = '27aea6dad6';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1668,7 +1668,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-11-04 09:30';
+window.HMI_ZBUDOWANO = '2026-11-04 10:20';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -7963,7 +7963,7 @@ function ekrSerwis(){
           nie panelu - ekran czyta rejestry 3160+/4740+ sam, jak pilot. */''}
     <div class="mrow" data-lv="idz.siec" onclick="siecWejdz()"><span class="t">Sieć<i>Ethernet, WiFi (punkt dostępu i połączenie z siecią), MQTT</i></span>
       <span class="w">${siecSkrot()}</span><span class="ch">›</span></div>
-    ${wierszDrogaApki()}
+    ${/* [04.11] „Łącze aplikacji” przeniesione do Sieć — MQTT [Tomasz: „przenieś do telemetria MQTT”] */''}
     ${wierszWylogujApki()}
     <div class="grupka" data-lv="g">INFORMACJE</div>
     ${/* RAPORT GOTOWOSCI: nie usterki, tylko funkcje spiace po cichu.
@@ -8087,13 +8087,14 @@ function wierszDrogaApki(){
   const D = SRV_CHMURA && window.Paho && window.Paho.droga;
   if (!D) return '';
   const tryb = D.tryb(), mar = tryb === 'mariaz';
-  const opis = !D.quicMozliwy() ? 'ta przeglądarka nie ma WebTransport — QUIC niemożliwy, jedzie sam TLS'
-    : mar ? 'dwa połączenia naraz (QUIC i TLS), wygrywa szybsze — na słaby zasięg i przejścia Wi-Fi ↔ GSM'
-    : tryb === 'kolejno' ? 'tryb próbny z adresu: najpierw QUIC, potem TLS — dotknij, żeby włączyć oba naraz'
-    : 'sam TLS — QUIC wyłączony na tym telefonie';
+  /* [04.11.2026, Tomasz: „Łącze aplikacji QUIC i TLS - tyle, resztę usuń”] sam tytuł; zdanie TYLKO, gdy ptaszek nie może
+     zadziałać (przeglądarka bez WebTransport) albo zmiana się nie zapisała - inaczej ptaszek po cichu nic by nie robił
+     (zasada 10). Bez opisu trybu i bez linii zdrowia dróg (drogaZdrowieTxt - została dla dziennika, wiersz jej nie ma). */
+  const uw = [!D.quicMozliwy() ? 'ta przeglądarka nie ma WebTransport — jedzie sam TLS' : '', SRV_S.drogaUwaga || '']
+               .filter(Boolean).join(' · ');
   return `<div class="mrow ${mar?'wl':''}" onclick="drogaApkiPrzelacz()">
     <span class="ptaszek">${PTASZEK}</span>
-    <span class="t">Łącze aplikacji: QUIC + TLS naraz<i>${opis}${SRV_S.drogaUwaga ? ' · ' + SRV_S.drogaUwaga : ''}</i><i id="drogaZdrowie">${drogaZdrowieTxt()}</i></span></div>`;
+    <span class="t">Łącze aplikacji: QUIC i TLS${uw ? `<i>${uw}</i>` : ''}</span></div>`;
 }
 /* ZDROWIE OBU DRÓG POD WIERSZEM  [Sol S22, 01.10.2026; tekst = szkic do korekty Tomasza]
    WEJŚCIA:  Paho.droga.stan() z nakładki (szczegoly: połączenie, tematy gotowe / czekają / bez dostępu, wiek odbioru).
@@ -9798,6 +9799,9 @@ function ekrSiecMqtt(){
     <div class="grupka" data-lv="g">WSPÓLNE DLA OBU</div>
     ${siecWierszLb(4826, 'Co ile wysyłać', 'najmniej 5 s — częściej nie ma po co', 5, 3600, 's', 0, true)}
     ${siecWierszTxt(4891, 16, 'Początek tematu', 'np. basen — pod nim idą basen/stan i basen/status', true)}
+    ${/* [04.11.2026, Tomasz: „przenieś to ustawienie do telemetria MQTT”] łącze TEGO TELEFONU - tylko w apce (bez
+          data-lv: na szkle panelu ani grupki, ani wiersza) */
+      wierszDrogaApki() ? `<div class="grupka">APLIKACJA</div>${wierszDrogaApki()}` : ''}
     ${siecPrzyciski()}
   </div>` + pasek('SERWIS · sieć — MQTT', 'siec');
 }
