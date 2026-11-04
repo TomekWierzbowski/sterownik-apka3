@@ -14,6 +14,11 @@
                 (2b) ikona także w prawej połówce kafla (poziom); (3b) DRUGA karta - poziom wody [cm]: trend cm/h
                 (przy zamkniętym zaworze = tempo ubytku), linie startu i stopu dolewania, pasy dolewania i płukania;
                 linie i pasy znikają, gdy serwis zdjął funkcję z ruchu (wyłącznik ze sterownika, DUO_FUN).
+ *            [31.10 wieczór, Tomasz: „jeszcze 1 mały wykresik ciśnienie, wędrowanie po wykresach poprzez wybieranie
+ *                zakładki u góry, nie przewijanie w dół”] (2c) ikona przy manometrze (kafel pompy); (3c) TRZECIA karta -
+ *                ciśnienie [bar] (zbierane w tle od 28.09), pas postoju pompy; w „wykresach” ZAKŁADKI u góry
+ *                (Temperatura | Poziom | Ciśnienie) - widać jedną kartę naraz; ciśnienie tylko, gdy czujnik jest w mapie
+ *                I/O i pomiar w ruchu (SERWIS → Funkcje). Ikona w kaflu otwiera wykresy od razu na swojej zakładce.
  *            [28.09, Tomasz: „wykresy umieść między harmonogram a alarmy i zdarzenia”] karta żyje w bloczku
  *                „wykresy” hali (window.WYKRES.osadz, ekranWykresy), ikona prowadzi tam (wykresyOtworz);
  *                okno na wierzchu (otworz) zostaje tylko dla strony bez hali.
@@ -150,12 +155,13 @@
     /* W TLE [B.0z-72]: bez odczytu przy awarii czujnika i przy obejściu (liczba wtedy nic nie znaczy).
        ⚠ „Czujnik niepodłączony” pakiet nie niesie (sterownik: `cisn_brak`, bez alarmu) - takie zera też się zapiszą;
        następna wersja pokaże ptaszek tylko dla czujników, które są, więc potrzebny będzie marker obecności w bloku. */
-    if (typeof d.cis === 'number' && isFinite(d.cis) && !d.awmano && !obej.mano) dopisz(ob, 'cis', m, d.cis, -1, flagi);
+    const cisNowa = (typeof d.cis === 'number' && isFinite(d.cis) && !d.awmano && !obej.mano) ? dopisz(ob, 'cis', m, d.cis, -1, flagi) : false;
+    if (typeof d.jest_cis === 'boolean') jestCis = d.jest_cis;   /* [31.10] zakładka ciśnienia tylko przy czujniku w mapie I/O */
     /* [31.10] poziom: flagi b0 dolewanie (zawór otwarty), b1 płukanie; progi dolewania [mm -> cm] dla linii wykresu */
     const flagiPoz = ((d.poziomStan && d.poziomStan.dolewa) ? 1 : 0) | (d.pluk ? 2 : 0);
     const pp = d.progiPoz;
     if (pp && typeof pp.start === 'number' && typeof pp.stop === 'number') ostatniePoz = { ob, start: pp.start / 10, stop: pp.stop / 10 };
-    const nowe = { temp: false, poz: false };
+    const nowe = { temp: false, poz: false, cis: cisNowa };
     if (typeof d.poziom === 'number' && isFinite(d.poziom) && !d.awsonda && !obej.sonda) nowe.poz = dopisz(ob, 'poz', m, d.poziom, -1, flagiPoz);
     if (typeof d.temp === 'number' && isFinite(d.temp) && !d.awtemp && !d.awtempBrak) {
       ostatnie = { ob, temp: d.temp, zad: typeof d.temp_set === 'number' ? d.temp_set : null, grz, pompa, t: Date.now(),
@@ -278,6 +284,15 @@
     display:grid;place-items:center;cursor:pointer;color:#1e6fd9;box-shadow:0 1px 3px rgba(20,22,26,.12);padding:0;z-index:2}
   .wt-ikona svg{width:18px;height:18px}
   .wt-ikona:active{transform:scale(.94)}
+  /* [31.10 wieczór] ikona przy manometrze: na lewo od tarczy, na dole (manometr nie ma rogu jak połówki kafla temperatury) */
+  .mman{position:relative}
+  .mman .wt-ikona{right:auto;left:-38px;bottom:2px}
+  /* ZAKŁADKI WYKRESÓW [31.10 wieczór, Tomasz: „wędrowanie po wykresach poprzez wybieranie zakładki u góry, nie przewijanie”] */
+  .wt-zakl{display:flex;gap:6px;margin:0 0 10px}
+  .wt-zakl button{flex:1 1 0;min-height:42px;border-radius:10px;border:1px solid #dfe3e8;background:#fff;color:#14161a;
+    font:600 14.5px/1.1 system-ui,sans-serif;cursor:pointer;padding:6px 4px}
+  .wt-zakl button[aria-selected=true]{background:#14161a;border-color:#14161a;color:#fff}
+  .wt-zakl button:focus-visible{outline:2px solid #1e6fd9;outline-offset:2px}
   .wt-tlo{position:fixed;inset:0;z-index:2147483000;background:rgba(14,22,32,.42);display:grid;place-items:center;padding:14px;
     opacity:0;transition:opacity .25s ease;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
   .wt-tlo.widac{opacity:1}
@@ -334,12 +349,16 @@
     if (!polowka || polowka.querySelector('.wt-ikona')) return;
     const b = document.createElement('button'); b.type = 'button'; b.className = 'wt-ikona'; b.setAttribute('aria-label', opis); b.innerHTML = IKONA;
     b.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault();
-      if (typeof window.wykresyOtworz === 'function') { doKarty = sr; window.wykresyOtworz(); } else (sr === 'poz' ? WP : WT).otworz(); });
+      if (typeof window.wykresyOtworz === 'function') { doKarty = sr; window.wykresyOtworz(); } else KARTY[sr].otworz(); });
     polowka.appendChild(b);
   }
   function doloz() {
     ikona(document.querySelector('.tile.temp .th.lewa'), 'temp', 'Wykres temperatury wody');
-    ikona(document.querySelector('.tile.temp .th.prawa'), 'poz', 'Wykres poziomu wody');
+    /* [04.11, D-656] ikona poziomu tylko w połówce Z POZIOMEM (bez sondy prawa połówka niesie samą lampę UV albo jej nie ma) */
+    const prawa = document.querySelector('.tile.temp .th.prawa');
+    if (prawa && prawa.querySelector('[data-lv="poziom.et"]')) ikona(prawa, 'poz', 'Wykres poziomu wody');
+    /* [31.10 wieczór] przy manometrze (kafel pompy, jeden albo dwa tory) - dotknięcie reszty manometru dalej otwiera harmonogram */
+    document.querySelectorAll('.mman').forEach(m => ikona(m, 'cis', 'Wykres ciśnienia'));
   }
   new MutationObserver(doloz).observe(document.documentElement, { childList: true, subtree: true });
   document.addEventListener('DOMContentLoaded', doloz); doloz();
@@ -352,7 +371,7 @@
      na jednej osi: reguła Tomasza z 28.09 („jak wyświetlamy tylko 1 zmienną - dobrze”) zostaje na każdej karcie.
      R = opis wielkości: seria zapisu, jednostka, dzielnik (poziom: zapis w mm, oś w cm), pasy z flag próbki
      (bit 0 / bit 1 - znaczenie zależy od serii, patrz SERIE w [1]), opisy. */
-  const KROKI_T = [0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 5], KROKI_P = [0.5, 1, 2, 2.5, 5, 10, 20, 50];
+  const KROKI_T = [0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 5], KROKI_P = [0.5, 1, 2, 2.5, 5, 10, 20, 50], KROKI_C = [0.02, 0.05, 0.1, 0.2, 0.25, 0.5, 1, 2];
   const ZAK = { '1h': { dl: GODZ, kub: 1 }, '24h': { dl: DOBA, kub: 5 }, '7d': { dl: 7 * DOBA, kub: 30 } };
   const fmt = (v, m = 1) => v.toLocaleString('pl-PL', { minimumFractionDigits: m, maximumFractionDigits: m });
   const hhmm = (t) => { const d = new Date(t); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
@@ -366,6 +385,8 @@
             kroki: KROKI_T, zapasMin: 0.12, pusteY: [26, 29], kluczZakresu: 'zakres', prognoza: true,
             /* pas A = grzanie (bit 0), pas B (kreskowany) = pompa stoi (bit 1 = pompa PRACUJE) */
             pasA: (p) => p.a, pasB: (p) => !p.b, kolorA: K.cieplo,
+            /* [31.10] zachowanie karty zamiast `R.seria === 'temp'` w rysowaniu: które pasy rysować, miejsca po przecinku, trend */
+            pasAWl: () => true, pasBWl: () => true, miejscOs: 1, miejscTrend: 2, trendSkala: 120, trendRosnie: true,
             znaczki: (p) => (p.a ? '<span class="wt-znacz c">grzanie</span>' : '<span class="wt-znacz">bez grzania</span>') + '<span class="wt-znacz">' + (p.b ? 'pompa pracuje' : 'pompa stoi') + '</span>',
             legenda: () => '<span><i style="background:linear-gradient(180deg,rgba(30,111,217,.9),rgba(18,162,181,.25))"></i>temperatura</span><span>' + LEG_ZADANA + 'zadana</span>' +
               '<span><i style="background:rgba(224,112,31,.22);border-bottom:3px solid #e0701f"></i>grzanie</span><span>' + LEG_SZRAF + 'pompa stoi</span>',
@@ -374,13 +395,24 @@
             kroki: KROKI_P, zapasMin: 0.5, pusteY: [20, 40], kluczZakresu: 'zakres_poz', prognoza: false,
             /* pas A = dolewanie (bit 0, zawór otwarty), pas B (kreskowany) = płukanie filtra (bit 1) */
             pasA: (p) => p.a, pasB: (p) => p.b, kolorA: K.turk,
+            pasAWl: () => funOn('dol'), pasBWl: () => funOn('pluk'), miejscOs: 0, miejscTrend: 1, trendSkala: 12, trendRosnie: false,
             znaczki: (p) => (p.a ? '<span class="wt-znacz d">dolewa</span>' : '') + (p.b ? '<span class="wt-znacz">płukanie</span>' : ''),
             legenda: () => '<span><i style="background:linear-gradient(180deg,rgba(30,111,217,.9),rgba(18,162,181,.25))"></i>poziom</span>' +
               (funOn('dol') ? '<span>' + LEG_ZADANA + 'start i stop dolewania</span><span><i style="background:rgba(18,162,181,.22);border-bottom:3px solid #12a2b5"></i>dolewanie</span>' : '') +
               (funOn('pluk') ? '<span>' + LEG_SZRAF + 'płukanie filtra</span>' : ''),
-            statA: 'dolewanie łącznie', kolorStatA: '#12a2b5' }
+            statA: 'dolewanie łącznie', kolorStatA: '#12a2b5' },
+    /* [31.10 wieczór] CIŚNIENIE [bar]: flagi próbki jak temperatura (b1 = pompa pracuje) - pas kreskowany = postój pompy;
+       bez pasa A, czwarte pole = zmiana w zakresie; oś od zera w dół nie schodzi (minY). */
+    cis:  { seria: 'cis', dziel: 1, jedn: 'bar', st: '<small> bar</small>', os: 'CIŚNIENIE [bar]', nazwa: 'Ciśnienie', miejscDymek: 2, miejscStat: 2,
+            kroki: KROKI_C, zapasMin: 0.05, pusteY: [0, 1], minY: 0, kluczZakresu: 'zakres_cis', prognoza: false,
+            pasA: () => false, pasB: (p) => !p.b, kolorA: K.woda,
+            pasAWl: () => false, pasBWl: () => true, miejscOs: 1, miejscTrend: 2, trendSkala: 300, trendRosnie: false,
+            znaczki: (p) => '<span class="wt-znacz">' + (p.b ? 'pompa pracuje' : 'pompa stoi') + '</span>',
+            legenda: () => '<span><i style="background:linear-gradient(180deg,rgba(30,111,217,.9),rgba(18,162,181,.25))"></i>ciśnienie</span><span>' + LEG_SZRAF + 'pompa stoi</span>',
+            statA: 'zmiana w zakresie', kolorStatA: '' }
   };
   let ostatniePoz = null;                                      /* progi dolewania obiegu z ostatniego pakietu [cm] */
+  let jestCis = null;                                          /* [31.10] czujnik ciśnienia w mapie I/O (null = jeszcze nie wiadomo) */
   const INST = [];
 
   function Instancja(R) {
@@ -396,7 +428,7 @@
       if (R.seria === 'temp') {
         const zad = ostatnie && ostatnie.ob === ob && ostatnie.zad !== null ? ostatnie.zad : (surowe.length ? surowe[surowe.length - 1].zad : null);
         if (zad !== null) linie = [zad];
-      } else if (ostatniePoz && ostatniePoz.ob === ob && funOn('dol')) linie = [ostatniePoz.start, ostatniePoz.stop].filter(v => typeof v === 'number' && isFinite(v));
+      } else if (R.seria === 'poz' && ostatniePoz && ostatniePoz.ob === ob && funOn('dol')) linie = [ostatniePoz.start, ostatniePoz.stop].filter(v => typeof v === 'number' && isFinite(v));
       const zad = R.seria === 'temp' && linie.length ? linie[0] : null;
       const kub = cfg.kub * MIN, punkty = [];
       let i = 0;
@@ -433,6 +465,7 @@
       const zapas = Math.max(R.zapasMin, (ymax - ymin) * 0.12); ymin -= zapas; ymax += zapas;
       const krokY = R.kroki.find(k => (ymax - ymin) / k <= 6) || R.kroki[R.kroki.length - 1];
       ymin = Math.floor(ymin / krokY) * krokY; ymax = Math.ceil(ymax / krokY) * krokY;
+      if (typeof R.minY === 'number' && ymin < R.minY) ymin = R.minY;        /* [31.10] ciśnienie: bez ujemnej osi */
       let s = 0, aMin = 0; surowe.forEach(p => { s += p.v; if (p.a) aMin++; });
       return { z, t0, t1, teraz, ymin, ymax, krokY, surowe, odcinki, zad, linie, nach, prognoza, ost: surowe[surowe.length - 1] || null,
         pasA: przedz(R.pasA), pasB: przedz(R.pasB),
@@ -443,7 +476,7 @@
     let otwarte = null, widok = null, W = 0, H = 0, DPR = 1, pole = null, cv, cx, ov, ox, kursor = null, anim = null;
     /* WARSTWY TYLKO PRZY JEDNEJ SERII [Tomasz 28.09: „kreskowana zadana też za dużo może być - jak wyświetlamy tylko
        1 zmienną [dobrze], jak pojawi się więcej, zrobi bałagan”]: linia zadanej i prognoza (strefa + kropkowana linia)
-       rysują się wyłącznie, gdy na wykresie jest JEDNA wielkość. Każda karta ma jedną (31.10: temperatura, poziom). */
+       rysują się wyłącznie, gdy na wykresie jest JEDNA wielkość. Każda karta ma jedną (31.10: temperatura, poziom, ciśnienie). */
     const liczbaSerii = 1;
     const X = (w, t) => pole.l + (t - w.t0) / (w.t1 - w.t0) * (pole.r - pole.l);
     const Y = (w, v) => pole.d - (v - w.ymin) / (w.ymax - w.ymin) * (pole.d - pole.g);
@@ -464,15 +497,15 @@
       ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.clearRect(0, 0, W, H);
       ctx.font = '500 12px system-ui, sans-serif';
       /* pas B (kreskowany): temperatura - postój pompy; poziom - płukanie (gdy funkcja w ruchu) */
-      if (R.seria === 'temp' || funOn('pluk')) { ctx.fillStyle = szraf(ctx); w.pasB.forEach(([a, b]) => ctx.fillRect(X(w, a), pole.g, Math.max(1, X(w, b) - X(w, a)), pole.d - pole.g)); }
+      if (R.pasBWl()) { ctx.fillStyle = szraf(ctx); w.pasB.forEach(([a, b]) => ctx.fillRect(X(w, a), pole.g, Math.max(1, X(w, b) - X(w, a)), pole.d - pole.g)); }
       /* pas A (barwny, z kreską przy osi): temperatura - grzanie; poziom - dolewanie (gdy funkcja w ruchu) */
-      if (R.seria === 'temp' || funOn('dol')) w.pasA.forEach(([a, b]) => { const x = X(w, a), s = Math.max(1, X(w, b) - x); ctx.fillStyle = 'rgba(' + R.kolorA + ',.045)'; ctx.fillRect(x, pole.g, s, pole.d - pole.g);
+      if (R.pasAWl()) w.pasA.forEach(([a, b]) => { const x = X(w, a), s = Math.max(1, X(w, b) - x); ctx.fillStyle = 'rgba(' + R.kolorA + ',.045)'; ctx.fillRect(x, pole.g, s, pole.d - pole.g);
         ctx.fillStyle = 'rgba(' + R.kolorA + ',.85)'; ctx.fillRect(x, pole.d - 3, s, 3); });
       /* OŚ Y [Tomasz 28.09: „po lewej liczby na osi Y zleją się z innymi danymi - tylko info, co jest na Y, i punkt 0
          i max”]: linie siatki zostają (oko czyta z nich zmianę), liczby TYLKO na dole i na górze skali, nad osią opis
          wielkości. Dół skali = najniższa wartość z zapasem (od zera krzywa byłaby płaska kreską) - także poziom:
          zmiany o centymetry na zakresie sondy 0-100 cm byłyby niewidoczne. */
-      const miejsc = Math.abs(w.krokY * 10 - Math.round(w.krokY * 10)) > 1e-9 ? 2 : (Math.abs(w.krokY - Math.round(w.krokY)) > 1e-9 ? 1 : (R.seria === 'temp' ? 1 : 0));
+      const miejsc = Math.abs(w.krokY * 10 - Math.round(w.krokY * 10)) > 1e-9 ? 2 : (Math.abs(w.krokY - Math.round(w.krokY)) > 1e-9 ? 1 : R.miejscOs);
       for (let v = w.ymin; v <= w.ymax + 1e-9; v += w.krokY) { const y = Math.round(Y(w, v)) + .5; ctx.strokeStyle = K.siatka; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(pole.l, y); ctx.lineTo(pole.r, y); ctx.stroke(); }
       ctx.textAlign = 'right'; ctx.fillStyle = K.ink3; ctx.font = '500 12px system-ui, sans-serif';
@@ -564,19 +597,21 @@
       q('.wt-brew').textContent = tytul(otwarte.ob);        // nazwy obiegów przychodzą ze sterownika - co pakiet
       const tr = q('.wt-trend');
       /* trend: temperatura °C/h (pomarańczowy, gdy rośnie); poziom cm/h - przy zamkniętym zaworze to tempo ubytku */
-      if (w.nach === null) { tr.hidden = true; } else { tr.hidden = false; tr.classList.toggle('rosnie', R.seria === 'temp' && w.nach > 0.05);
-        tr.querySelector('b').textContent = (w.nach >= 0 ? '+' : '−') + fmt(Math.abs(w.nach), R.seria === 'temp' ? 2 : 1) + ' ' + R.jedn + '/h';
-        tr.querySelector('svg').style.transform = 'rotate(' + Math.max(-45, Math.min(45, -w.nach * (R.seria === 'temp' ? 120 : 12))) + 'deg)'; }
+      if (w.nach === null) { tr.hidden = true; } else { tr.hidden = false; tr.classList.toggle('rosnie', R.trendRosnie && w.nach > 0.05);
+        /* [31.10] zero po zaokrągleniu bez znaku - było „−0,00 bar/h” */
+        const zn = (v, m) => Number(Math.abs(v).toFixed(m)) === 0 ? '' : (v >= 0 ? '+' : '−');
+        tr.querySelector('b').textContent = zn(w.nach, R.miejscTrend) + fmt(Math.abs(w.nach), R.miejscTrend) + ' ' + R.jedn + '/h';
+        tr.querySelector('svg').style.transform = 'rotate(' + Math.max(-45, Math.min(45, -w.nach * R.trendSkala)) + 'deg)'; }
       const cz = (m) => { const h = Math.floor(m / 60), mm = Math.round(m % 60); return (h ? h + ' h ' : '') + mm + ' min'; };
       q('.wt-prog').innerHTML = w.prognoza ? 'Zadana ok. <b>' + hhmm(w.prognoza.t) + '</b> · za ' + cz(w.prognoza.min) + ' przy obecnym tempie' : (w.nach === null ? 'Trend po 20 min danych' : '');
       const st = w.stat, j = R.st;                          /* R.st = stały znacznik jednostki (°, <small>cm</small>) - nie dane */
       q('.wt-s-min').innerHTML = st ? fmt(st.min, R.miejscStat) + j : '–'; q('.wt-s-max').innerHTML = st ? fmt(st.max, R.miejscStat) + j : '–'; q('.wt-s-sr').innerHTML = st ? fmt(st.sr, R.miejscStat) + j : '–';
       /* czwarte pole: czas pasa A (grzanie / dolewanie); poziom bez dolewania w ruchu - zmiana w zakresie */
-      const aJest = R.seria === 'temp' || funOn('dol');
+      const aJest = R.pasAWl();
       q('.wt-s-a-op').textContent = aJest ? R.statA : 'zmiana w zakresie';
       q('.wt-s-a').style.color = aJest ? R.kolorStatA : '';
       q('.wt-s-a').innerHTML = !st ? '–' : aJest ? Math.floor(st.aMin / 60) + ':' + String(st.aMin % 60).padStart(2, '0') + ' h'
-                                                  : (st.zmiana >= 0 ? '+' : '−') + fmt(Math.abs(st.zmiana), R.miejscStat) + j;
+                                                  : (Number(Math.abs(st.zmiana).toFixed(R.miejscStat)) === 0 ? '' : (st.zmiana >= 0 ? '+' : '−')) + fmt(Math.abs(st.zmiana), R.miejscStat) + j;
       const leg = q('.wt-leg'), lh = R.legenda(); if (leg.innerHTML !== lh) leg.innerHTML = lh;   /* wyłącznik funkcji z sterownika - co pakiet */
       const p = seria(otwarte.ob, R.seria), u = uszkodzone[klucz(otwarte.ob, R.seria)];   /* [Astra 14] uszkodzony zapis - jawnie, nie jako zera */
       q('.wt-stopka').textContent = (p.length ? (hist.ma ? 'Na wykresie od ' : 'Historia z tego telefonu od ') + dzien(p[0][0] * MIN) + ' ' + hhmm(p[0][0] * MIN) + ' (' + p.length + ' próbek co minutę, 7 dni).' : '')
@@ -678,24 +713,33 @@
     INST.push(api);
     return api;
   }
-  const WT = Instancja(RODZ.temp), WP = Instancja(RODZ.poz);
+  const WT = Instancja(RODZ.temp), WP = Instancja(RODZ.poz), WC = Instancja(RODZ.cis);
+  const KARTY = { temp: WT, poz: WP, cis: WC };
 
+  const ZAKL = [['temp', 'Temperatura'], ['poz', 'Poziom'], ['cis', 'Ciśnienie']];
+  let zakladka = 'temp'; try { const z = localStorage.getItem(PREF + 'zakladka'); if (KARTY[z]) zakladka = z; } catch (e) {}
   window.WYKRES = {
     _dekoduj: dekoduj,                                       /* [Astra 14] tylko dla testu offline (_test_dekoder14.html) */
-    /* bloczek „wykresy” hali: karty jedna pod drugą - temperatura, poziom (kolejność = kolejność appendChild) */
+    /* bloczek „wykresy” hali: ZAKŁADKI u góry + jedna karta [31.10 wieczór, Tomasz: „wędrowanie po wykresach poprzez wybieranie
+       zakładki u góry, nie przewijanie w dół”] (dawniej karty jedna pod drugą). Wybór pamięta telefon; ikona w kaflu wybiera
+       swoją zakładkę (doKarty). Ciśnienie tylko przy czujniku w mapie I/O i pomiarze w ruchu - inaczej zakładki nie ma.
+       Hala przebudowuje ramkę przy każdej paczce - pasek zakładek powstaje od nowa, karta jest PRZENOSZONA (osadz instancji). */
     osadz(kont, ob) {
       ob = typeof ob === 'number' ? ob : (ostatnie ? ostatnie.ob : 0);
-      WT.osadz(kont, ob); const kp = WP.osadz(kont, ob);
-      /* z ikony poziomu: przewinąć NAJBLIŻSZĄ przewijaną ramkę (hala: .wkwidok) - scrollIntoView ruszał też całą stronę.
-         Hala zapamiętuje przewinięcie ramek po klasie (_przewZapisz / _przewWroc), więc odświeżenie go nie zgubi. */
-      if (doKarty === 'poz') requestAnimationFrame(() => {
-        for (let r = kp.parentNode; r && r !== document.body; r = r.parentNode) {
-          const s = getComputedStyle(r).overflowY;
-          if ((s === 'auto' || s === 'scroll') && r.scrollHeight > r.clientHeight) {
-            r.scrollTop += kp.getBoundingClientRect().top - r.getBoundingClientRect().top - 8; break; }
-        }
-      });
+      if (doKarty && KARTY[doKarty]) { zakladka = doKarty; try { localStorage.setItem(PREF + 'zakladka', zakladka); } catch (e) {} }
       doKarty = null;
+      /* [04.11, D-656] zakładka Poziom tylko przy sondzie w użyciu (świat: jest_poz) - jak panel Tab5 */
+      const dost = ZAKL.filter(([sr]) => (sr !== 'cis' || (funOn('cisn') && jestCis !== false)) && (sr !== 'poz' || window.DUO_JEST_POZ !== false));
+      if (!dost.some(([sr]) => sr === zakladka)) zakladka = 'temp';
+      const pas = document.createElement('div'); pas.className = 'wt-zakl'; pas.setAttribute('role', 'tablist'); pas.setAttribute('aria-label', 'Wykresy');
+      pas.innerHTML = dost.map(([sr, n]) => '<button type="button" role="tab" data-sr="' + sr + '" aria-selected="' + (sr === zakladka) + '">' + n + '</button>').join('');
+      pas.addEventListener('click', (e) => {
+        const b = e.target.closest('button'); if (!b || b.dataset.sr === zakladka) return;
+        zakladka = b.dataset.sr; try { localStorage.setItem(PREF + 'zakladka', zakladka); } catch (e2) {}
+        kont.innerHTML = ''; window.WYKRES.osadz(kont, ob);
+      });
+      kont.appendChild(pas);
+      KARTY[zakladka].osadz(kont, ob);
     }
   };
 })();

@@ -1,5 +1,5 @@
 <meta charset="utf-8">
-<title>TEST3 · MQTT 5 · Sterownik basenowy</title>
+<title>Aquareact</title>
 <!-- PLIK GENEROWANY przez zbuduj_hmi.py - NIE edytowac recznie!
      Zrodla: panel4_hala.html (ekrany uzytkownika)
            + panel4_serwis.html (ekrany serwisowe)
@@ -1169,7 +1169,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '230d9f5129';
+window.APKA_WERSJA = '51b4b92bc9';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1388,7 +1388,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
         <tr><td><span class="t">Czujnik chloru</span><span class="d">pomiar niewiarygodny — kontrola chloru według redox</span></td>
             <td class="c"><input type="checkbox" id="c_achlor_b"></td>
             <td class="c"><input type="checkbox" id="c_achlor_w"></td></tr>
-        <tr><td><span class="t">Przetwornik ciśnienia — manometr</span><span class="d">pomiar niedostępny — funkcje zabezpieczeń niskiego i wysokiego ciśnienia wyłączone</span></td>
+        <tr><td><span class="t">Uszkodzona sonda ciśnienia</span><span class="d">pomiar niedostępny — funkcje zabezpieczeń niskiego i wysokiego ciśnienia wyłączone</span></td>
             <td class="c"><input type="checkbox" id="c_amano_b"></td>
             <td class="c"><input type="checkbox" id="c_amano_w"></td></tr>
         <tr><td><span class="t">Sonda poziomu</span><span class="d">funkcje dolewania, suchobiegu i płukanie filtra zablokowane</span></td>
@@ -1399,10 +1399,10 @@ if ('serviceWorker' in navigator) { var _odsw = false;
       <h3 class="grp">SYMULACJA — ALARMY DOZOWANIA</h3>
       <div class="ctabw"><table class="ctab">
         <tr><th>dozowanie chemii</th><th class="c">OBIEG 1</th><th class="c">OBIEG 2</th></tr>
-        <tr><td><span class="t">Dozowanie pH — przekroczony czas</span><span class="d">dozowanie wstrzymane — kwitowanie przyciskiem KONTYNUUJ DOZOWANIE</span></td>
+        <tr><td><span class="t">Dozowanie pH — przekroczony czas</span><span class="d">dozowanie wstrzymane — kwitowanie przyciskiem WZNÓW DOZOWANIE</span></td>
             <td class="c"><input type="checkbox" id="c_dozph_b"></td>
             <td class="c"><input type="checkbox" id="c_dozph_w"></td></tr>
-        <tr><td><span class="t">Dozowanie chloru — przekroczony czas</span><span class="d">dozowanie wstrzymane — kwitowanie przyciskiem KONTYNUUJ DOZOWANIE</span></td>
+        <tr><td><span class="t">Dozowanie chloru — przekroczony czas</span><span class="d">dozowanie wstrzymane — kwitowanie przyciskiem WZNÓW DOZOWANIE</span></td>
             <td class="c"><input type="checkbox" id="c_dozcl_b"></td>
             <td class="c"><input type="checkbox" id="c_dozcl_w"></td></tr>
         <tr><td><span class="t">Zużycie chemii pH powyżej normy</span><span class="d">info z wag beczek — dobowe zużycie ponad normę kroczącą</span></td>
@@ -1668,7 +1668,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-10-31 22:50';
+window.HMI_ZBUDOWANO = '2026-11-04 05:18';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -1798,6 +1798,13 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
      stan niesie POŁOŻENIE IGŁY (i jej kolor po wejściu w czerwone). */
   const _cisProgi = () => window.DUO_PROGI_CIS ||
         {min:0.10, ostrz:0.75, kryt:0.85};
+  /* PROGI DO TREŚCI ALARMU [04.11, Tomasz: „z liczbami, te same zdania”] - pod sterownikiem tylko, gdy blok nastaw
+     opisuje ten obieg (`znane`, jak panel: MB_NAST_OBIEG); inaczej null = zdanie bez liczby. Makieta sama = demo. */
+  const _cisProgiAlarm = () => {
+    const p = window.DUO_PROGI_CIS;
+    if (!POD_STER || !p) return {min:0.10, czas:10, ostrz:0.75, kryt:0.85};
+    return p.znane && p.czas != null ? p : null;
+  };
   /* skala: od „czystego złoża" (połowa drogi do ostrzeżenia) do ciut ponad
      próg ostrzeżenia, żeby czerwone było realnym wycinkiem tarczy */
   const CIS_CZYSTE_F = () => _cisProgi().ostrz * 0.47;
@@ -2089,15 +2096,15 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
     ['chlor', 'Chlor powyżej zakresu',         'pomiar 1,42 mg/l — zakres 0,3–0,6 mg/l', 1],
     ['przep', 'Przepływ przez celę zbyt niski','pomiar 12 l/h — minimum 30 l/h']];
   /* AWARIE CZUJNIKOW [Tomasz 2026-08-09]: kazda z konsekwencja dla logiki */
+  /* [04.11, Tomasz: „wszystkie mają być takie same”] tytuły i zdania = panel (hmi_teksty.h B1-B6) */
   const AL_CZUJ = [
-    ['atemp', 'Awaria czujnika temperatury',        'Brak poprawnego odczytu — grzanie wstrzymane'],
-    ['aph',   'Awaria czujnika pH',                 'Pomiar niewiarygodny — dozowanie pH wstrzymane'],
-    ['aredox','Awaria czujnika redox',              'Pomiar niewiarygodny — dozowanie chloru wstrzymane'],
-    ['achlor','Awaria czujnika chloru',             'Pomiar niewiarygodny — kontrola chloru według redox'],
-    ['amano', 'Przetwornik ciśnienia — manometr',    'Pomiar niedostępny — funkcje zabezpieczeń niskiego '+
-                                                     'i wysokiego ciśnienia wyłączone'],
-    ['asonda','Awaria sondy poziomu',
-      'Funkcje dolewania, suchobiegu i płukanie filtra zablokowane']];
+    ['atemp', 'Awaria czujnika temperatury',        'Grzanie wyłączone — sprawdź czujnik i przewód'],
+    ['aph',   'Uszkodzona sonda pH',                'Dozowanie pH wstrzymane — sprawdź elektrodę i przewód'],
+    ['aredox','Uszkodzona sonda redox',             'Dozowanie chloru wstrzymane — sprawdź elektrodę i przewód'],
+    ['achlor','Uszkodzona sonda chloru',            'Dozowanie chloru wstrzymane — sprawdź celę pomiarową'],
+    ['amano', 'Uszkodzona sonda ciśnienia',         'Funkcje zabezpieczeń niskiego i wysokiego ciśnienia wyłączone'],
+    ['asonda','Uszkodzona sonda poziomu wody',
+      'Dolewanie, ochrona przed suchobiegiem i płukanie zablokowane']];
   /* „POMPA TEŻ ZATRZYMANA” PRZY USZKODZONYM CZUJNIKU [D-503, Tomasz 2026-09-28; zasada 10]
      WEJŚCIA:  window.DUO_REAKCJA ({sonda, cisn}: 0 pompa pracuje dalej, 1 zatrzymanie) ze świata
                sterownika - nastawy 4520+3 i 4600+5 obiegu DUO_REAKCJA_OB.
@@ -2107,7 +2114,8 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
                Bez sterownika (makieta sama) - cisza: dopisek wypisany na ślepo byłby fałszywy.
      WYJŚCIA:  dopisek do treści alarmu albo ''. */
   const POMPA_STOP_TXT = {
-    asonda: 'Pompa filtracyjna też zatrzymana — tak ustawiono reakcję na uszkodzenie sondy w menu serwisowym „Dolewanie” (przy wyłączonym dolewaniu: „Sonda poziomu”)',
+    /* [04.11, D-656] sonda jest tylko przy dolewaniu - reakcja w menu „Dolewanie” (te same słowa co panel) */
+    asonda: 'Pompa filtracyjna też zatrzymana — tak ustawiono reakcję na uszkodzenie sondy w menu serwisowym „Dolewanie”',
     amano:  'Pompa filtracyjna też zatrzymana — tak ustawiono reakcję na uszkodzenie czujnika w menu serwisowym „pomiar ciśnienia”'};
   const pompaStoiDopisek = (k, suf) => {
     const r = window.DUO_REAKCJA;
@@ -2117,12 +2125,12 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
   };
   /* DOZOWANIE: przekroczony czas WSTRZYMUJE dozowanie -> kwitowanie przyciskiem */
   const AL_DOZ = [
-    ['dozph', 'Dozowanie pH — przekroczony czas',    'Dozowanie wstrzymane. Sprawdź zapas chemii i pompkę'],
-    ['dozcl', 'Dozowanie chloru — przekroczony czas','Dozowanie wstrzymane. Sprawdź zapas chemii i pompkę']];
+    ['dozph', 'Dozowanie pH — przekroczony czas',    'Pompka zatrzymana — sprawdź zapas w beczce i wężyki'],
+    ['dozcl', 'Dozowanie chloru — przekroczony czas','Pompka zatrzymana — sprawdź zapas w beczce i wężyki']];
   /* PREDYKCYJNE: lead serwisowy - nic nie blokuja, tylko zapowiadaja */
   const AL_PRED = [
-    ['eph',   'Elektroda pH zużywa się',    'Przewidywana wymiana za ~3 tygodnie — umów serwis'],
-    ['eredox','Elektroda redox zużywa się', 'Przewidywana wymiana za ~5 tygodni — umów serwis']];
+    ['eph',   'Elektroda pH zużywa się',    'Przewidywana wymiana za ok. 3 tygodnie — umów serwis'],
+    ['eredox','Elektroda redox zużywa się', 'Przewidywana wymiana za ok. 5 tygodni — umów serwis']];
   /* INNE STANY [Tomasz 2026-08-09]: poziom za wysoki + nadmierne zuzycie chemii */
   const AL_INNE = [
     ['poziom','Zbyt wysoki poziom wody',
@@ -2135,6 +2143,14 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
        ten sam tekst co w serwisie, żeby liczby dało się porównać */
     ['zuzwoda','Zużycie wody powyżej limitu',
       'Ostatnie 24 h: 380 l — limit 150 l. Możliwy wyciek albo ubytek']];
+  /* LICZBY ZE STEROWNIKA W TREŚCI [04.11, Tomasz: „z liczbami, te same zdania”] - jak panel (hmi_modbus.c tresc_liczby):
+     zużycie wody = bilans 24 h (p[11], to sterownik porównuje z limitem 4520+10) i limit z bloku nastaw TEGO obiegu;
+     limitu nie znamy -> zdanie bez niego. Makieta sama (bez sterownika) - liczby demo z listy. */
+  const treZLiczbami = (k, suf, tre) => {
+    const w24 = window.DUO_WODA24;
+    if (k !== 'zuzwoda' || !POD_STER || !w24 || w24.par == null || (suf === '_b' ? 0 : 1) !== w24.ob) return tre;
+    return 'Ostatnie 24 h: ' + w24.par + ' l' + (w24.limit ? ' — limit ' + w24.limit + ' l' : '') + '. Możliwy wyciek albo ubytek';
+  };
   /* HAND zamiast MANUAL [Tomasz]: krotsze, miesci sie obok tarczy,
      a na fizycznych HOA i tak pisza HAND-OFF-AUTO */
   const napisTryb = tr => tr==='manual' ? 'HAND' : tr.toUpperCase();
@@ -2466,7 +2482,10 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
     TRM_OPIS.forEach(x => { if (trmSel() === x[0])
       /* src z nazwy przeznaczenia obiegu (Sadzawka/Swimmspa...), nie ze
          stalej 'BASEN'/'WANNA' listy [2026-09-03] */
-      w.push({tyt:'Zabezpieczenie termiczne!', tre:'Sprawdź '+x[2],
+      /* [04.11] filtracja = panel F1: „Alarm zgaśnie sam…” [D-70]; pod sterownikiem termik jest jeden na obieg (bez numeru) */
+      w.push({tyt:'Zabezpieczenie termiczne!', tre: /^pompę filtracji/.test(x[2])
+                ? 'Sprawdź ' + (POD_STER ? 'pompę filtracji' : x[2]) + '. Alarm zgaśnie sam ok. 10 s po powrocie termika'
+                : 'Sprawdź '+x[2],
               src:nazwaObiegDuze(x[0].startsWith('trm_w') ? 1 : 0), cz:kiedy(x[0])});
       else delete ALARM_KIEDY[x[0]]; });
     /* TERMIK KANALU AKCESORIOW ZE STEROWNIKA [D-205, Tomasz 2026-09-04:
@@ -2538,6 +2557,23 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
               tre:'Program sterownika nie oddał pętli głównej pod psa zadań — gdyby się zawiesił, sterownik nie zrestartuje się sam. Sterowanie pracuje dalej. Wgraj oprogramowanie ponownie; jeśli alarm wraca po restarcie — wezwij serwis',
               src:srcObiekt(), cz:kiedy('c_pies_petli')});
     else delete ALARM_KIEDY['c_pies_petli'];
+    /* [04.11] BITY 22, 23, 33 - przychodziły w świecie (awI2C, awFazy) albo w masce, a lista ich NIE MIAŁA: zanik fazy
+       zatrzymuje pompę, a aplikacja milczała (zasada 10). Teksty = panel (hmi_teksty.h G8, F3, G9). */
+    if (S.awI2C)
+      w.push({tyt:'Błąd magistrali wyjść',
+              tre:'Moduł nie potwierdza zapisu wyjść (PCF8575). Stan przekaźników może nie odpowiadać temu, co pokazuje ekran — wezwij serwis',
+              src:srcObiekt(), cz:kiedy('c_i2c')});
+    else delete ALARM_KIEDY['c_i2c'];
+    if (S.awFazy)
+      w.push({tyt:'Zanik fazy — pompa zatrzymana',
+              tre:'Przekaźnik nadzorczy 3F zgłasza brak fazy albo złą kolejność. Pompa stoi do czasu powrotu zasilania — sprawdź bezpieczniki i zasilanie',
+              src:srcObiekt(), cz:kiedy('c_fazy')});
+    else delete ALARM_KIEDY['c_fazy'];
+    if (S.awPanelBrak)
+      w.push({tyt:'Brak łączności z panelem (magistrala)',
+              tre:'Sterownik przez kilkanaście sekund nie mógł się dogadać z panelem po RS485 — sprawdź kabel magistrali, wtyki i zasilanie panelu. Sterowanie pracowało normalnie przez cały ten czas; zdarzenie zapisał sterownik, bo panel przy zerwanym kablu nie ma jak nic zapisać',
+              src:srcObiekt(), cz:kiedy('c_panel_brak')});
+    else delete ALARM_KIEDY['c_panel_brak'];
     if (S.awTempBrak)
       w.push({tyt:'Czujnik temperatury niewykryty',
               tre:'Na magistrali 1-Wire nigdy go nie było — podłącz czujnik '+
@@ -2545,7 +2581,7 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
               src:nazwaObiegDuze(S.ob), cz:kiedy('tempbrak')});
     else delete ALARM_KIEDY['tempbrak'];
     if (S.awRtc)
-      w.push({tyt:'Zegar stracił zasilanie — wymień baterię',
+      w.push({tyt:'Bateria zegara RTC',   /* [04.11] tytuł = panel G6 */
               tre:'Zegar stracił podtrzymanie — wymień baterię (CR2032) '+
                   'i ustaw datę',
               /* bez `id`: wpisy z id kwituje sie przez el(id).checked, a ptaszka
@@ -2578,14 +2614,14 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
       .forEach(([suf,src])=>{
       PAR_AL.concat(AL_CZUJ).concat(AL_PRED).concat(AL_INNE).forEach(([k,tyt,tre,ostrz])=>{
         const id = 'c_'+k+suf;
-        if (el(id).checked) w.push({tyt, tre: tre + pompaStoiDopisek(k, suf), src, cz:kiedy(id), ostrz:!!ostrz, id});
+        if (el(id).checked) w.push({tyt, tre: treZLiczbami(k, suf, tre) + pompaStoiDopisek(k, suf), src, cz:kiedy(id), ostrz:!!ostrz, id});
         else { delete ALARM_KIEDY[id]; SKASOWANE.delete(id); }
       });
       /* dozowanie wstrzymane = alarm z przyciskiem kwitowania */
       AL_DOZ.forEach(([k,tyt,tre])=>{
         const id = 'c_'+k+suf;
         if (el(id).checked) w.push({tyt, tre, src, cz:kiedy(id),
-                                    akcja:{id, txt:'KONTYNUUJ DOZOWANIE'}});
+                                    akcja:{id, txt:'WZNÓW DOZOWANIE'}});   /* [04.11] przycisk = panel (C1/C2) */
         else delete ALARM_KIEDY[id];
       });
       /* GLOWICA NIE WROCILA [Tomasz 2026-08-09] - odwrotnosc c_glow.
@@ -2594,8 +2630,9 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
          Komunikat niesie LICZBY, bo one mowia o skali. */
       { const id = 'c_glow2'+suf;
         if (el(id).checked) w.push({tyt:'Ubytek wody po płukaniu',
+            /* [04.11] bez „ubyło 770 l” - liczba była zaszyta, sterownik jej nie podaje; zdanie = panel (E11) */
             tre:'Zaobserwowano ubytek wody po procesie płukania filtra — '+
-                'ubyło 770 l wody, dolewanie wstrzymane, pompa filtracyjna zatrzymana',
+                'dolewanie wstrzymane, pompa filtracyjna zatrzymana',
             src, cz:kiedy(id), akcja:{id, txt:'URUCHOM POMPĘ I DOLEWANIE'}});
         else delete ALARM_KIEDY[id]; }
       /* ⛔ "Płukanie nie powiodło się" USUNIETE [D-33 + Tomasz 2026-08-10]:
@@ -2613,10 +2650,9 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
          po powrocie poziomu do progu START DOLEWANIA [D-96]. */
       { const ob = suf==='_b'?0:1, id = 'sucho'+suf;
         if (suchoOb(ob)){
-          const pg = PROGI_POZ(el(ob===0?'s_prze_b':'s_prze_w').checked);
-          w.push({tyt:'Suchobieg — za niski poziom wody',
-              tre:'Pompa filtracyjna i grzanie zatrzymane. Start samoczynny, '+
-                  'gdy poziom wróci do '+pg.start+' cm (próg startu dolewania)',
+          /* [04.11, Tomasz: „w apce jest inny opis alarmu suchobiegu, zrób taki jak na HMI”] = hmi_teksty.h D4 */
+          w.push({tyt:'Suchobieg',
+              tre:'Poziom poniżej progu — pompa zatrzymana',
               src, cz:kiedy(id)});
         } else delete ALARM_KIEDY[id]; }
       /* NADMIAR WODY W ZBIORNIKU [D-238, próby na stole 2026-09-07]: firmware zapala
@@ -2625,10 +2661,10 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
          gaśnie sama, gdy woda opadnie o histerezę. Pod sterownikiem, obieg widoczny. */
       { const ob = suf==='_b'?0:1, id = 'nadmiar'+suf;
         if (POD_STER && ob === S.ob && window.DUO_POZIOM && window.DUO_POZIOM.wymusz){
-          const pg = PROGI_POZ(true);
-          w.push({tyt:'Nadmiar wody w zbiorniku — pompa wymuszona',
-              tre:'Poziom przekroczył próg wymuszenia. Pompa pracuje poza harmonogramem, '+
-                  'aż woda opadnie o histerezę; w pozycji „0" przełącznika woda idzie w kanał.',
+          /* [04.11] = panel D9 [D-35c, Tomasz]: pompa NIE staje - informacja + propozycja działania */
+          w.push({tyt:'Za dużo wody w układzie',
+              tre:'Za dużo wody w układzie — pompa pracuje poza harmonogramem. '+
+                  'Wykonaj dodatkowe płukanie ręczne, żeby zużyć nadmiar',
               src, cz:kiedy(id), ostrz:true});
         } else delete ALARM_KIEDY[id]; }
       /* DOPEŁNIENIE PRZED PŁUKANIEM NIE DOSZŁO DO POZIOMU [D-241]: bit 21/32 ze sterownika,
@@ -2646,15 +2682,19 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
            przekroczenia punktu krytycznego mówił „brak ciśnienia" —
            serwis jechałby szukać zapowietrzenia zamiast zamkniętego
            zaworu na tłoczeniu. Powód = rejestr 3030. */
+        /* [04.11, Tomasz: „z liczbami, te same zdania”] = panel D4a / E7 z progami ze sterownika (4600+0/+1/+2);
+           progów nie znamy (blok nastaw innego obiegu) -> zdanie bez liczby, jak panel. Dawniej „0,10 bar przez 10 min”
+           na sztywno niezależnie od nastaw. */
+        const _pa = _cisProgiAlarm(), _lb = x => (+x).toFixed(2).replace('.', ',');
         if (el(id).checked) w.push(
           CIS_POWOD[suf==='_b'?0:1] === 2
           ? {tyt:'Pompa zatrzymana — za wysokie ciśnienie',
-             tre:'Ciśnienie przekroczyło punkt krytyczny — sprawdź, czy zawór '+
-                 'na tłoczeniu nie jest zamknięty i czy powrót nie jest zatkany',
+             tre:(_pa ? 'Ciśnienie powyżej ' + _lb(_pa.kryt) + ' bar' : 'Ciśnienie powyżej punktu krytycznego') +
+                 ' — sprawdź układ filtracyjny: zawory na powrocie, pozycję głowicy, dysze',
              src, cz:kiedy(id), akcja:{id, txt:'URUCHOM POMPĘ PONOWNIE'}}
           : {tyt:'Pompa zatrzymana — brak ciśnienia',
-             tre:'Ciśnienie poniżej 0,10 bar przez 10 min — możliwe zassanie '+
-                 'powietrza. Sprawdź poziom wody, zawór ssący i kosz',
+             tre:(_pa ? 'Ciśnienie poniżej ' + _lb(_pa.min) + ' bar przez ' + _pa.czas + ' min' : 'Ciśnienie poniżej progu') +
+                 ' — możliwe zassanie powietrza. Sprawdź poziom wody, zawór ssący i kosz',
              src, cz:kiedy(id), akcja:{id, txt:'URUCHOM POMPĘ PONOWNIE'}});
         else delete ALARM_KIEDY[id]; }
       /* OSTRZEZENIE, nie alarm z akcja [D Tomasz 2026-08-09]: jedna pozycja
@@ -2772,8 +2812,9 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
         ? {t:'Płukanie z harmonogramu nie ruszyło',
            o:'Nie udało się rozpocząć w oknie odroczenia — blokada trwała '+
              'zbyt długo. Wypłucz ręcznie albo sprawdź, co blokuje pompę.'}
-        : {t:'Dokonano ręcznego płukania',
-           o:'Dzisiejsze płukanie z harmonogramu zostaje pominięte.'};
+        /* [04.11] inny powód = panel (E2 bazowy): „zastąpione ręcznym” (2) sterownik już nie zgłasza [D-126] */
+        : {t:'Płukanie przerwane / niewykonane',
+           o:'Znajdź przyczynę i wypłucz ręcznie'};
       w.push({tyt:opis.t, tre:opis.o, src:nazwaObiegDuze(S.ob),
               cz:kiedy('bwskip'), ostrz:true, id:'bwskip'});
     }
@@ -2793,13 +2834,15 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
            (na stanowisku: 1,39 bar przy progu 1,80). Alarm z wymyśloną
            liczbą jest gorszy niż alarm bez liczby - podaje konkret,
            którego nie da się z niczym porównać, a serwisant go zapisze. */
-        const _pg = _cisProgi();
-        const _bar = (window.DUO_CIS != null) ? window.DUO_CIS : null;
-        const _lb = x => x.toFixed(2).replace('.', ',');
-        w.push({tyt:'Za wysokie ciśnienie',
-                tre:'Sprawdź układ filtracyjny — '
-                    + (_bar != null ? 'pomiar ' + _lb(_bar) + ' bar, ' : '')
-                    + 'próg ostrzeżenia ' + _lb(_pg.ostrz) + ' bar',
+        /* [04.11] tytuł = panel E9, zdanie = te same cztery warianty co panel (tresc_liczby): pomiar tylko z żywego
+           czujnika (przy jego awarii liczba zamarła), próg tylko znany ze sterownika */
+        const _pg = _cisProgiAlarm();
+        const _bar = (window.DUO_CIS != null && !el(id === 'c_cwar_b' ? 'c_amano_b' : 'c_amano_w').checked) ? window.DUO_CIS : null;
+        const _lb = x => (+x).toFixed(2).replace('.', ',');
+        const _cz = [_bar != null ? 'pomiar ' + _lb(_bar) + ' bar' : '', _pg ? 'próg ostrzeżenia ' + _lb(_pg.ostrz) + ' bar' : '']
+                    .filter(Boolean).join(', ');
+        w.push({tyt:'Podwyższone ciśnienie',
+                tre:'Sprawdź układ filtracyjny' + (_cz ? ' — ' + _cz : ''),
                 src, cz:kiedy(id), ostrz:true, id});
       } else { delete ALARM_KIEDY[id]; SKASOWANE.delete(id); }
     });
@@ -3638,6 +3681,10 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
         /* TEMPERATURA POWIETRZA - wylacznie gdy czujnik jest w mapie [D-207] */
         const tPowStan = S.tempPowStan !== undefined ? S.tempPowStan
                        : (pt(S.ob===0?'c_tpow_b':'c_tpow_w') ? 1 : 0);
+        /* [04.11, D-656, Tomasz: „jeżeli zdejmiemy dolewanie, to nie mamy sondy poziomu wody”] połówka poziomu tylko przy
+           sondzie W UŻYCIU (świat: jest_poz = wyposażenie b8); bez sondy z UV - sama lampa, bez UV - prawej połówki
+           nie ma (jak panel: jest_poziom || UV). Makieta sama (bez sterownika) - sonda jest. */
+        const jestPoz = window.DUO_JEST_POZ !== undefined ? window.DUO_JEST_POZ : true;
         const tPow = !tPowStan ? '' : `<div class="grzej" data-lv="temp.pow">powietrze ${tPowStan===1 ? lT(S.tempPow !== undefined ? S.tempPow : 21.3) : '— —'} °C</div>`;
         return `<div class="tile temp ${grzeje&&jestGrz?'grzeje':''}" data-lv="temp">
         <div class="th lewa" onclick="${jestGrz ? "S.ekran='temp';render()" : ''}">
@@ -3650,16 +3697,16 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
            : chceGrzac ? `<div class="grzej stop" data-lv="temp.stan">grzanie stop</div>`
                        : `<div class="grzej" data-lv="temp.stan">temperatura osiągnięta</div>`}
         </div>
-        <div class="th prawa" data-lv="poziom">
-          <div class="lab" data-lv="poziom.et">poziom wody</div>
+        ${(jestPoz || uvHtml) ? `<div class="th prawa" data-lv="poziom">
+          ${jestPoz ? `<div class="lab" data-lv="poziom.et">poziom wody</div>
           <div class="prz">${wskPoziomu(przelew, fr, awS)}
             <span class="cm" data-lv="poziom.w">${awS?'— —':poz}<small> cm</small></span>
             <span class="stany">
               <span class="pstan ${stanKl}" data-lv="poziom.stan">${stanTxt}</span>
               ${dolHtml}
-            </span></div>
+            </span></div>` : ''}
           ${uvHtml}
-        </div>
+        </div>` : ''}
       </div>`;})()}</div><div class="two">`;
 
     /* ŚWIATŁO = OPCJA, NIE PEWNIK [Tomasz 2026-08-18: „jak nie jest
@@ -6121,6 +6168,7 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
       S.awWejscia = !!d.awWejscia;       /* [D-506] wejścia sterownika nieczytelne (bit 40) */
       S.awNastawyFabr = !!d.awNastawyFabr;   /* [D-507] nastawy fabryczne (bit 41) */
       S.awPiesPetli = !!d.awPiesPetli;       /* [D-538] pętla bez psa zadań (bit 42) */
+      S.awI2C = !!d.awI2C; S.awFazy = !!d.awFazy; S.awPanelBrak = !!d.awPanelBrak;   /* [04.11] bity 22, 23, 33 */
       /* ⚠ ZATRZASK AWARII WODNEJ NA EKRAN [2026-09-01]. Panel pokazywał
          go od dawna (AWARIA WODNA + zawór zablokowany), makieta nie znała
          tego stanu w ogóle - a to zatrzask, który ZATRZYMUJE pompę
@@ -6136,6 +6184,8 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
       window.DUO_DOLEWKA_PROC = (d.dolewka_proc !== undefined) ? d.dolewka_proc : undefined;   /* p[9] ze sterownika, jak Tab5 */
       if (d.nast && d.nast.pl_ile !== undefined) window.DUO_PL_ILE = d.nast.pl_ile;
       if (d.progiCis)   window.DUO_PROGI_CIS = d.progiCis;
+      /* [04.11] bilans 24 h i limit do treści alarmu zużycia wody (jak panel) - obieg widoczny */
+      window.DUO_WODA24 = {par: d.parowanie24, limit: d.limit_wody, ob: d.obieg_nr | 0};
       if (d.reakcja)  { window.DUO_REAKCJA = d.reakcja; window.DUO_REAKCJA_OB = d.obieg_nr | 0; }   /* [D-503] */
       /* rodzaj układu też pochodzi z nastaw modułu — wskaźnik poziomu
          rysuje się inaczej dla zbiornika przelewowego niż dla skimmera */
@@ -6170,7 +6220,8 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
          Symulator nie może pozwolić zadać stanu, którego sterownik by nie
          zgłosił (ta sama zasada, co przy awarii sondy i płukaniu):
          ptaszek gaśnie, szarzeje i mówi dlaczego. */
-      if (d.limit_wody !== undefined){
+      /* [04.11] null = limitu nie znamy (blok nastaw innego obiegu) - wtedy nie wyłączamy ptaszka na ślepo */
+      if (d.limit_wody !== undefined && d.limit_wody !== null){
         const c = el(S.ob===0?'c_zuzwoda_b':'c_zuzwoda_w');   /* [D-238] szuflada widoczna */
         if (c){ const brak = !d.limit_wody, tr = c.closest('tr');
           if (brak && c.checked) c.checked = false;
@@ -6195,6 +6246,7 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
       /* temperatura POWIETRZA i czy obieg ma regulacje grzania [D-207] */
       S.tempPow = d.temp_pow; S.tempPowStan = d.temp_pow_stan;
       window.DUO_JEST_GRZ = (d.jest_grz === undefined) ? undefined : !!d.jest_grz;
+      window.DUO_JEST_POZ = (d.jest_poz === undefined) ? undefined : !!d.jest_poz;   /* [04.11, D-656] */
       /* STAN REGULATORA Z MODUŁU [Tomasz 2026-08-21] — panel pokazuje bit
          „grzeje" i odbija nastawę oraz wyłącznik, żeby po restarcie panelu
          (albo wejściu z drugiego HMI) pokazywał to, co moduł naprawdę ma */
@@ -6386,8 +6438,7 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
                 + (_pwa ? '<a href="index.html?login=1" style="display:inline-block;margin-top:12px;padding:10px 16px;border-radius:10px;background:#1e6fd9;color:#fff;text-decoration:none;font-weight:600">Zmień sterownik / hasło</a>' : '')
               + '</div>'
               + '<div id="ust-brokery" hidden style="flex:0 0 auto"><div style="font-size:11px;letter-spacing:.08em;color:#8d949e;margin-bottom:6px">SERWERY</div>'
-                + '<div id="ust-brokery-l"></div>'
-                + '<div style="font-size:11px;color:#8d949e;margin-top:6px">Sterownik ma <b>dwa sloty</b>: slot 1 to <b>główny serwer Mosquitto</b>, a o slot 2 konkurują <b>dwa serwery</b> u różnych dostawców — automat sprawdza je co tydzień i wstawia ten, który żyje. Aplikacja słucha wszystkich trzech, żeby nie przegapić zamiany.</div></div>'
+                + '<div id="ust-brokery-l"></div></div>'   /* [04.11, Tomasz: „minimalistyczne dane bez opisów”] bez akapitu o slotach */
               /*  REZERWA STEROWNIKA [D-412] - TYLKO SERWIS. Sterownik trzyma u siebie trzeci adres
                   (rezerwe), ktory sam wstawia na miejsce zapasu, gdy ten zamilknie [D-383]. Dotad
                   zmienialo sie to wylacznie przy sterowniku; teraz widac to i zmienia sie stad.
@@ -6396,10 +6447,10 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
               + '<div id="ust-rezerwa" hidden style="flex:0 0 auto"><div style="font-size:11px;letter-spacing:.08em;color:#8d949e;margin-bottom:6px">REZERWA STEROWNIKA</div>'
                 + '<div id="ust-rez-stan" style="margin-bottom:8px"></div>'
                 + '<div style="display:flex;flex-direction:column;gap:7px">'
-                  + '<div style="display:flex;gap:7px"><input id="ust-rez-host" placeholder="adres brokera rezerwowego" autocapitalize="off" autocorrect="off" spellcheck="false" style="' + STYL_POLE + ';flex:1 1 auto">'
+                  + '<div style="display:flex;gap:7px"><input id="ust-rez-host" placeholder="adres" autocapitalize="off" autocorrect="off" spellcheck="false" style="' + STYL_POLE + ';flex:1 1 auto">'
                     + '<input id="ust-rez-port" placeholder="8883" inputmode="numeric" style="' + STYL_POLE + ';width:78px;flex:0 0 auto"></div>'
-                  + '<input id="ust-rez-user" placeholder="użytkownik sterownika na tym brokerze" autocapitalize="off" autocorrect="off" spellcheck="false" style="' + STYL_POLE + '">'
-                  + '<input id="ust-rez-pass" type="password" placeholder="hasło sterownika na tym brokerze" autocomplete="off" style="' + STYL_POLE + '">'
+                  + '<input id="ust-rez-user" placeholder="użytkownik" autocapitalize="off" autocorrect="off" spellcheck="false" style="' + STYL_POLE + '">'
+                  + '<input id="ust-rez-pass" type="password" placeholder="hasło" autocomplete="off" style="' + STYL_POLE + '">'
                   + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">'
                     + '<button id="ust-rez-zapisz" style="' + STYL_PRZYCISK + '">Zapisz w sterowniku</button>'
                     + '<button id="ust-rez-test" style="' + STYL_PRZYCISK2 + '">Sprawdź teraz</button>'
@@ -6411,7 +6462,7 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
                       NAJSWIEZSZE zdanie sterownika i zmienia sie tyle razy, ile razy on cos powie. */
                   + '<div id="ust-rez-odp" style="font-size:12px;color:#9fd3ff;min-height:16px"></div>'
                   + '<div id="ust-rez-tls" style="font-size:11px;color:#8d949e"></div>'
-                  + '<div style="font-size:11px;color:#8d949e">Zmiana wymaga PIN-u serwisowego sterownika. Hasło jedzie do sterownika, a nie do aplikacji — nie zobaczysz go tu z powrotem.</div>'
+                  /* [04.11] stopka o PIN-ie i haśle usunięta (bez opisów) - brak PIN-u i tak mówi odmowa przy przycisku */
                 + '</div></div>'
               + '<div id="ust-czasy" style="flex:0 0 auto"><div style="font-size:11px;letter-spacing:.08em;color:#8d949e;margin-bottom:6px">CZASY</div>'
                 + '<span id="chmura-w" style="font-size:12px;color:#98a0ad"></span></div>'
@@ -6493,9 +6544,8 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
                 brokera zamiast literowki w porcie. Zdanie liczy sie na kazde stuknieciе w pole. */
             const tls = () => { const e = el('ust-rez-tls'), p = +(el('ust-rez-port').value || 0);
               if (!e) return;
-              e.textContent = (p === 8883 || p === 8884)
-                ? 'Port ' + p + ' — sterownik połączy się SZYFROWANIE.'
-                : (p ? 'Port ' + p + ' — połączenie będzie GOŁE (sterownik szyfruje tylko na 8883 i 8884).' : '');
+              /* [04.11, bez opisów] tylko ostrzeżenie: port bez szyfrowania (sterownik szyfruje na 8883 i 8884) */
+              e.textContent = (p && p !== 8883 && p !== 8884) ? 'gołe (bez szyfrowania)' : '';
               e.style.color = (p === 8883 || p === 8884 || !p) ? '#8d949e' : '#d08b5b'; };
             el('ust-rez-port').oninput = tls;
             el('ust-rez-kasuj').onclick = () => { const r = R(); if (!r) return;
@@ -6655,33 +6705,32 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
             const sp = (window.MOST_JS && window.MOST_JS.rezerwa && window.MOST_JS.rezerwa.spis()) || null;
             /*  [D-427a] Te same nazwy, co w dzienniku lacza (`MOST_JS.nazwaDrogi`) - jedno zrodlo,
                 zeby ekran i dziennik nie mowily o tej samej drodze dwoma numerami. */
-            const NAZWY = { 1: 'slot 1 — Główny serwer Mosquitto', 2: 'slot 2 — serwer 1', 3: 'slot 2 — serwer 2' };
+            const NAZWY = { 1: 'slot 1', 2: 'slot 2 — serwer 1', 3: 'slot 2 — serwer 2' };   /* [04.11] bez opisu „Główny serwer Mosquitto” */
             const ZAPST = ['nie sprawdzana', 'żywa', 'nie odpowiada', 'nie ustawiona'];
+            /* [04.11, Tomasz: „minimalistyczne dane bez opisów”] znacznik sterownika = dwa-trzy słowa, nie zdanie */
             const opisSter = nr => {
               if (!sp) return '';
               if (nr === 3) { const z = sp.zapas2 || {};
-                return z.host ? 'sterownik: czeka poza slotem — sprawdzany co tydzień (' + (ZAPST[z.stan] || '?') + ')'
-                              : 'sterownik: drugiego serwera nie ma'; }
+                return z.host ? 'poza slotem · ' + (ZAPST[z.stan] || '?') : 'brak'; }
               const w = nr === 1 ? sp.glowny : sp.zapas1;
-              if (!w || !w.host) return 'sterownik: slot pusty';
-              if (!w.wl) return 'sterownik: slot wyłączony';
-              const gdzie = nr === 1 ? 'w slocie 1' : 'wstawiony do slotu 2';
+              if (!w || !w.host) return 'slot pusty';
+              if (!w.wl) return 'slot wyłączony';
               /*  ⚠ BRAK POLA TO NIE ZERO [D-425b]. `pol` doszlo dzis; spis lezy retained, wiec do
                   najblizszego ogloszenia apka widzi wersje BEZ niego. Traktowanie braku jak „nie
                   polaczony" kazalo pisac o AWARII slotu, ktory dziala. Gdy nie wiemy - milczymy
                   o tej rzeczy; to wraca przy kazdym nowym polu w spisie. */
-              if (w.pol === undefined) return 'sterownik: ' + gdzie + (sp.niesie === nr ? ', TĘDY nadaje' : '');
-              if (!w.pol) return 'sterownik: ' + gdzie + ', ale NIE POŁĄCZONY';
-              return 'sterownik: ' + gdzie + ', połączony' + (sp.niesie === nr ? ' i TĘDY nadaje' : '');
+              if (w.pol === undefined) return sp.niesie === nr ? 'nadaje' : '';
+              if (!w.pol) return 'NIE POŁĄCZONY';
+              return 'połączony' + (sp.niesie === nr ? ' · nadaje' : '');
             };
             const html = br.map(x => { const nr = x.slot || x.nr;
               const kol = x.stan === 'ok' ? KOL.ok : x.stan === 'laczy' ? KOL.czekam : KOL.zle;
               const ster = opisSter(nr);
-              return '<div style="margin-bottom:8px;word-break:break-all">'
+              /* kropka = stan łącza APKI z tym serwerem (opis zdaniem tylko w dymku), po prawej znacznik sterownika */
+              return '<div style="margin-bottom:6px;word-break:break-all" title="' + String(x.opis || '').replace(/"/g, '&quot;') + '">'
                 + '<span style="color:' + kol + '">&#9679;</span> <b>' + (NAZWY[nr] || ('serwer ' + x.nr)) + '</b>'
+                + (ster ? ' <span style="font-size:12px;color:' + (sp && sp.niesie === nr ? '#9fd3ff' : '#98a0ad') + '">' + ster + '</span>' : '')
                 + '<div style="color:#98a0ad;font-size:12px">' + x.host + ' · ' + x.user + '</div>'
-                + '<div style="color:#d0d4da;font-size:12px">apka: ' + x.opis + '</div>'
-                + (ster ? '<div style="font-size:12px;color:' + (sp && sp.niesie === nr ? '#9fd3ff' : '#98a0ad') + '">' + ster + '</div>' : '')
                 + '</div>'; }).join('');
             if (ublL._html !== html) { ublL._html = html; ublL.innerHTML = html; }
           }
@@ -6712,7 +6761,7 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
                 byc tym, co znika pierwsze. */
             return '<div style="margin-bottom:6px;word-break:break-all"><b>' + nazwa + '</b> <span style="color:#d0d4da">' + w.host + ':' + w.port + '</span>'
                  + (w.tls ? ' <span style="color:#8d949e">szyfrowane</span>' : ' <span style="color:#d08b5b">gołe</span>')
-                 + (w.lan ? ' <span style="color:#8d949e">· adres domowy (telefon w drodze go nie użyje)</span>' : '')
+                 + (w.lan ? ' <span style="color:#8d949e">· LAN</span>' : '')   /* [04.11] bez opisu */
                  + (dopisek || '') + '</div>';
           };
           const ZAP_STAN = ['nie sprawdzana', 'żywa', 'nie odpowiada', 'nie ustawiona'];
@@ -6724,8 +6773,8 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
                 adresy kazde po swojemu i rozjezdzaly sie w tym, co pokazuja. */
             const html = sp
               ? wiersz('rezerwa', sp.zapas2, ' <span style="color:#8d949e">· ' + (ZAP_STAN[sp.zapas2 && sp.zapas2.stan] || '?') + '</span>'
-                    + (sp.dubel ? '<div style="color:#d08b5b">to ten sam broker co slot 2 — padnie razem z nim</div>' : ''))
-              : '<div style="color:#8d949e">sterownik jeszcze nie podał spisu serwerów</div>';
+                    + (sp.dubel ? ' <span style="color:#d08b5b">· = slot 2</span>' : ''))   /* [04.11] krótko: ten sam broker co slot 2 */
+              : '<div style="color:#8d949e">—</div>';
             if (st._html !== html) { st._html = html; st.innerHTML = html; }
           }
           /*  NAJSWIEZSZE ZDANIE STEROWNIKA - patrz uzasadnienie przy `ust-rez-odp`.
@@ -6733,8 +6782,7 @@ window.HMI_ZBUDOWANO = '2026-10-31 22:50';
                 rozkaz nie wyszedl, zanim wskoczy tam stary meldunek sprzed tygodnia. */
           const odp = document.getElementById('ust-rez-odp'), om = R && R.ostatni();
           if (odp && !(odp._wlasne && Date.now() - odp._wlasne < 8000)) {
-            const t = om ? (om.txt + (om.zastany ? ' · zdanie zastane na brokerze, nie odpowiedź na Twój rozkaz' : ''))
-                         : 'sterownik nie meldował nic o rezerwie';
+            const t = om ? (om.txt + (om.zastany ? ' · (stare)' : '')) : '';   /* [04.11] bez opisów */
             if (odp.textContent !== t) odp.textContent = t;
           }
           if (sp && sp.zapas2 && sp.zapas2.host && !urez._podpowiedziane) {
@@ -7108,6 +7156,7 @@ const N = {
    * w module: z pompą (start +1 min, stop 1 min przed końcem okna),
    * OFF na cały cykl płukania. */
   grz_wl:true, dol_wl:true, pluk_wl:true, uv_wl:true,
+  hoa_zr:'fizyczny',          /* [D-654] praca pompy: 'fizyczny' (fabrycznie) albo 'hmi' - rejestr 5140 + obieg */
   cichy_wl:true,                   /* [31.10] tryb cichy - wyłącznik serwisowy (5120 + obieg*10 + 3) */
   cisn_wl:true,                    /* [31.10] pomiar ciśnienia - wyłącznik serwisowy (4036 / 4037) */
   /* geometria [Tomasz 2026-08-19]: przelew → parametry ZBIORNIKA
@@ -7838,9 +7887,10 @@ function ekrSerwis(){
           tylko wtedy, gdy styki grzania są dwa — przy jednym nie ma
           czego wybierać ani łączyć, więc i w podpisie tego nie ma */''}
     <div class="mrow" data-lv="idz.grzanie" onclick="idz('grzanie')"><span class="t">${regGrz() ? 'Grzanie' : 'Odczyt temperatur'}<i>${regGrz() ? 'histereza, korekta' + (nZrodelCiepla() > 1 ? ', źródła ciepła' : '') : 'kalibracja, odczyty'}</i></span><span class="ch">›</span></div>
-    ${/* [31.10] DOLEWANIE WYŁĄCZONE: ekran zostaje (sonda pilnuje suchobiegu, rodzaj układu, geometria), ale nazywa się
-          jak to, co na nim zostało - bez progów dolewania i kontroli zużycia */''}
-    <div class="mrow" data-lv="idz.poziom" onclick="idz('poziom')"><span class="t">${N.dol_wl ? 'Dolewanie' : 'Sonda poziomu'}<i>poziomy wody, rodzaj układu, parametry ${N.uklad === 'przelew' ? 'zbiornika' : 'niecki'}${N.dol_wl ? ', zużycie wody' : ''}</i></span><span class="ch">›</span></div>
+    ${/* [D-656, Tomasz 04.11: „jeżeli zdejmiemy dolewanie, to nie mamy sondy poziomu wody”] DOLEWANIE WYŁĄCZONE = wiersza
+          nie ma: sterownik nie używa wtedy sondy (bez suchobiegu, alarmu i kontroli zużycia), więc i nie ma czego ustawiać.
+          Zastępuje 31.10 („ekran zostaje jako Sonda poziomu”). Przy zbiorniku przelewowym dolewania zdjąć nie można. */''}
+    ${N.dol_wl ? `<div class="mrow" data-lv="idz.poziom" onclick="idz('poziom')"><span class="t">Dolewanie<i>poziomy wody, rodzaj układu, parametry ${N.uklad === 'przelew' ? 'zbiornika' : 'niecki'}, zużycie wody</i></span><span class="ch">›</span></div>` : ''}
     ${/* [31.10] PŁUKANIE WYŁĄCZONE = wiersza nie ma (włącza się w SERWIS → Funkcje) */''}
     ${N.pluk_wl ? `<div class="mrow" data-lv="idz.pluk" onclick="idz('pluk')"><span class="t">Płukanie filtra<i>dodatkowe parametry płukania filtra / kontrola prawidłowości płukania</i></span><span class="ch">›</span></div>` : ''}
     ${/* [31.10] POMIAR CIŚNIENIA WYŁĄCZONY (SERWIS → Funkcje) albo bez czujnika = wiersza nie ma */''}
@@ -7931,6 +7981,9 @@ function ekrSerwis(){
     <div class="mrow" data-lv="idz.historia" onclick="idz('historia')"><span class="t">Historia alarmów<i>alarmy z czasem wystąpienia</i></span><span class="ch">›</span></div>
     <div class="mrow" data-lv="idz.zdarzenia" onclick="idz('zdarzenia')"><span class="t">Dziennik zdarzeń<i>${
       SRV_S.zdarzenia ? (SRV_S.zdarzenia.ile + ' wpisów: użytkownik, automat, konfiguracja') : 'kto co przełączył, co zrobił automat, co zmieniono'}</i></span><span class="ch">›</span></div>
+    ${/* [D-657, Tomasz 04.11: „przydałoby się w serwisie: czyść dziennik zdarzeń i historię”] okno POTWIERDŹ / ODRZUĆ;
+          sterownik przyjmuje to tylko od panelu w szafie i kablem (most) */''}
+    <div class="abtn czerw" data-lv="abtn" onclick="czyscPytaj()">WYCZYŚĆ DZIENNIK I HISTORIĘ</div>
     <div class="mrow" onclick="SRV_S.pin='';SRV_S.pinNowy='';idz('pinzmiana')"><span class="t">Zmiana PIN serwisowego</span><span class="ch">›</span></div>
     ${/* MATRYCA PRÓB HIL [Tomasz 2026-09-08: „dodaj link do naszego HTML — do
           panelu HTML"]. ⚠ CELOWO BEZ `data-lv`: to wiersz WYŁĄCZNIE dla wersji
@@ -8499,6 +8552,15 @@ function ukladPrzelacz(){
      tylko wybór zachowania, więc sterownik pilnuje samego zakresu 0/1.
    WYJŚCIA: nowa wartość na wierszu + zapis w module (blok nastaw
      potwierdzi go przy najbliższym odczycie; odmowa = wartość wróci). */
+/* [D-654, Tomasz 03.11: „tylko lokalny HMI”] PRACA POMPY: przełącznik fizyczny albo HMI. Zmienia się WYŁĄCZNIE na panelu
+   w szafie - sterownik odmawia stronie WWW i aplikacji (06c_hoa_hmi.h, 20a4). Pod sterownikiem pokazujemy odmowę ze
+   zdaniem (zasada 10), zamiast wysyłać zapis, który i tak wróci odmową; na biurku przełączamy makietę. */
+function hoaZrodloPrzelacz(){
+  if (window.MOST_JS || typeof Nastawa !== 'undefined'){ pokazOdmowe('praca pompy zmienia się tylko na panelu w szafie'); return; }
+  N.hoa_zr = N.hoa_zr === 'hmi' ? 'fizyczny' : 'hmi';
+  srvRender();
+}
+
 function sondaReakcjaPrzelacz(){
   /* ⚠ PRZEZ zapiszZWalidacja [Tomasz 2026-09-02: „to samo jest w reakcja
      na uszkodzenie"]. Stalo tu wlasne przypisanie + wlasny zapis rejestru,
@@ -8661,10 +8723,23 @@ function ekrCisn(){
    ⚠ Panel LVGL ma dziś dwa kliknięcia z napisem (ZER_POTW_MS) - okno do przeniesienia razem z resztą zmian z 31.10. */
 let ZER_PYT = null;                    /* {co, nazwa, opis} otwartego okna albo null */
 function zerujPytaj(co, nazwa, opis){ ZER_PYT = {co, nazwa, opis}; srvRender(false); }
+/* [D-657, Tomasz 04.11: „przydałoby się w serwisie: czyść dziennik zdarzeń i historię”] to samo okno, własny tytuł;
+   sterownik czyści tylko na komendę panelu w szafie albo kablem (most) - aplikacja dostaje odmowę ze zdaniem */
+function czyscPytaj(){
+  ZER_PYT = {co: 'dz', tyt: 'Czyszczenie dziennika', opis: 'Dziennik zdarzeń i historia alarmów zostaną skasowane w '
+    + 'sterowniku i na panelu. Karta SD w sterowniku zostaje jako archiwum. Pierwszym wpisem nowego dziennika będzie '
+    + '„wyczyszczono” z godziną.'};
+  srvRender(false);
+}
 function zerujOdrzuc(){ ZER_PYT = null; srvRender(false); }
 function zerujPotwierdz(){
   const q = ZER_PYT; ZER_PYT = null; srvRender(false);
   if (!q) return;
+  if (q.co === 'dz'){                                   /* [D-657] */
+    if (window.MOST_JS){ pokazOdmowe('czyszczenie dziennika tylko z panelu w szafie albo kablem przez most'); return; }
+    srvKomenda('czysc-dziennik', 1);
+    return;
+  }
   const l = (4040 + obiegSzuflada()) + ':' + q.co;
   if (window.parent !== window) srvKomenda('rej', l);
   else if (location.protocol === 'http:' || location.protocol === 'https:') fetch('/cmd?co=rej&wart=' + l).catch(() => {});
@@ -8672,10 +8747,10 @@ function zerujPotwierdz(){
 function zerOkno(){
   if (!ZER_PYT) return '';
   return `<div class="zerokno" onclick="if(event.target===this)zerujOdrzuc()"><div class="zerokno-r">
-    <div class="zerokno-t">Zerowanie — ${ZER_PYT.nazwa}</div>
+    <div class="zerokno-t">${ZER_PYT.tyt || ('Zerowanie — ' + ZER_PYT.nazwa)}</div>
     <div class="zerokno-o">${ZER_PYT.opis}</div>
-    <div class="zerokno-p"><div class="abtn szary" onclick="zerujOdrzuc()">ODRZUĆ</div>
-      <div class="abtn" onclick="zerujPotwierdz()">POTWIERDŹ</div></div></div></div>`;
+    <div class="zerokno-p"><div class="abtn szary" data-lv="abtn" onclick="zerujOdrzuc()">ODRZUĆ</div>
+      <div class="abtn" data-lv="abtn" onclick="zerujPotwierdz()">POTWIERDŹ</div></div></div></div>`;
 }
 function ekrKalib(){
   /* KALIBRACJA JEDNOPUNKTOWA [D-98, Tomasz 2026-08-21] — „dla 4 mA odczyt
@@ -8694,26 +8769,29 @@ function ekrKalib(){
      urwana (0 mA), czy sonda zeszła pod zero skali. Sam alarm i tak widać
      na pasku, więc powtarzanie go tutaj zabierało jedyną liczbę, która coś
      wnosi. Kolor zostaje ostrzegawczy, gdy odczyt jest poza zakresem. */
-  const zywy = (aw, r, wart, jedn, dz) =>
-    `<div class="mrow odczyt" data-lv="o"><span class="t">Odczyt na żywo<i>${srvFmt(mA(r),1)} mA · surowo ${r}</i></span><span class="w${aw ? ' zle' : ''}">${srvFmt(wart,dz)}<small> ${jedn}</small></span></div>`;
+  /* [04.11.2026] `inw` = tor czujnika (sonda / cisn) w TOŻSAMOŚCI wiersza inwentarza (zbierz: lv|tekst|inw) - dwa wiersze
+     „Odczyt na żywo” miały ten sam adres, więc bramka wariantu (dolewanie / pomiar ciśnienia zdjęte) nie trafiała w żaden. */
+  const zywy = (aw, r, wart, jedn, dz, inw) =>
+    `<div class="mrow odczyt" data-lv="o" data-inw="${inw}"><span class="t">Odczyt na żywo<i>${srvFmt(mA(r),1)} mA · surowo ${r}</i></span><span class="w${aw ? ' zle' : ''}">${srvFmt(wart,dz)}<small> ${jedn}</small></span></div>`;
   return `<div class="tresc">
-    <div class="grupka" data-lv="g">SONDA POZIOMU</div>
+    ${/* [D-656] zdjęte dolewanie = sondy nie ma: bez zakresu, przesunięcia, odczytu i zerowania */''}
+    ${N.dol_wl ? `<div class="grupka" data-lv="g">SONDA POZIOMU</div>
     <div class="para" data-lv="para">
       ${wierszN('kal_poz_zak')}${wierszN('kal_poz_off')}
     </div>
-    ${zywy(W.awsonda, rawPoz, W.poziom + N.kal_poz_off, 'mm', 0)}
+    ${zywy(W.awsonda, rawPoz, W.poziom + N.kal_poz_off, 'mm', 0, 'sonda')}
     ${/* ZEROWANIE [Tomasz 2026-08-28: „zerowanie powinno być w kalibracji
           czujników"]. Zapisuje BIEŻĄCY odczyt jako zero skali - robi to
           sterownik (rejestr 4040/4041, wartość 1), więc waliduje po swojemu.
           Dwa kliknięcia: kasujemy kalibrację toru, a klik w szafie bywa
           przypadkowy. ⚠ Klikać, gdy sonda jest w swoim zerze - inaczej
           wkalibrujemy wodę, która akurat stoi. */''}
-    <div class="abtn" data-lv="abtn" onclick="zerujPytaj(1, 'sonda poziomu', 'Bieżący odczyt sondy stanie się zerem.')">ZERUJ SONDĘ POZIOMU</div>
+    <div class="abtn" data-lv="abtn" onclick="zerujPytaj(1, 'sonda poziomu', 'Bieżący odczyt sondy stanie się zerem.')">ZERUJ SONDĘ POZIOMU</div>` : ''}
     ${cisAkt() ? `<div class="grupka" data-lv="g">CZUJNIK CIŚNIENIA</div>
     <div class="para" data-lv="para">
       ${wierszN('kal_cis_zak')}${wierszN('kal_cis_off')}
     </div>
-    ${zywy(W.awmano, rawCis, cisEfekt() + N.kal_cis_off, 'bar', 2)}
+    ${zywy(W.awmano, rawCis, cisEfekt() + N.kal_cis_off, 'bar', 2, 'cisn')}
     ${/* ⚠ CIŚNIENIE ZERUJE SIĘ TYLKO PRZY ROZPRĘŻONEJ INSTALACJI. Gdy filtracja
           stoi niżej niż niecka, czujnik mierzy słup wody i to NIE JEST zero
           [Tomasz 2026-08-28]. */''}
@@ -9376,8 +9454,14 @@ function siecBanery(zPrzyciskiem){
        ${SIEC_ODMOWA[kod] || ('kod odmowy ' + kod)}. Nic się nie zmieniło — popraw i zastosuj ponownie.</div>` : ''}
     ${(edy & 1) ? `<div class="ostrzega" data-lv="ostrzega"><b>Są zmiany, które jeszcze nie działają.</b>
        Sterownik pracuje na starych nastawach do czasu naciśnięcia ZASTOSUJ.</div>
-       ${zPrzyciskiem ? `<div class="abtn" data-lv="abtn" onclick="siecKomenda(1)">ZASTOSUJ</div>
-       <div class="abtn szary" data-lv="abtn" onclick="siecKomenda(2)">PRZYWRÓĆ (odrzuć zmiany)</div>` : ''}` : ''}`;
+       ` : ''}`;
+}
+/* [04.11.2026, Tomasz: „ZASTOSUJ powinno być pod spodem, nie w okienku wyżej”] przyciski NA DOLE ekranu z nastawami
+   (dawniej w żółtym banerze u góry); baner zostaje samym zdaniem. */
+/* [04.11, Tomasz: „PRZYWRÓĆ wykasuj”; „tam, gdzie wyszukiwanie sieci i hasło, pod spodem POŁĄCZ”] na ekranie połączenia
+   z siecią przycisk mówi, co zrobi (ten sam ZASTOSUJ 4910:1); PRZYWRÓĆ usunięty */
+function siecPrzyciski(napis){
+  return (siecS(3184) & 1) ? `<div class="abtn" data-lv="abtn" onclick="siecKomenda(1)">${napis || 'ZASTOSUJ'}</div>` : '';
 }
 
 /* ----- wiersze ekranu ------------------------------------------------- */
@@ -9495,11 +9579,9 @@ function ekrSiec(){
       <span class="w ${siecS(3188) ? 'zle' : ''}">${(siecS(3187) & 1) ? 'punkt dostępu i sieć' : 'tylko punkt dostępu'}</span><span class="ch">›</span></div>` : ''}
     <div class="grupka" data-lv="g">NASTAWY</div>
     <div class="abtn ${(edy & 1) ? '' : 'zablok'}" data-lv="abtn" onclick="${(edy & 1) ? 'siecKomenda(1)' : ''}">ZASTOSUJ</div>
-    <div class="abtn szary" data-lv="abtn" onclick="siecKomenda(2)">PRZYWRÓĆ (odrzuć zmiany)</div>
+    ${/* [04.11.2026, Tomasz: „PRZYWRÓĆ (odrzuć zmiany) wykasuj”] przycisk usunięty z menu sieci */''}
     <div class="mrow" onclick="siecKomenda(3)"><span class="t">Wstaw nastawy fabryczne<i>tylko do edycji — zaczną działać dopiero po ZASTOSUJ</i></span><span class="ch">›</span></div>
-    <div class="nota" data-lv="nota">Zmiany zapisują się na boku i nie ruszają pracującej sieci. Dopiero
-      <b>ZASTOSUJ</b> sprawdza całość, zapisuje w pamięci trwałej i przestawia interfejsy —
-      wtedy na chwilę zrywa się połączenie z tą stroną, jeśli idzie ono przez zmieniany interfejs.</div>
+    ${/* [31.10, Tomasz: „Zmiany zapisują się na boku … jeśli idzie ono przez zmieniany interfejs — usuń”] nota USUNIĘTA */''}
   </div>` + pasek('SERWIS · sieć', 'serwis');
 }
 
@@ -9521,6 +9603,7 @@ function ekrSiecEth(){
     ${siecWierszIp(4745, 'Brama')}
     ${siecWierszIp(4747, 'Serwer nazw (DNS)', 'potrzebny tylko, gdy broker MQTT podaje się nazwą')}` : ''}
     <div class="nota" data-lv="nota">Zmiany zaczną działać po <b>ZASTOSUJ</b> na ekranie sieci.</div>
+    ${siecPrzyciski()}
   </div>` + pasek('SERWIS · sieć — Ethernet', 'siec');
 }
 
@@ -9542,6 +9625,7 @@ function ekrSiecAp(){
     ${siecWierszLb(4750, 'Kanał', 'zmieniać tylko, gdy w pobliżu tłok na paśmie', 1, 13, '', 1, true)}
     ${/* [31.10, Tomasz: „Po ZASTOSUJ punkt dostępu wstaje od nowa … — usuń”] dawna nota: „Po ZASTOSUJ punkt dostępu wstaje
           od nowa — telefon rozłączy się i trzeba połączyć go ponownie (z nowym hasłem, jeśli je zmieniono)” */''}
+    ${siecPrzyciski()}
   </div>` + pasek('SERWIS · sieć — punkt dostępu', 'siec');
 }
 
@@ -9583,6 +9667,7 @@ function ekrSiecSta(){
     ${siecWierszIp(4822, 'Serwer nazw (DNS)')}` : ''}
     ${/* [31.10] nota USUNIĘTA: „⚠ Punkt dostępu stoi na 192.168.4.1. Jeśli sieć obiektu też jest 192.168.4.x, wpisz tu adres
           ręczny z innej podsieci albo wyłącz punkt dostępu.” */''}
+    ${siecPrzyciski('POŁĄCZ')}
   </div>` + pasek('SERWIS · sieć — połączenie z siecią', 'siec');
 }
 
@@ -9709,6 +9794,7 @@ function ekrSiecMqtt(){
     <div class="grupka" data-lv="g">WSPÓLNE DLA OBU</div>
     ${siecWierszLb(4826, 'Co ile wysyłać', 'najmniej 5 s — częściej nie ma po co', 5, 3600, 's', 0, true)}
     ${siecWierszTxt(4891, 16, 'Początek tematu', 'np. basen — pod nim idą basen/stan i basen/status', true)}
+    ${siecPrzyciski()}
   </div>` + pasek('SERWIS · sieć — MQTT', 'siec');
 }
 
@@ -9737,6 +9823,7 @@ function ekrSiecSerw(nr){
     ${siecWierszTxt(s.haslo, 16, 'Hasło')}
     ${/* [31.10] nota USUNIĘTA: serwer w sieci obiektu zwykle bez szyfrowania / w internecie zawsze z szyfrowaniem; okres
           i początek tematu wspólne dla obu serwerów */''}
+    ${siecPrzyciski()}
   </div>` + pasek('SERWIS · sieć — MQTT serwer ' + nr, 'siec_mqtt');
 }
 
@@ -9775,6 +9862,7 @@ function ekrSiecWeb(){
       Spoza zasięgu odpowiada odmową z powodem, zlicza takie pytania i zapamiętuje ostatni adres.
       ⚠ Część routerów przy przekierowaniu podmienia adres pytającego na własny — dlatego mocniejszy jest
       sam zasięg niż porównanie adresu.</div>
+    ${siecPrzyciski()}
   </div>` + pasek('SERWIS · sieć — strona sterownika', 'siec');
 }
 
@@ -9860,20 +9948,28 @@ function ekrObejscia(){
      obejście czujnika ciśnienia. Żółty przypis „Funkcja zdjęta z ruchu — nie wraca sama” USUNIĘTY. */
   const jestCichy = !!N.cichy_jest && N.cichy_wl_jest !== false;
   return `<div class="tresc">
-    ${jestW('dol')  ? wierszWyl('dol_wl', 'Dolewanie', N.dol_wl ? '' : 'wyłączone — sonda dalej pilnuje suchobiegu') : ''}
+    ${/* [D-654, Tomasz 03-04.11: „w Funkcje umieść wybór przełącznik HMI / fizyczny”] PRACA POMPY: skąd sterownik bierze
+          AUTO / RĘKA / STOP. HMI = wybór w kaflu pompy na ekranie głównym, bez PIN-u, tylko panel w szafie (aplikacja
+          i strona dostają odmowę); panel przestaje odpowiadać -> AUTO. Fabrycznie przełącznik fizyczny. */''}
+    <div class="mrow" data-lv="c.hoa_zr" onclick="hoaZrodloPrzelacz()">
+      <span class="t">Praca pompy</span>
+      <span class="w">${N.hoa_zr === 'hmi' ? 'HMI' : 'przełącznik fizyczny'}</span><span class="ch">›</span></div>
+    ${jestW('dol')  ? wierszWyl('dol_wl', 'Dolewanie', N.dol_wl ? '' : 'wyłączone — bez sondy poziomu') : ''}
     ${jestW('pluk') ? wierszWyl('pluk_wl', 'Płukanie filtra', N.pluk_wl ? '' : 'wyłączone — bez harmonogramu i przycisku') : ''}
     ${jestCichy     ? wierszWyl('cichy_wl', 'Tryb cichy', N.cichy_wl ? '' : 'wyłączony — bez kafla i harmonogramu') : ''}
     ${grzStyk()     ? wierszWyl('grz_wl', 'Grzanie', N.grz_wl ? '' : 'wyłączone — temperatura tylko do podglądu') : ''}
     ${jestCisWl()   ? wierszWyl('cisn_wl', 'Pomiar ciśnienia', N.cisn_wl ? '' : 'wyłączony — bez odczytu, ochron i alarmów') : ''}
     ${jestW('uv')   ? wierszWyl('uv_wl', 'Lampa UV') : ''}
     <div class="grupka" data-lv="g">OBEJŚCIA</div>
-    <div class="mrow szary ${SRV_S.obejscie_sonda?'wl':''}" data-lv="k.obejscie_sonda" onclick="obejscieSonda()">
+    ${/* [D-656] obejście sondy tylko, gdy sonda jest w użyciu (dolewanie włączone) - albo gdy obejście TRWA: zdejmuje
+          je człowiek, więc wiersz musi zostać, póki jest co zdjąć */''}
+    ${(N.dol_wl || SRV_S.obejscie_sonda) ? `<div class="mrow szary ${SRV_S.obejscie_sonda?'wl':''}" data-lv="k.obejscie_sonda" onclick="obejscieSonda()">
       <span class="ptaszek">${PTASZEK}</span>
       ${/* CO OBEJŚCIE ROBI [Tomasz 2026-08-21, CLAUDE.md §6]: zdejmuje
             ochronę SUCHOBIEGOWĄ (pompa może pracować mimo nieznanego
             poziomu), ale BLOKUJE dolewanie i płukanie — bez wiarygodnego
             poziomu nie ma czym przerwać zrzutu, gdy wody zabraknie. */''}
-      <span class="t">Sonda poziomu wody${SRV_S.obejscie_sonda ? '<i>obejście: pompa pracuje bez pomiaru, dolewanie i płukanie stoją</i>' : ''}</span></div>
+      <span class="t">Sonda poziomu wody${SRV_S.obejscie_sonda ? '<i>obejście: pompa pracuje bez pomiaru, dolewanie i płukanie stoją</i>' : ''}</span></div>` : ''}
     ${cisAkt() || SRV_S.obejscie_mano ? `<div class="mrow szary ${SRV_S.obejscie_mano?'wl':''}" data-lv="k.obejscie_mano" onclick="obejscieMano()">
       <span class="ptaszek">${PTASZEK}</span>
       <span class="t">Czujnik ciśnienia${SRV_S.obejscie_mano ? '<i>obejście: pompa pracuje bez ochrony ciśnieniowej</i>' : ''}</span></div>` : ''}
@@ -10861,6 +10957,7 @@ function zdTekst(w) {
     case 20: { const nazwa = (typeof KATALOG_NAZWA === 'function') ? KATALOG_NAZWA(a) : null;
                return `nastawa ${nazwa || 'rejestr ' + a}: ${c === 0xFFFF ? '' : s16(c) + ' → '}${s16(b)}`; }
     case 21: return `sieć: ZASTOSUJ ${b ? 'przyjęte' : 'odrzucone'}`;
+    case 31: return `wyczyszczono dziennik zdarzeń i historię alarmów (było ${a} zdarzeń, ${b} alarmów)`;   /* [D-657] */
     case 22: return `zmieniono nazwę kanału: ${kan(a)}`;   /* [D-493] */
     case 23: return `AWARIA sterownika · ${ZD_START_POWOD[c] || 'powód ' + c} · życie nr ${b} · krok pętli ${a === 0xFFFF ? 'nieznany' : zdKrok(a)}`;
     case 24: return `aktualizacja WYCOFANA — obraz ${a ? 'z ' + String(a & 31).padStart(2, '0') + '.' + String((a >> 5) & 15).padStart(2, '0') + '.' + (2000 + (a >> 9)) : 'bez daty'} nie przeszedł próby, wrócił poprzedni`;
@@ -11769,6 +11866,11 @@ if (PANEL_LEWY) {
        co jest - zgadywanie bylo wlasnie tym bledem. */
     if (d.funkcje){
       const PAR = {grz:'grz_wl', dol:'dol_wl', pluk:'pluk_wl', uv:'uv_wl', cichy:'cichy_wl', cisn:'cisn_wl'};
+      /* [D-654] praca pompy z HMI: b12/b13 słowa funkcji (1 = HMI); tylko odczyt - zmienia panel w szafie */
+      if (d.funkcje.hoa !== null && d.funkcje.hoa !== undefined){
+        const z = d.funkcje.hoa ? 'hmi' : 'fizyczny';
+        if (N.hoa_zr !== z){ N.hoa_zr = z; zmiana = true; }
+      }
       /* [31.10] pomiar ciśnienia: null = sterownik nie zna wylacznika (linia MN bez znacznika b14) - wiersza w Funkcjach nie ma */
       const cisJest = d.funkcje.cisn !== null && d.funkcje.cisn !== undefined;
       if (N.cisn_wl_jest !== cisJest){ N.cisn_wl_jest = cisJest; zmiana = true; }
@@ -11856,8 +11958,18 @@ if (location.search.indexOf('inwentarz') >= 0) {
     ['got_znana',[false,true]],
     /* [D-519 pkt 1] wiersz hubu „Czego brakuje do pełnej pracy” tylko, gdy raport ma co zgłosić - baza true (widać),
        wariant false (znika) -> gdy=got_luki=true; generator: srv_got_luki() */
-    ['got_luki',[true,false]]
+    ['got_luki',[true,false]],
+    /* [04.11.2026, Tomasz: „jak w Funkcjach zdejmiemy, to znika z serwisu … apka to miała”] WYŁĄCZNIKI Z FUNKCJI: wiersze
+       i sekcje zależne od nich dostają gdy=<klucz>=true (panel: _g(N_*) z bitów bloku 175). Bez tych wariantów generator
+       nie widział zależności i panel pokazywał np. histerezę grzania i pomiar ciśnienia także po zdjęciu funkcji. */
+    ['grz_wl',[true,false]], ['dol_wl',[true,false]], ['pluk_wl',[true,false]], ['cisn_wl',[true,false]],
+    ['uv_wl',[true,false]], ['cichy_wl',[true,false]],
+    /* STAN ze sterownika (klucz „W.” = obiekt stanu W, nie nastawa): czujnik powietrza w mapie I/O (b[71]) i drugi styk
+       grzania (wyposażenie b6) - generator mapuje je na srv_temp_pow_jest() / srv_zrodla_dwa() (BRAMKI_STANU). */
+    ['W.temp_pow_stan',[true,false]], ['W.grz_dwa',[true,false]]
   ];
+  /* klucz „W.x” -> W.x (stan), inny -> N[x] (nastawa) */
+  const ustawBr = (k, v) => { if (k.indexOf('W.') === 0) W[k.slice(2)] = v; else N[k] = v; };
   const linie = [];
   const tekstWlasny = n => Array.from(n.childNodes)
       .filter(c => c.nodeType === 3).map(c => c.textContent).join('').trim();
@@ -11893,13 +12005,14 @@ if (location.search.indexOf('inwentarz') >= 0) {
                   x: Math.round(r.x - base.x), y: Math.round(r.y - base.y),
                   w: Math.round(r.width), h: Math.round(r.height),
                   on: (n.getAttribute('onclick') || '').replace(/\s+/g,' ').slice(0,50) };
-      e.id = e.lv + '|' + e.et;          /* grupki maja wspolny adres */
+      e.id = e.lv + '|' + e.et + (n.dataset.inw ? '|' + n.dataset.inw : '');   /* grupki maja wspolny adres; data-inw rozroznia
+                                         wiersze o tym samym tekscie (odczyt na zywo sondy / cisnienia) [04.11] */
       out.push(e);
     });
     return out;
   };
   EKRANY_INW.forEach(ek => {
-    BRAMKI.forEach(b => { N[b[0]] = b[1][0]; });
+    BRAMKI.forEach(b => { ustawBr(b[0], b[1][0]); });
     SRV_S.ekran = ek; SRV_S.almRozw = null;
     try { srvRender(false); } catch (e) { linie.push('## ' + ek + ' BLAD: ' + e); return; }
     const baza = zbierz();
@@ -11912,7 +12025,7 @@ if (location.search.indexOf('inwentarz') >= 0) {
     const dopisz = (id, war) => { const l = (gdy[id] = gdy[id] || []); if (l.indexOf(war) < 0) l.push(war); };
     BRAMKI.forEach(b => {
       b[1].slice(1).forEach(v => {
-        N[b[0]] = v;
+        ustawBr(b[0], v);
         try { srvRender(false); } catch (e) { return; }
         const alt = zbierz();
         const altSet = new Set(alt.map(e => e.id));
@@ -11931,7 +12044,7 @@ if (location.search.indexOf('inwentarz') >= 0) {
           }
           baza.splice(po + 1, 0, e); bazSet.add(e.id);
         });
-        N[b[0]] = b[1][0];
+        ustawBr(b[0], b[1][0]);
       });
     });
     SRV_S.ekran = ek; srvRender(false);

@@ -158,11 +158,13 @@
   /* [31.10] tryb cichy: b8/b9 = wylacznik serwisowy (1 = w ruchu), b15 = sterownik go zna; bez znacznika null
      (starszy firmware - menu nie pokazuje wiersza, ekran traktuje tryb jak wlaczony) */
   function funkcjeZMn(w, o, uvZapas) {
-    if (w === null || w === undefined) return { uv: uvZapas, grz: null, dol: null, pluk: null, cichy: null, cisn: null };
+    if (w === null || w === undefined) return { uv: uvZapas, grz: null, dol: null, pluk: null, cichy: null, cisn: null, hoa: null };
     return { grz: bit(w, 0 + o), dol: bit(w, 2 + o), pluk: bit(w, 4 + o), uv: bit(w, 6 + o),
              cichy: (w & 0x8000) ? bit(w, 8 + o) : null,
              /* [31.10] pomiar ciśnienia: b10/b11 (1 = w ruchu), b14 = sterownik zna wyłącznik; bez znacznika null */
-             cisn: (w & 0x4000) ? bit(w, 10 + o) : null };
+             cisn: (w & 0x4000) ? bit(w, 10 + o) : null,
+             /* [D-654] praca pompy z HMI: b12/b13 (1 = HMI); starszy firmware ma tu 0 = przełącznik fizyczny - prawda */
+             hoa: bit(w, 12 + o) };
   }
   function profilZSlow(slowa) {
     if (!slowa || slowa.every(s => s === null)) return null;
@@ -303,7 +305,7 @@
       awsonda: alm(2), awmano: alm(4), awtemp: alm(6), awtempBrak: alm(28),
       /* [D-241] alarmy kwitowalne bez klucza - jak most.py */
       awDolew: alm(0), awBwNiesk: alm(12), awZuzycie: alm(19), awPrefill: almBit(o === 0 ? 21 : 32), awWyciek: alm(26),
-      awRtc: almBit(17), awI2C: almBit(22), awFazy: almBit(23),
+      awRtc: almBit(17), awI2C: almBit(22), awFazy: almBit(23), awPanelBrak: almBit(33),   /* [04.11] 33 = brak panelu */
       ostrzCis: alm(30),
       zatrzask: bit(st, 7) ? (p[16] & 0xFF) : 0,
       uv_on: bit(st, 5),
@@ -341,19 +343,24 @@
       progiPoz: { start: nastOb(o, 0, 250), stop: nastOb(o, 1, 350), sucho: nastOb(o, 2, 100),
                   nadmiar: nastOb(o, 4, 0), hist: nastOb(o, 5, 0), zak: nastOb(o, 34, 1000),
                   przelew: !!nastOb(o, 9, 0) },
+      /* [04.11] czas (4600+1) i `znane` (blok nastaw opisuje TEN obieg) - treść alarmu z liczbami albo bez, jak panel */
       progiCis: { min: nastOb(o, 28) / 100.0, ostrz: nastOb(o, 31) / 100.0, kryt: nastOb(o, 30) / 100.0,
+                  czas: nastOb(o, 29), znane: !!(v && v.length >= 45 && v[44] === o),
                   zak: (nastOb(o, 35) || 600) / 100.0 },
       /* [D-503] reakcje na uszkodzenie czujnikow (0 pompa pracuje dalej, 1 zatrzymanie) - hala dopisuje przy
          alarmie „pompa też zatrzymana”, jak panel (hmi_modbus.c). Jak most.py. */
       reakcja: { sonda: nastOb(o, 3, 0), cisn: nastOb(o, 33, 0) },
       nast: { pl_dolewka: !!nastOb(o, 23, 0), pl_ile: nastOb(o, 24, 0), pl_blokuj: !!nastOb(o, 25, 0),
               pl_wstepna: nastOb(o, 20, 10), pl_koncowa: nastOb(o, 22, 10) },
-      limit_wody: 0,
+      /* [04.11] limit 4520+10 z bloku nastaw TEGO obiegu (było 0 na sztywno: hala odznaczała alarm zużycia wody);
+         null = nie wiemy */
+      limit_wody: (v && v.length >= 45 && v[44] === o) ? nast(10) : null,
       mapa_do: mapy[0], mapa_di: mapy[1],
       akc_nast: akcNastawyZMn(mnSlowo),
       jest_uv: bit(wyp, 7), jest_grz: bit(wyp, 5) || bit(wyp, 6), grz_styk: bit(wyp, 13),
       grz_dwa: bit(wyp, 6),          /* [31.10] drugi styk grzania przypisany (i grzanie w ruchu) - dwa źródła ciepła [D-93] */
       jest_dol: bit(wyp, 4), jest_pluk: bit(wyp, 3),
+      jest_poz: bit(wyp, 8),         /* [04.11, D-656] sonda poziomu W UŻYCIU (bez dolewania przy skimmerze - nie) */
       jest_cis: bit(wyp, 9),         /* [31.10] czujnik ciśnienia przypisany w mapie I/O */
       jest_roleta: bit(wyp, 12),     /* styk rolety przypisany [D-234] */
       temp_pow: b.length > 71 ? i16(b[70]) / 10.0 : null,

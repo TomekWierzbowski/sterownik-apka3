@@ -1,6 +1,6 @@
 {
- "name": "TEST3 MQTT5 Sterownik basenowy",
- "short_name": "T3 MQTT5",
+ "name": "Aquareact",
+ "short_name": "Aquareact",
  "description": "HMI sterownika basenowego 1:1: temperatura, grzanie, światło, atrakcje; serwis za PIN-em.",
  "start_url": "./index.html",
  "scope": "./",
