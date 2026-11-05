@@ -1169,7 +1169,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = 'a40ade78fe';
+window.APKA_WERSJA = '624c722f9e';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1668,7 +1668,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-11-05 14:08';
+window.HMI_ZBUDOWANO = '2026-11-05 15:02';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -3514,6 +3514,8 @@ window.HMI_ZBUDOWANO = '2026-11-05 14:08';
                </div>`;
       }
       h += `<div class="params zam ${n>1?'dwa':''}" style="margin:8px 8px 0">${sl}</div>`;
+      /* [05.11, D-659] pasek trybu pompy jak Tab5 - tylko pod żywym sterownikiem z SERWIS - Funkcje - Praca pompy = HMI */
+      if (typeof window.hoaPasek === 'function') h += window.hoaPasek();
     }
 
     h += `<div class="grid">
@@ -5666,6 +5668,20 @@ window.HMI_ZBUDOWANO = '2026-11-05 14:08';
        tarcza na ekranie — kręcenie jednym musi przestawić drugie */
     if (tor===0){ const sel = el(S.ob===0?'s_hoa_b':'s_hoa_w'); if (sel) sel.value = t; }
     render();
+  };
+  /* [05.11, D-659] PASEK TRYBU POMPY (jak Tab5, ekran_glowny.c): MANUAL / STOP / AUTO jako trzy przyciski. Podświetlony = tryb
+     ZE STEROWNIKA. Pod żywym sterownikiem przy przełączniku fizycznym - jedno zdanie, gdzie wybrać HMI; poza sterownikiem nic. */
+  window.hoaPasek = () => {
+    if (!POD_STER || !window.DUO_FUN) return '';
+    if (window.DUO_FUN.hoa !== true)
+      return `<div class="hoapasek-info" style="margin:8px 8px 0;font-size:.85em;opacity:.75">Praca pompy: przełącznik fizyczny w szafie. Sterowanie z ekranu: SERWIS → Funkcje → Praca pompy = HMI.</div>`;
+    const tr = ((H.dane[S.ob] || [])[0] || {}).tryb;
+    const B = [['manual', 'MANUAL'], ['stop', 'STOP'], ['auto', 'AUTO']];
+    return `<div class="hoapasek" data-lv="hoa-pasek" style="display:flex;gap:8px;margin:8px 8px 0">` + B.map(([k, et]) => {
+      const wl = tr === k;
+      return `<button type="button" onclick="ustawTryb(0,'${k}')" style="flex:1;padding:14px 0;font:inherit;font-weight:600;border-radius:10px;` +
+             `border:2px solid ${wl ? '#007700' : '#888'};background:${wl ? '#007700' : '#fff'};color:${wl ? '#fff' : '#000'}">${et}</button>`;
+    }).join('') + `</div>`;
   };
   window.cyklTryb = i => { const k=['auto','stop','manual'], d=H.dane[S.ob][i];
     ustawTryb(i, k[(k.indexOf(d.tryb)+1)%3]); };
