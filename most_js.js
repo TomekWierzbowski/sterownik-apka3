@@ -463,7 +463,13 @@
     if (co === 'kasuj-awarie-wodna') return { zapisy: [[4052 + o, 1]] };
     if (co === 'reset-wody') return { zapisy: [[4054 + o, 1]] };
     if (co === 'plukaj') return { zapisy: [[4006 + o, 1]] };
-    if (co === 'kasuj-alarm') return { zapisy: [[4008, parseInt(w, 10)]] };
+    if (co === 'kasuj-alarm') {
+      /* [05.11] obiekt z samą wanną (o = 1): ekran trzyma alarm w polu basenu (S.ob = 0) -> bit basenu z pary zamieniamy na bit wanny */
+      const PARY_WANNA = { 0: 1, 30: 31, 19: 20, 12: 13, 26: 27, 21: 32 };
+      let b = parseInt(w, 10);
+      if (o === 1 && PARY_WANNA[b] !== undefined) b = PARY_WANNA[b];
+      return { zapisy: [[4008, b]] };
+    }
     if (co === 'zdejmij-ochrony') return { zapisy: [[4062, parseInt(w, 10) & 0x7F]] };
     if (co === 'wycisz-alarmy') {
       let m; try { m = BigInt(w); } catch (e) { return { blad: 'wycisz-alarmy: oczekiwana liczba 64-bit' }; }
