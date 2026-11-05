@@ -195,7 +195,9 @@
       else { if (rodzaj === 'z') x = i16(x); out[klucz] = skala !== 1 ? x / skala : x; }
     }
     /* POLE 45 = ile prob (bajt dolny) | wlacznik zaleglych << 8 [D-236] - jak most.py */
-    if ('pl_powt' in out) { const v = out.pl_powt | 0; out.pl_powt = v & 0xFF; out.pl_zalegle = !!(v & 0x100); }
+    if ('pl_powt' in out) { const v = out.pl_powt | 0; out.pl_powt = v & 0xFF; out.pl_zalegle = !!(v & 0x100);
+      /* [D-660] bity 9-15 = zwłoka płukania ręcznego [s] (4560+10); 0 = starszy firmware - wiersza w serwisie nie ma */
+      const zw = (v >> 9) & 0x7F; out.pl_zwloka_jest = zw > 0; if (zw > 0) out.pl_zwloka = zw; }
     /* POLE 128 = korekta temperatury powietrza x10 ze znakiem [D-282]; starszy firmware go nie ma -> pomijamy */
     { const kp = n(128); if (kp !== null && kp !== undefined) out.kal_pow_kor = i16(kp) / 10; }
     return out;
@@ -409,6 +411,7 @@
     const s = String(wart).trim().toLowerCase();
     for (const [k, adr] of WYLACZNIKI) if (k === klucz) return [adr + o, ['1', 'true', 'tak', 'on'].includes(s) ? 1 : 0];
     if (klucz === 'pl_zalegle') return [4560 + o * 20 + 9, ['1', 'true', 'tak', 'on'].includes(s) ? 1 : 0];   /* [D-236] */
+    if (klucz === 'pl_zwloka') return [4560 + o * 20 + 10, Math.round(parseFloat(wart)) & 0xFFFF];   /* [D-660] zwłoka płukania ręcznego [s] */
     if (klucz === 'hoa_zr') return [5140 + o, s === 'hmi' ? 1 : 0];   /* [D-654, 05.11 zdalnie jak HMI] praca pompy: 1 = HMI */
     if (klucz === 'hoa_tryb') return [5142 + o, Math.round(parseFloat(wart)) & 0xFFFF];   /* [05.11] tryb z paska: 0 AUTO, 1 RĘKA, 2 STOP */
     if (klucz === 'kal_pow_kor') return [4068, Math.round(parseFloat(wart) * 10) & 0xFFFF];   /* korekta temp. powietrza - GLOBALNA, bez obiegu [D-282] */

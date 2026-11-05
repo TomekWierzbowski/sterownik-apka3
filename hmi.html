@@ -1169,7 +1169,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '3ed75fb2c9';
+window.APKA_WERSJA = '10fa056b41';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1668,7 +1668,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-11-05 16:10';
+window.HMI_ZBUDOWANO = '2026-11-05 18:15';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -7165,6 +7165,7 @@ const N = {
      i miała inne widełki (1-10 min vs 30 s-30 min) */
   pl_wstepna:10, pl_koncowa:10, pl_powt:1,
   pl_dolewka:true, pl_ile:20, pl_blokuj:true, pl_zalegle:true,
+  pl_zwloka:60, pl_zwloka_jest:true,   /* [D-660] zwłoka płukania ręcznego [s]; _jest = sterownik ją zna (starszy: wiersza nie ma) */
   pl_wid_min:0, pl_wid_max:0,           /* oba 0 = alarm nieaktywny */
   /* ciśnienie — blok 4600+20 (ochrony włączone: tor MA manometr, §9.5c) */
   cA_wl:true,  cA_prog:0.10, cA_min:10,
@@ -7619,6 +7620,11 @@ const EDY = {
      czy w ogóle rób zaległe"]. Jedna liczba na oba pytania: 0 = zaległych nie rób. */
   pl_powt:     {et:'Zaległe płukanie — próbuj ile razy', j:'', k:1, min:0, max:5,
     o:'Płukanie z harmonogramu przerwane w trakcie (suchobieg, STOP, termik) sterownik ponawia po ustąpieniu przyczyny najwyżej tyle razy; potem alarm i koniec na dziś. 0 = zaległych nie rób: ma ruszyć o swojej godzinie albo wcale.'},
+  /* ZWŁOKA PŁUKANIA RĘCZNEGO [D-660, Tomasz 05.11.2026 z obiektu wanna-zator: „w dodatkowe funkcje płukania filtra
+     i tam wpisujemy czas zwłoki po aktywacji płukania ręcznego, od 1 do 120 s”, „ma być w apce i w HMI”]. Rejestr
+     4560+10; fabrycznie 60 s = dawna minuta wybiegu cieplnego (D-58). */
+  pl_zwloka:   {et:'Zwłoka płukania ręcznego', j:'s', k:1, min:1, max:120,
+    o:'Czas od przycisku PŁUKANIE RĘCZNE do otwarcia zaworu, gdy pompa już pracuje; grzanie i lampa UV gasną od razu. Fabrycznie 60 s. Płukanie z harmonogramu czeka zawsze minutę, pompa stojąca - pełny rozbieg.'},
   pl_ile:      {et:'Ilość wody na dopełnienie', j:'mm', k:5, min:0, max:500,
     o:'Zapas ponad poziom górny; jak długo wolno dolewać, mówi „Maksymalny czas dopełnienia”.'},
   /* „widełki zrzutu" → „ilość wody popłucznej" [Tomasz 2026-08-21] */
@@ -8642,6 +8648,8 @@ function ekrPlukDod(){
     ${/* [31.10] podpis bez „czas maksymalny 30 min” - czas jest teraz nastawą tuż pod spodem (prefill_max) */''}
     ${wierszWyl('pl_dolewka','Dopełnienie przed płukaniem','zapas wody na płukanie')}
     ${N.pl_dolewka ? wierszN('pl_ile') + wierszN('prefill_max') : ''}
+    ${/* [D-660] zwłoka płukania ręcznego; starszy firmware jej nie zna - wiersza nie ma */''}
+    ${N.pl_zwloka_jest ? wierszN('pl_zwloka') : ''}
   </div>` + pasek('SERWIS · dodatkowe funkcje płukania filtra', 'pluk');
 }
 
@@ -9834,7 +9842,7 @@ function ekrSiecMqtt(){
     ${siecWierszTxt(4891, 16, 'Początek tematu', 'np. basen — pod nim idą basen/stan i basen/status', true)}
     ${/* [04.11.2026, Tomasz: „przenieś to ustawienie do telemetria MQTT”] łącze TEGO TELEFONU - tylko w apce (bez
           data-lv: na szkle panelu ani grupki, ani wiersza) */
-      wierszDrogaApki() ? `<div class="grupka">APLIKACJA</div>${wierszDrogaApki()}` : ''}
+      wierszDrogaApki() ? `<div class="grupka" data-lv="g">APLIKACJA</div>${wierszDrogaApki()}` : ''}
     ${siecPrzyciski()}
   </div>` + pasek('SERWIS · sieć — MQTT', 'siec');
 }
