@@ -1169,7 +1169,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '624c722f9e';
+window.APKA_WERSJA = '2401dc1985';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1668,7 +1668,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-11-05 15:02';
+window.HMI_ZBUDOWANO = '2026-11-05 15:15';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -5650,7 +5650,8 @@ window.HMI_ZBUDOWANO = '2026-11-05 15:02';
          POWRACAJĄCY stan ze sterownika (odmowa nie zostawia kłamiącej tarczy). */
       if (window.DUO_FUN && window.DUO_FUN.hoa === true && typeof Nastawa !== 'undefined'){
         const kod = t === 'manual' ? 1 : t === 'stop' ? 2 : 0;
-        Nastawa.zadaj('hoa_tryb', kod, 'rej', (5142 + S.ob) + ':' + kod);
+        /* [05.11] przez most (klucz hoa_tryb) - most zna PRAWDZIWY obieg z bloku; S.ob ekranu na obiekcie z samą wanną = 0 (basen) */
+        Nastawa.zadaj('hoa_tryb', kod, 'nastawa', 'hoa_tryb:' + kod);
         return;
       }
       /* przełącznik fizyczny przez chmurę: nie ma testera, który by nim kręcił - powód zamiast ciszy (zasada 10) */
