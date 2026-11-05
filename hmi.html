@@ -1169,7 +1169,7 @@ body.serwis #hmi-pokaz .srvbox{display:block}
    startowa (pytania prompt() w aplikacji nie są). */
 if (!/[?&]mqtt=1(&|$)/.test(location.search)) location.replace('hmi.html?mqtt=1' + (location.search ? '&' + location.search.slice(1) : ''));
 try { if (!localStorage.getItem('test3:odbior_mqtt') && !sessionStorage.getItem('test3:odbior_mqtt')) location.replace('index.html?login=1'); localStorage.setItem('test3:pwa', '1'); } catch (e) {}
-window.APKA_WERSJA = '27aea6dad6';
+window.APKA_WERSJA = 'a40ade78fe';
 window.APKA_KLUCZ = 'test3:';
 window.APKA_DROGA = 'mariaz';   /* [B.0z-78] mariaz QUIC + TLS (nakladka MQTT 5) */
 if ('serviceWorker' in navigator) { var _odsw = false;
@@ -1668,7 +1668,7 @@ if ('serviceWorker' in navigator) { var _odsw = false;
 window.HMI_SKLEJONE = true;
 /* STEMPEL BUDOWANIA - strona ma mowic, kiedy powstala; bez tego
    pytanie „czy to juz po poprawce" rozstrzyga sie proba i domyslem. */
-window.HMI_ZBUDOWANO = '2026-11-04 10:20';
+window.HMI_ZBUDOWANO = '2026-11-05 14:08';
 </script>
 <script>
 /* ===== EKRANY UZYTKOWNIKA (panel4_hala.html, bez zmian) ===== */
@@ -5643,6 +5643,19 @@ window.HMI_ZBUDOWANO = '2026-11-04 10:20';
        „ustawia" AUTO -> komenda do testera -> sterownik mówi AUTO...
        To ta sama choroba, co echo nastawy temperatury (patrz Nastawa). */
     if (POD_STER && !window._hoaZeSterownika){
+      /* [05.11, Tomasz: „sterowanie z aplikacji tak jak z HMI”, D-654] źródło pracy pompy = HMI (bit 12 + obieg, SERWIS -
+         Funkcje): tryb z ekranu = zapis 5142 + obieg (0 AUTO, 1 RĘKA, 2 STOP), jak kafel pompy na Tab5; pozycję pokaże
+         POWRACAJĄCY stan ze sterownika (odmowa nie zostawia kłamiącej tarczy). */
+      if (window.DUO_FUN && window.DUO_FUN.hoa === true && typeof Nastawa !== 'undefined'){
+        const kod = t === 'manual' ? 1 : t === 'stop' ? 2 : 0;
+        Nastawa.zadaj('hoa_tryb', kod, 'rej', (5142 + S.ob) + ':' + kod);
+        return;
+      }
+      /* przełącznik fizyczny przez chmurę: nie ma testera, który by nim kręcił - powód zamiast ciszy (zasada 10) */
+      if (new URLSearchParams(location.search).get('mqtt') === '1'){
+        if (typeof pokazOdmowe === 'function') pokazOdmowe('praca pompy: przełącznik fizyczny w szafie - tryb z ekranu po wyborze HMI w SERWIS - Funkcje');
+        return;
+      }
       const nazwa = t === 'manual' ? 'reka' : t === 'stop' ? '0' : 'auto';
       doModulu('hoa', nazwa);
       return;
@@ -8561,8 +8574,11 @@ function ukladPrzelacz(){
    w szafie - sterownik odmawia stronie WWW i aplikacji (06c_hoa_hmi.h, 20a4). Pod sterownikiem pokazujemy odmowę ze
    zdaniem (zasada 10), zamiast wysyłać zapis, który i tak wróci odmową; na biurku przełączamy makietę. */
 function hoaZrodloPrzelacz(){
-  if (window.MOST_JS || typeof Nastawa !== 'undefined'){ pokazOdmowe('praca pompy zmienia się tylko na panelu w szafie'); return; }
-  N.hoa_zr = N.hoa_zr === 'hmi' ? 'fizyczny' : 'hmi';
+  /* [05.11, Tomasz: „sterowanie z aplikacji tak jak z HMI”] pod sterownikiem ZAPIS 5140 + obieg (most_js: klucz hoa_zr), za PIN-em
+     serwisu jak na panelu; sterownik bez ZDALNIE_JAK_HMI (inne obiekty) odpowie odmową z opisem - zasada 10 */
+  const nowy = N.hoa_zr === 'hmi' ? 'fizyczny' : 'hmi';
+  if (window.MOST_JS || typeof Nastawa !== 'undefined'){ zapiszZWalidacja({ hoa_zr: nowy }); return; }
+  N.hoa_zr = nowy;
   srvRender();
 }
 

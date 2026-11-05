@@ -409,6 +409,7 @@
     const s = String(wart).trim().toLowerCase();
     for (const [k, adr] of WYLACZNIKI) if (k === klucz) return [adr + o, ['1', 'true', 'tak', 'on'].includes(s) ? 1 : 0];
     if (klucz === 'pl_zalegle') return [4560 + o * 20 + 9, ['1', 'true', 'tak', 'on'].includes(s) ? 1 : 0];   /* [D-236] */
+    if (klucz === 'hoa_zr') return [5140 + o, s === 'hmi' ? 1 : 0];   /* [D-654, 05.11 zdalnie jak HMI] praca pompy: 1 = HMI */
     if (klucz === 'kal_pow_kor') return [4068, Math.round(parseFloat(wart) * 10) & 0xFFFF];   /* korekta temp. powietrza - GLOBALNA, bez obiegu [D-282] */
     /* TRYB CICHY [D-495]: poza tabela MN - 5120 + obieg*10 (+1 sposob, +2 czas [min]) */
     if (klucz === 'cichy_sposob') return [CICHY_NAST + o * CICHY_NAST_KROK + 1, Math.round(parseFloat(wart)) & 0xFFFF];
