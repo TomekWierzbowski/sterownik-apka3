@@ -705,9 +705,10 @@
     const MAGIA0 = 0x48, MAGIA1 = 0x49, WERSJA = 1, NAGL_B = 16, WSP_B = 6, OB_B = 9, OBIEGOW = 2, BLOK_MAX = 255;
     const BRAK = -32768, DOBA = 86400, MIN_S = 60, BEZ_KONCA = 0xFFFFFFFF;
     const B_POMPA = 1, B_GRZANIE = 2, B_PLUKANIE = 4, B_DOLEWANIE = 8, B_OBEJ_SONDY = 16, B_OBEJ_MANO = 32, F_ALARM = 1;
-    /*  KODY ODMÓW (21b [6] HI_T_ODMOWA_*): 3 zajęte, 5 obca wersja (nadaje APLIKACJA, nie sterownik), 6 trwa aktualizacja
-        [przegląd historii 1, S5] - test_historia_format.py sprawdza, że firmware ma te same liczby. */
-    const ODM_ZAJETE = 3, ODM_WERSJA = 5, ODM_AKTUALIZACJA = 6;
+    /*  KODY ODMÓW (21b [6] HI_T_ODMOWA_*): 2 znacznik t= odbiega od zegara sterownika, 3 zajęte, 5 obca wersja (nadaje
+        APLIKACJA, nie sterownik), 6 trwa aktualizacja [przegląd historii 1, S5] - test_historia_format.py sprawdza, że firmware
+        ma te same liczby. */
+    const ODM_CZAS = 2, ODM_ZAJETE = 3, ODM_WERSJA = 5, ODM_AKTUALIZACJA = 6;
     /*  3332 b8 (21b HI_R_KARTA_WSTRZYMANA) [przegląd historii 1, S4]: karta zamontowana, ale chwilowo wstrzymana (aktualizacja
         panelu) - `od_dost` w nagłówku `start` nie jest wtedy prawdziwym początkiem danych sterownika. */
     const R_KARTA_WSTRZYMANA = 0x100;
@@ -1076,7 +1077,7 @@
       z.koniec = (st, uszk) => krok(() => baza.ustawMeta(pref, m => metaKoniec(m, faza, od0, st, uszk)));
       return z;
     }
-    return { WERSJA, BRAK, DOBA, ODM_ZAJETE, ODM_WERSJA, ODM_AKTUALIZACJA, R_KARTA_WSTRZYMANA, R_ODCIETA, R_WYL_W_OBRAZIE,
+    return { WERSJA, BRAK, DOBA, ODM_CZAS, ODM_ZAJETE, ODM_WERSJA, ODM_AKTUALIZACJA, R_KARTA_WSTRZYMANA, R_ODCIETA, R_WYL_W_OBRAZIE,
              B_POMPA, B_GRZANIE, B_PLUKANIE, B_DOLEWANIE, B_OBEJ_SONDY, B_OBEJ_MANO, F_ALARM, SERIE_DOM,
              crc32, dekoduj, kodujBlok, naglowek, odbior, przyjmij, wznowOd, postep, scal, naDni, kluczDnia, naRekord, zRekordu,
              naSerie, obiegiW, planuj, planujStarsze, miejsceNaStarsze, uwagaRej, uwagaUszk, metaStart, metaDane, metaKoniec, granicaOst,
@@ -1763,8 +1764,14 @@
         • zajete (kod 3) - sterownik wysyła innemu odbiorcy: 6 × 15 s = 90 s - miesiąc dwóch obiegów (1,1 MB) przez chmurę
           to wg oszacowania w 21b [6] 30-75 s; także nasz własny strumień sprzed przeładowania strony (nowe id, bez `wznow`);
         • aktual (kod 6) [przegląd historii 1, S5] - trwa aktualizacja sterownika albo panelu (radio silence D-458):
-          20 × 30 s = 10 min - aktualizacja panelu to ~7 min, sterownika ~2-3 min z restartem; potem błąd z tekstem sterownika. */
-    const HI_CZEKAJ = { zajeteMs: 15000, zajeteMax: 6, aktualMs: 30000, aktualMax: 20 };
+          20 × 30 s = 10 min - aktualizacja panelu to ~7 min, sterownika ~2-3 min z restartem; potem błąd z tekstem sterownika;
+        • czas (kod 2) [06.11, Tomasz: „na dole brak poł. z brokerem, a na górze 2 zielone ok”, wykres 1 h pusty] - znacznik t=
+          wzięty z zegara, który apka zna dopiero z zatrzymanego (retained) bloku po starcie albo po powrocie z tła; świeży stan
+          przychodzi w sekundy: 4 × 5 s, potem błąd PRZEJŚCIOWY (wykres ponawia sam, wykres_temp.js [1b]).
+        BŁĄD PRZEJŚCIOWY (`przejsciowy: true` w wyniku i w zdarzeniu `blad`) = nic nie jest zepsute, tylko jeszcze nie ma czym
+        (broker łączy się po powrocie z tła, subskrypcja niepotwierdzona, zegar) - wykres pokazuje „czekam…”, nie czerwony błąd,
+        i ponawia przy następnych pakietach zamiast czekać minutę na kolejne otwarcie. */
+    const HI_CZEKAJ = { zajeteMs: 15000, zajeteMax: 6, aktualMs: 30000, aktualMax: 20, czasMs: 5000, czasMax: 4 };
     const hist = { b: null, trwa: null, sluch: new Set(), ost: null };
     const hiEmit = e => { hist.ost = e; hist.sluch.forEach(f => { try { f(e); } catch (x) {} }); };
     const hiUtc = () => Math.floor(Date.now() / 1000);
@@ -1794,7 +1801,7 @@
           `stop` sterownika (tam nic nie leci). */
       if (wynik.blad && b.s && !b.s.koniec && !wynik.bezStop) hiWyslij(b.pref, 'historia:stop;id=' + b.s.id);
       b.zap.obietnica.then(() => {
-        if (wynik.blad) { zapisz('historia: ' + wynik.blad); hiEmit({ typ: 'blad', pref: b.pref, faza: b.faza, tekst: wynik.blad, kod: wynik.kod }); }
+        if (wynik.blad) { zapisz('historia: ' + wynik.blad); hiEmit({ typ: 'blad', pref: b.pref, faza: b.faza, tekst: wynik.blad, kod: wynik.kod, przejsciowy: !!wynik.przejsciowy }); }
         b.res(Object.assign({ probek: b.probek, faza: b.faza }, wynik));
       });
     };
@@ -1804,7 +1811,7 @@
       const stary = b.s ? b.s.id : 0;
       if (b.s) b.od = HI.wznowOd(b.s);
       zapisz('historia: ' + powod + ' - wznawiam od ' + new Date(b.od * 1000).toLocaleString('pl-PL'));
-      if (!hiProsba(b, stary)) hiZakoncz(b, { blad: 'brak połączenia z brokerem - historia dokończy się przy następnym połączeniu' });
+      if (!hiProsba(b, stary)) hiZakoncz(b, { blad: 'brak połączenia z brokerem w trakcie pobierania - dokończę po połączeniu', przejsciowy: true });
     };
     const hiOdebrano = (pref, u8) => {
       const b = hist.b; if (!b || b.pref !== pref || !b.s || !u8) return;
@@ -1851,23 +1858,26 @@
             sterownika (zasada 10), nie „ciszę”. */
         const zajete = w.kod === HI.ODM_ZAJETE && b.zajete < HI_CZEKAJ.zajeteMax;
         const aktual = w.kod === HI.ODM_AKTUALIZACJA && b.aktual < HI_CZEKAJ.aktualMax;
-        if (zajete || aktual) {
-          if (zajete) b.zajete++; else b.aktual++;
+        /*  [06.11] zegar (kod 2): ponowienie z NOWYM t= (hiProsba liczy je od świeżego stanu, który przyszedł w międzyczasie) */
+        const czas = w.kod === HI.ODM_CZAS && b.zegarOdm < HI_CZEKAJ.czasMax;
+        if (zajete || aktual || czas) {
+          if (zajete) b.zajete++; else if (aktual) b.aktual++; else b.zegarOdm++;
           if (b.s) b.od = HI.wznowOd(b.s);
           b.s = null;
-          const ms = zajete ? HI_CZEKAJ.zajeteMs : HI_CZEKAJ.aktualMs;
+          const ms = zajete ? HI_CZEKAJ.zajeteMs : aktual ? HI_CZEKAJ.aktualMs : HI_CZEKAJ.czasMs;
           hiEmit({ typ: 'postep', pref, faza: b.faza, postep: 0,
-                   tekst: (zajete ? 'sterownik wysyła historię innemu odbiorcy' : 'sterownik: ' + (w.tekst || 'trwa aktualizacja')) + ' - ponowię za ' + Math.round(ms / 1000) + ' s' });
-          setTimeout(() => { if (hist.b === b && !hiProsba(b)) hiZakoncz(b, { blad: 'brak połączenia z brokerem' }); }, ms);
+                   tekst: (zajete ? 'sterownik wysyła historię innemu odbiorcy' : aktual ? 'sterownik: ' + (w.tekst || 'trwa aktualizacja')
+                           : 'czekam na aktualny zegar sterownika') + ' - ponowię za ' + Math.round(ms / 1000) + ' s' });
+          setTimeout(() => { if (hist.b === b && !hiProsba(b)) hiZakoncz(b, { blad: 'brak połączenia z brokerem', przejsciowy: true }); }, ms);
           return;
         }
-        hiZakoncz(b, { blad: 'sterownik odmówił historii: ' + (w.tekst || 'kod ' + w.kod), kod: w.kod, bezStop: true });
+        hiZakoncz(b, { blad: 'sterownik odmówił historii: ' + (w.tekst || 'kod ' + w.kod), kod: w.kod, bezStop: true, przejsciowy: w.kod === HI.ODM_CZAS });
       }
     };
     /* jedna faza: obietnica wyniku {ok|blad, probek} */
     const hiPobierz = (pref, faza, od, dok) => new Promise(res => {
       const b = { pref, faza, od, od0: od, dok: dok || 0, s: null, res, zap: null, probek: 0, ost: 0,
-                  wznowien: 0, zajete: 0, aktual: 0, prosb: 0, odp: false, t0: Date.now(), ostMs: Date.now() };
+                  wznowien: 0, zajete: 0, aktual: 0, zegarOdm: 0, prosb: 0, odp: false, t0: Date.now(), ostMs: Date.now() };
       /*  [przegląd historii 1] kolejka zapisu tego pobierania: `ost` przycięty do zegarów [W1], stop na pierwszym błędzie
           bazy [W2] - pobieranie kończy się `stop`-em do sterownika i zdaniem, CZEMU (zasada 10); meta stoi na ostatnim
           zapisanym kawałku, więc następne dociągnięcie zaczyna od dziury. */
@@ -1881,17 +1891,18 @@
         res({ blad: 'konto na serwerze nie ma prawa odbierać historii (rola sprzed D-511) - wykres z danych zebranych w telefonie; serwis: dopisz temat historia do roli klienta' });
         return;
       }
+      /*  [06.11] przejściowe: łącze dopiero wstaje (start apki, powrót z tła) - wykres ponowi sam, bez czerwonego błędu */
       if (hs === 'czeka') {
-        res({ blad: 'broker jeszcze nie potwierdził zapisu na historię tego obiektu - spróbuj za chwilę' });
+        res({ blad: 'broker jeszcze nie potwierdził zapisu na historię tego obiektu', przejsciowy: true });
         return;
       }
       if (hs === 'lacze') {
-        res({ blad: 'zapis na historię tego obiektu nie potwierdzony (łącze albo brak odpowiedzi brokera) - spróbuj ponownie' });
+        res({ blad: 'zapis na historię tego obiektu nie potwierdzony (łącze albo brak odpowiedzi brokera)', przejsciowy: true });
         return;
       }
       hist.b = b;
       if (!hiProsba(b)) { hist.b = null;
-        res({ blad: hiZegar(pref) ? 'brak połączenia z brokerem' : 'nie znam jeszcze zegara sterownika (czekam na pierwszy stan)' }); return; }
+        res({ blad: hiZegar(pref) ? 'czekam na połączenie z brokerem' : 'czekam na zegar sterownika (pierwszy stan)', przejsciowy: true }); return; }
       hiEmit({ typ: 'start', pref, faza, postep: 0, tekst: hiOpisFazy(b) + '…' });
       /* GUARD CISZY: brak odpowiedzi = wznowienie (sterownik mógł zgubić prośbę albo stracić brokera);
          prośby bez ŻADNEJ odpowiedzi = starsze oprogramowanie sterownika - kończymy z tekstem, bez męczenia łącza */
@@ -1931,7 +1942,8 @@
           if (mj && mj.limit && mj.limit - mj.zajete < potrzeba) return Object.assign({}, w1, { blad: 'za mało miejsca w telefonie na starszą historię (potrzeba ok. ' + Math.round(potrzeba / 1e6) + ' MB)' });
           const w2 = await hiPobierz(pref, 2, p2.od, p2.do);
           const uwaga2 = uwagaZ(HI.uwagaRej(m2 && m2.rej), HI.uwagaUszk((w1raw.uszkodzonych || 0) + (w2.uszkodzonych || 0)));
-          return w2.blad ? Object.assign({}, w1, { blad: w2.blad }) : Object.assign({ ok: true, probek: w1.probek + w2.probek }, uwaga2 ? { uwaga: uwaga2 } : {});
+          return w2.blad ? Object.assign({}, w1, { blad: w2.blad }, w2.przejsciowy ? { przejsciowy: true } : {})
+                         : Object.assign({ ok: true, probek: w1.probek + w2.probek }, uwaga2 ? { uwaga: uwaga2 } : {});
         } catch (e) {
           const t = 'baza historii w telefonie niedostępna (' + (e && e.message || e) + ') - wykres z danych zebranych w telefonie';
           hiEmit({ typ: 'blad', pref, tekst: t }); return { blad: t };

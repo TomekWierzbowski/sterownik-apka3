@@ -191,7 +191,15 @@
   const HIST_ODSTEP_MS = 60000;     /* dociąganie najczęściej co minutę (wykres i tak zbiera co minutę z `swiat`) */
   const HIST_TLO_MS = 5 * MIN;      /* powrót z tła po dłuższej przerwie = dociągnij (telefon w tle nie zbiera) */
   const HIST_WLEJ_MS = 400;         /* kawałki strumienia wlewamy paczką - bez przerysowania na każdy kawałek */
-  const hist = { pref: null, tekst: '', postep: null, blad: '', ost: 0, zaladowane: {}, podpiete: false, ma: false, kolejka: [], zegar: null, ukryta: 0 };
+  /*  BŁĄD PRZEJŚCIOWY [06.11, Tomasz: „na dole brak poł. z brokerem, a na górze 2 zielone ok”, „wykres z ostatniej godziny brak,
+      z ostatnich 24 h jest”]: po powrocie z tła dociąganie ruszało, zanim klient MQTT wstał (albo zanim apka znała świeży zegar
+      sterownika) - wynik „brak połączenia z brokerem” zostawał czerwony, a odstęp 1 min blokował ponowienie; karta otwarta =
+      dziura w ostatniej godzinie do następnego otwarcia. Teraz: wynik `przejsciowy` (most_js.js) = szary tekst „czekam…” i
+      ponowienie przy następnym pakiecie (pakiet = łącze żyje) po 5 s; po 24 próbach (~2 min) tekst na czerwono, ponowienia
+      dalej co minutę - też tylko przy pakietach, więc przy zerwanym łączu nic nie mieli. */
+  const HIST_PONOW_MS = 5000, HIST_PONOW_MAX = 24;
+  const hist = { pref: null, tekst: '', postep: null, blad: '', ost: 0, zaladowane: {}, podpiete: false, ma: false, kolejka: [], zegar: null, ukryta: 0,
+                 zalegle: false, ponow: 0 };
   const MJ = () => window.MOST_JS;
   const histJest = () => !!(MJ() && MJ().historia && MJ().HI);
   function histWlej(wszystkie) {
@@ -237,6 +245,15 @@
     histZBazy(pref).then(() => MJ().historia.dociagnij(powod)).then(w => {
       if (pref !== obiektSurowy) return;
       hist.postep = null;
+      if (w && w.blad && w.przejsciowy) {                    /* [06.11] łącze / zegar jeszcze nie gotowe - ponowi histPrzyPakiecie */
+        hist.zalegle = true; hist.ponow++;
+        const dlugo = hist.ponow > HIST_PONOW_MAX, odstep = dlugo ? HIST_ODSTEP_MS : HIST_PONOW_MS;
+        hist.ost = Date.now() - HIST_ODSTEP_MS + odstep;
+        const opis = 'Historia ze sterownika: ' + w.blad + (dlugo ? ' - ponawiam co minutę.' : ' - ponowię za ' + Math.round(odstep / 1000) + ' s.');
+        if (dlugo) hist.blad = opis; else { hist.blad = ''; hist.tekst = opis; }
+        histPokaz(); return;
+      }
+      hist.zalegle = false; hist.ponow = 0;
       /* `uwaga` = sterownik NIE zapisuje (zegar, odcięcie, brak nośnika - 3332 z nagłówka) - na czerwono jak błąd [zasada 10] */
       hist.blad = (w && (w.blad || w.uwaga)) || '';
       histPokaz(); histOpisBazy(pref);
@@ -249,7 +266,7 @@
     MJ().historia.sluchaj(e => {
       if (!e || e.pref !== obiektSurowy) return;
       if (e.typ === 'dane' && e.probki) histWlejPozniej(e.probki);
-      if (e.typ === 'blad') { hist.blad = e.tekst || ''; hist.postep = null; }
+      if (e.typ === 'blad') { if (!e.przejsciowy) hist.blad = e.tekst || ''; hist.postep = null; }   /* przejściowy: tekst daje wynik */
       else if (e.typ === 'koniec') hist.postep = null;
       else { hist.postep = typeof e.postep === 'number' ? e.postep : hist.postep; hist.blad = ''; if (e.tekst) hist.tekst = e.tekst; }
       histPokaz();
@@ -258,10 +275,11 @@
   function histPrzyPakiecie() {
     if (!obiektSurowy) return;
     if (hist.pref !== obiektSurowy) {                        /* konto serwisowe przełączyło obiekt - stan paska od nowa */
-      hist.pref = obiektSurowy; hist.ost = 0; hist.tekst = ''; hist.blad = ''; hist.postep = null; hist.ma = false;
+      hist.pref = obiektSurowy; hist.ost = 0; hist.tekst = ''; hist.blad = ''; hist.postep = null; hist.ma = false; hist.zalegle = false; hist.ponow = 0;
     }
     histPodepnij();
     if (!hist.zaladowane[obiektSurowy]) { histZBazy(obiektSurowy); histDociagnij('start apki'); }
+    else if (hist.zalegle) histDociagnij('ponowienie po błędzie przejściowym (' + hist.ponow + ')');   /* odstęp pilnuje histDociagnij */
   }
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') { hist.ukryta = Date.now(); return; }
@@ -720,6 +738,7 @@
   let zakladka = 'temp'; try { const z = localStorage.getItem(PREF + 'zakladka'); if (KARTY[z]) zakladka = z; } catch (e) {}
   window.WYKRES = {
     _dekoduj: dekoduj,                                       /* [Astra 14] tylko dla testu offline (_test_dekoder14.html) */
+    _hist: () => ({ tekst: hist.tekst, blad: hist.blad, postep: hist.postep, zalegle: hist.zalegle, ponow: hist.ponow }),   /* [06.11] _test_historia.html H15 */
     /* bloczek „wykresy” hali: ZAKŁADKI u góry + jedna karta [31.10 wieczór, Tomasz: „wędrowanie po wykresach poprzez wybieranie
        zakładki u góry, nie przewijanie w dół”] (dawniej karty jedna pod drugą). Wybór pamięta telefon; ikona w kaflu wybiera
        swoją zakładkę (doKarty). Ciśnienie tylko przy czujniku w mapie I/O i pomiarze w ruchu - inaczej zakładki nie ma.
